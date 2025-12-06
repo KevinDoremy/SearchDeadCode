@@ -33,7 +33,7 @@ pub enum DeclarationKind {
     // Classes and types
     Class,
     Interface,
-    Object,           // Kotlin object
+    Object, // Kotlin object
     Enum,
     EnumCase,
     TypeAlias,
@@ -43,8 +43,8 @@ pub enum DeclarationKind {
     Function,
     Method,
     Constructor,
-    Property,         // Kotlin property
-    Field,            // Java field
+    Property, // Kotlin property
+    Field,    // Java field
     Parameter,
 
     // Imports
@@ -71,9 +71,7 @@ impl DeclarationKind {
     pub fn is_callable(&self) -> bool {
         matches!(
             self,
-            DeclarationKind::Function
-                | DeclarationKind::Method
-                | DeclarationKind::Constructor
+            DeclarationKind::Function | DeclarationKind::Method | DeclarationKind::Constructor
         )
     }
 
@@ -116,7 +114,7 @@ pub enum Visibility {
     Public,
     Private,
     Protected,
-    Internal,     // Kotlin internal
+    Internal,       // Kotlin internal
     PackagePrivate, // Java default
 }
 
@@ -160,7 +158,13 @@ pub struct Location {
 }
 
 impl Location {
-    pub fn new(file: PathBuf, line: usize, column: usize, start_byte: usize, end_byte: usize) -> Self {
+    pub fn new(
+        file: PathBuf,
+        line: usize,
+        column: usize,
+        start_byte: usize,
+        end_byte: usize,
+    ) -> Self {
         Self {
             file,
             line,
@@ -315,10 +319,10 @@ impl Declaration {
     /// Check if this declaration should be retained based on patterns
     pub fn matches_pattern(&self, pattern: &str) -> bool {
         // Simple wildcard matching
-        if pattern.starts_with('*') {
-            self.name.ends_with(&pattern[1..])
-        } else if pattern.ends_with('*') {
-            self.name.starts_with(&pattern[..pattern.len() - 1])
+        if let Some(suffix) = pattern.strip_prefix('*') {
+            self.name.ends_with(suffix)
+        } else if let Some(prefix) = pattern.strip_suffix('*') {
+            self.name.starts_with(prefix)
         } else {
             self.name == pattern
                 || self

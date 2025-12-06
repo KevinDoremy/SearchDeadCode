@@ -47,7 +47,11 @@ impl UnusedSealedVariantDetector {
     }
 
     /// Check if a declaration is a subclass of a sealed type
-    fn is_sealed_subclass(&self, decl: &crate::graph::Declaration, sealed_types: &HashSet<String>) -> bool {
+    fn is_sealed_subclass(
+        &self,
+        decl: &crate::graph::Declaration,
+        sealed_types: &HashSet<String>,
+    ) -> bool {
         // Check if any of the super types is a sealed class/interface
         decl.super_types.iter().any(|st| {
             // Handle generic types like "Foo<Bar>" -> "Foo"
@@ -109,7 +113,11 @@ impl Detector for UnusedSealedVariantDetector {
         let sealed_types: HashSet<String> = graph
             .declarations()
             .filter(|d| self.is_sealed(d))
-            .filter_map(|d| d.fully_qualified_name.clone().or_else(|| Some(d.name.clone())))
+            .filter_map(|d| {
+                d.fully_qualified_name
+                    .clone()
+                    .or_else(|| Some(d.name.clone()))
+            })
             .collect();
 
         // Also collect simple names for matching
@@ -126,10 +134,7 @@ impl Detector for UnusedSealedVariantDetector {
         // Step 2: Find all subclasses of sealed types
         for decl in graph.declarations() {
             // Skip if not a class or object (interfaces can't be instantiated)
-            if !matches!(
-                decl.kind,
-                DeclarationKind::Class | DeclarationKind::Object
-            ) {
+            if !matches!(decl.kind, DeclarationKind::Class | DeclarationKind::Object) {
                 continue;
             }
 
@@ -176,7 +181,12 @@ impl Detector for UnusedSealedVariantDetector {
                 .location
                 .file
                 .cmp(&b.declaration.location.file)
-                .then(a.declaration.location.line.cmp(&b.declaration.location.line))
+                .then(
+                    a.declaration
+                        .location
+                        .line
+                        .cmp(&b.declaration.location.line),
+                )
         });
 
         issues
@@ -186,10 +196,17 @@ impl Detector for UnusedSealedVariantDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{Declaration, DeclarationId, DeclarationKind, Location, Language, Visibility};
+    use crate::graph::{
+        Declaration, DeclarationId, DeclarationKind, Language, Location, Visibility,
+    };
     use std::path::PathBuf;
 
-    fn make_declaration(name: &str, kind: DeclarationKind, modifiers: Vec<&str>, super_types: Vec<&str>) -> Declaration {
+    fn make_declaration(
+        name: &str,
+        kind: DeclarationKind,
+        modifiers: Vec<&str>,
+        super_types: Vec<&str>,
+    ) -> Declaration {
         let mut decl = Declaration::new(
             DeclarationId::new(PathBuf::from("test.kt"), 0, 100),
             name.to_string(),
@@ -214,7 +231,8 @@ mod tests {
         let detector = UnusedSealedVariantDetector::new();
 
         // Sealed class
-        let sealed_class = make_declaration("UiState", DeclarationKind::Class, vec!["sealed"], vec![]);
+        let sealed_class =
+            make_declaration("UiState", DeclarationKind::Class, vec!["sealed"], vec![]);
         assert!(detector.is_sealed(&sealed_class));
 
         // Regular class (not sealed)
@@ -222,29 +240,42 @@ mod tests {
         assert!(!detector.is_sealed(&regular_class));
 
         // Sealed interface
-        let sealed_interface = make_declaration("Action", DeclarationKind::Interface, vec!["sealed"], vec![]);
+        let sealed_interface =
+            make_declaration("Action", DeclarationKind::Interface, vec!["sealed"], vec![]);
         assert!(detector.is_sealed(&sealed_interface));
     }
 
     #[test]
     fn test_is_sealed_subclass() {
         let detector = UnusedSealedVariantDetector::new();
-        let sealed_types: std::collections::HashSet<String> = ["UiState".to_string()].into_iter().collect();
+        let sealed_types: std::collections::HashSet<String> =
+            ["UiState".to_string()].into_iter().collect();
 
         // Direct subclass
         let loading = make_declaration("Loading", DeclarationKind::Object, vec![], vec!["UiState"]);
         assert!(detector.is_sealed_subclass(&loading, &sealed_types));
 
         // Subclass with constructor call
-        let success = make_declaration("Success", DeclarationKind::Class, vec!["data"], vec!["UiState()"]);
+        let success = make_declaration(
+            "Success",
+            DeclarationKind::Class,
+            vec!["data"],
+            vec!["UiState()"],
+        );
         assert!(detector.is_sealed_subclass(&success, &sealed_types));
 
         // Not a subclass
-        let unrelated = make_declaration("Helper", DeclarationKind::Class, vec![], vec!["BaseClass"]);
+        let unrelated =
+            make_declaration("Helper", DeclarationKind::Class, vec![], vec!["BaseClass"]);
         assert!(!detector.is_sealed_subclass(&unrelated, &sealed_types));
 
         // Generic subclass
-        let generic = make_declaration("Loaded", DeclarationKind::Class, vec![], vec!["UiState<String>"]);
+        let generic = make_declaration(
+            "Loaded",
+            DeclarationKind::Class,
+            vec![],
+            vec!["UiState<String>"],
+        );
         assert!(detector.is_sealed_subclass(&generic, &sealed_types));
     }
 }

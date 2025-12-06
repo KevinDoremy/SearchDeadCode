@@ -50,8 +50,8 @@ impl KoverParser {
                         b"package" => {
                             for attr in e.attributes().filter_map(|a| a.ok()) {
                                 if attr.key.as_ref() == b"name" {
-                                    current_package = String::from_utf8_lossy(&attr.value)
-                                        .replace('/', ".");
+                                    current_package =
+                                        String::from_utf8_lossy(&attr.value).replace('/', ".");
                                 }
                             }
                         }
@@ -59,8 +59,8 @@ impl KoverParser {
                             for attr in e.attributes().filter_map(|a| a.ok()) {
                                 match attr.key.as_ref() {
                                     b"name" => {
-                                        let name = String::from_utf8_lossy(&attr.value)
-                                            .replace('/', ".");
+                                        let name =
+                                            String::from_utf8_lossy(&attr.value).replace('/', ".");
                                         // Kover may include inner class notation with $
                                         current_class = name.replace('$', ".");
                                     }
@@ -73,10 +73,8 @@ impl KoverParser {
                             }
 
                             if !current_source_file.is_empty() {
-                                let file_path = self.resolve_source_file(
-                                    &current_package,
-                                    &current_source_file,
-                                );
+                                let file_path = self
+                                    .resolve_source_file(&current_package, &current_source_file);
                                 current_file_coverage = Some(FileCoverage::new(file_path));
                             }
                         }
@@ -133,12 +131,13 @@ impl KoverParser {
                                             fc.covered_classes.insert(current_class.clone());
                                             fc.uncovered_classes.remove(&current_class);
                                         }
-                                    } else if missed > 0 && covered == 0 {
-                                        if !coverage_data.covered_classes.contains(&current_class) {
-                                            coverage_data
-                                                .uncovered_classes
-                                                .insert(current_class.clone());
-                                        }
+                                    } else if missed > 0
+                                        && covered == 0
+                                        && !coverage_data.covered_classes.contains(&current_class)
+                                    {
+                                        coverage_data
+                                            .uncovered_classes
+                                            .insert(current_class.clone());
                                     }
                                 }
                                 "CLASS" => {
@@ -178,10 +177,9 @@ impl KoverParser {
                                             .unwrap_or(0);
                                     }
                                     b"ci" | b"coveredInstructions" => {
-                                        covered_instructions =
-                                            String::from_utf8_lossy(&attr.value)
-                                                .parse()
-                                                .unwrap_or(0);
+                                        covered_instructions = String::from_utf8_lossy(&attr.value)
+                                            .parse()
+                                            .unwrap_or(0);
                                     }
                                     b"mi" | b"missedInstructions" => {
                                         missed_instructions = String::from_utf8_lossy(&attr.value)
@@ -207,10 +205,10 @@ impl KoverParser {
                                     if covered_instructions > 0 {
                                         fc.covered_lines.insert(line_nr);
                                         fc.uncovered_lines.remove(&line_nr);
-                                    } else if missed_instructions > 0 {
-                                        if !fc.covered_lines.contains(&line_nr) {
-                                            fc.uncovered_lines.insert(line_nr);
-                                        }
+                                    } else if missed_instructions > 0
+                                        && !fc.covered_lines.contains(&line_nr)
+                                    {
+                                        fc.uncovered_lines.insert(line_nr);
                                     }
 
                                     let total_branches = covered_branches + missed_branches;
@@ -224,25 +222,23 @@ impl KoverParser {
                         _ => {}
                     }
                 }
-                Ok(Event::End(ref e)) => {
-                    match e.name().as_ref() {
-                        b"class" => {
-                            if let Some(fc) = current_file_coverage.take() {
-                                coverage_data.add_file_coverage(fc);
-                            }
-                            current_class.clear();
+                Ok(Event::End(ref e)) => match e.name().as_ref() {
+                    b"class" => {
+                        if let Some(fc) = current_file_coverage.take() {
+                            coverage_data.add_file_coverage(fc);
                         }
-                        b"sourcefile" | b"sourceFile" => {
-                            if let Some(fc) = current_file_coverage.take() {
-                                coverage_data.add_file_coverage(fc);
-                            }
-                        }
-                        b"package" => {
-                            current_package.clear();
-                        }
-                        _ => {}
+                        current_class.clear();
                     }
-                }
+                    b"sourcefile" | b"sourceFile" => {
+                        if let Some(fc) = current_file_coverage.take() {
+                            coverage_data.add_file_coverage(fc);
+                        }
+                    }
+                    b"package" => {
+                        current_package.clear();
+                    }
+                    _ => {}
+                },
                 Ok(Event::Eof) => break,
                 Err(e) => {
                     return Err(miette::miette!("Error parsing Kover XML: {}", e));
@@ -286,7 +282,7 @@ impl CoverageParser for KoverParser {
     }
 
     fn can_parse(&self, path: &Path) -> bool {
-        if !path.extension().map_or(false, |e| e == "xml") {
+        if path.extension().is_none_or(|e| e != "xml") {
             return false;
         }
 

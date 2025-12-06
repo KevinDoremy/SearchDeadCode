@@ -36,65 +36,154 @@ use std::collections::HashSet;
 /// Functions that return a transformed collection (pure functions with no side effects)
 const PURE_COLLECTION_FUNCTIONS: &[&str] = &[
     // Transformations
-    "map", "mapNotNull", "mapIndexed", "mapIndexedNotNull",
-    "flatMap", "flatMapIndexed", "flatten",
+    "map",
+    "mapNotNull",
+    "mapIndexed",
+    "mapIndexedNotNull",
+    "flatMap",
+    "flatMapIndexed",
+    "flatten",
     // Filtering
-    "filter", "filterNot", "filterNotNull", "filterIndexed", "filterIsInstance",
+    "filter",
+    "filterNot",
+    "filterNotNull",
+    "filterIndexed",
+    "filterIsInstance",
     // Sorting
-    "sorted", "sortedBy", "sortedByDescending", "sortedDescending",
-    "sortedWith", "reversed", "shuffled",
+    "sorted",
+    "sortedBy",
+    "sortedByDescending",
+    "sortedDescending",
+    "sortedWith",
+    "reversed",
+    "shuffled",
     // Taking/Dropping
-    "take", "takeLast", "takeWhile", "takeLastWhile",
-    "drop", "dropLast", "dropWhile", "dropLastWhile",
+    "take",
+    "takeLast",
+    "takeWhile",
+    "takeLastWhile",
+    "drop",
+    "dropLast",
+    "dropWhile",
+    "dropLastWhile",
     // Combining
-    "plus", "minus", "zip", "zipWithNext",
-    "union", "intersect", "subtract",
+    "plus",
+    "minus",
+    "zip",
+    "zipWithNext",
+    "union",
+    "intersect",
+    "subtract",
     // Partitioning
-    "partition", "chunked", "windowed",
+    "partition",
+    "chunked",
+    "windowed",
     // Distinct
-    "distinct", "distinctBy",
+    "distinct",
+    "distinctBy",
     // Association
-    "associateBy", "associateWith", "associate",
-    "groupBy", "groupingBy",
+    "associateBy",
+    "associateWith",
+    "associate",
+    "groupBy",
+    "groupingBy",
     // String operations (pure)
-    "trim", "trimStart", "trimEnd",
-    "lowercase", "uppercase",
-    "replace", "replaceFirst", "replaceBefore", "replaceAfter",
-    "removePrefix", "removeSuffix", "removeSurrounding",
-    "padStart", "padEnd",
-    "substringBefore", "substringAfter", "substringBeforeLast", "substringAfterLast",
-    "split", "lines", "chunked",
+    "trim",
+    "trimStart",
+    "trimEnd",
+    "lowercase",
+    "uppercase",
+    "replace",
+    "replaceFirst",
+    "replaceBefore",
+    "replaceAfter",
+    "removePrefix",
+    "removeSuffix",
+    "removeSurrounding",
+    "padStart",
+    "padEnd",
+    "substringBefore",
+    "substringAfter",
+    "substringBeforeLast",
+    "substringAfterLast",
+    "split",
+    "lines",
+    "chunked",
     // Other pure functions
-    "toList", "toMutableList", "toSet", "toMutableSet",
-    "toMap", "toMutableMap", "toSortedMap",
-    "toTypedArray", "toIntArray", "toLongArray",
-    "asSequence", "asIterable",
+    "toList",
+    "toMutableList",
+    "toSet",
+    "toMutableSet",
+    "toMap",
+    "toMutableMap",
+    "toSortedMap",
+    "toTypedArray",
+    "toIntArray",
+    "toLongArray",
+    "asSequence",
+    "asIterable",
     // Kotlin stdlib pure functions
-    "copy", "also", "let", "run", "with", "apply",
+    "copy",
+    "also",
+    "let",
+    "run",
+    "with",
+    "apply",
 ];
 
 /// Functions that are commonly called for side effects (should NOT be flagged)
 const SIDE_EFFECT_FUNCTIONS: &[&str] = &[
     // Iteration (side effects expected)
-    "forEach", "forEachIndexed", "onEach", "onEachIndexed",
+    "forEach",
+    "forEachIndexed",
+    "onEach",
+    "onEachIndexed",
     // Logging/Debug
-    "println", "print", "log", "debug", "info", "warn", "error",
+    "println",
+    "print",
+    "log",
+    "debug",
+    "info",
+    "warn",
+    "error",
     // Android/UI
-    "show", "hide", "dismiss", "finish", "startActivity",
-    "invalidate", "requestLayout", "postInvalidate",
-    "notifyDataSetChanged", "notifyItemChanged",
-    "submitList", "setAdapter",
+    "show",
+    "hide",
+    "dismiss",
+    "finish",
+    "startActivity",
+    "invalidate",
+    "requestLayout",
+    "postInvalidate",
+    "notifyDataSetChanged",
+    "notifyItemChanged",
+    "submitList",
+    "setAdapter",
     // Coroutines (launch returns Job but often ignored intentionally)
-    "launch", "async", "runBlocking",
+    "launch",
+    "async",
+    "runBlocking",
     // Reactive
-    "subscribe", "observe", "collect", "collectLatest",
+    "subscribe",
+    "observe",
+    "collect",
+    "collectLatest",
     // Network/IO
-    "execute", "enqueue", "send", "post", "put", "delete",
+    "execute",
+    "enqueue",
+    "send",
+    "post",
+    "put",
+    "delete",
     // State
-    "emit", "setValue", "postValue",
+    "emit",
+    "setValue",
+    "postValue",
     // Lifecycle
-    "addObserver", "removeObserver",
-    "registerReceiver", "unregisterReceiver",
+    "addObserver",
+    "removeObserver",
+    "registerReceiver",
+    "unregisterReceiver",
 ];
 
 /// Detector for ignored return values
@@ -132,8 +221,6 @@ impl Default for IgnoredReturnValueDetector {
 
 impl Detector for IgnoredReturnValueDetector {
     fn detect(&self, _graph: &Graph) -> Vec<DeadCode> {
-        let issues = Vec::new();
-
         // This detector requires AST-level analysis that we don't have in the graph
         // The graph tracks declarations and references, but not expression statements
 
@@ -147,7 +234,7 @@ impl Detector for IgnoredReturnValueDetector {
 
         // For Phase 11, we'll focus on Intent extras which we CAN detect.
 
-        issues
+        Vec::new()
     }
 }
 

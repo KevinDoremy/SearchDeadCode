@@ -94,10 +94,8 @@ impl LcovParser {
                             if hit_count > 0 {
                                 fc.covered_lines.insert(line_nr);
                                 fc.uncovered_lines.remove(&line_nr);
-                            } else {
-                                if !fc.covered_lines.contains(&line_nr) {
-                                    fc.uncovered_lines.insert(line_nr);
-                                }
+                            } else if !fc.covered_lines.contains(&line_nr) {
+                                fc.uncovered_lines.insert(line_nr);
                             }
                         }
                     }

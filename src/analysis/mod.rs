@@ -3,17 +3,17 @@
 
 mod cycles;
 mod deep;
-mod entry_points;
+pub mod detectors;
 mod enhanced;
+mod entry_points;
 mod hybrid;
 mod reachability;
 pub mod resources;
-pub mod detectors;
 
 pub use cycles::CycleDetector;
 pub use deep::DeepAnalyzer;
-pub use entry_points::EntryPointDetector;
 pub use enhanced::EnhancedAnalyzer;
+pub use entry_points::EntryPointDetector;
 pub use hybrid::HybridAnalyzer;
 pub use reachability::ReachabilityAnalyzer;
 pub use resources::ResourceDetector;
@@ -173,11 +173,7 @@ impl DeadCodeIssue {
     pub fn default_message(&self, decl: &Declaration) -> String {
         match self {
             DeadCodeIssue::Unreferenced => {
-                format!(
-                    "{} '{}' is never used",
-                    decl.kind.display_name(),
-                    decl.name
-                )
+                format!("{} '{}' is never used", decl.kind.display_name(), decl.name)
             }
             DeadCodeIssue::AssignOnly => {
                 format!(
@@ -202,14 +198,9 @@ impl DeadCodeIssue {
                     decl.name
                 )
             }
-            DeadCodeIssue::DeadBranch => {
-                "This code branch can never be executed".to_string()
-            }
+            DeadCodeIssue::DeadBranch => "This code branch can never be executed".to_string(),
             DeadCodeIssue::UnusedSealedVariant => {
-                format!(
-                    "Sealed variant '{}' is never instantiated",
-                    decl.name
-                )
+                format!("Sealed variant '{}' is never instantiated", decl.name)
             }
             DeadCodeIssue::RedundantOverride => {
                 format!(

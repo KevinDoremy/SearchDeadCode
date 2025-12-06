@@ -13,7 +13,6 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use thiserror::Error;
 
-
 /// Cache errors
 #[derive(Error, Debug)]
 pub enum CacheError {
@@ -195,9 +194,7 @@ impl AnalysisCache {
 
     /// Check if a file needs re-parsing
     pub fn needs_reparse(&self, file_path: &Path, project_root: &Path) -> bool {
-        let relative = file_path
-            .strip_prefix(project_root)
-            .unwrap_or(file_path);
+        let relative = file_path.strip_prefix(project_root).unwrap_or(file_path);
 
         match self.files.get(relative) {
             Some(entry) => {
@@ -214,9 +211,7 @@ impl AnalysisCache {
 
     /// Get cached entry for a file
     pub fn get_entry(&self, file_path: &Path, project_root: &Path) -> Option<&FileCacheEntry> {
-        let relative = file_path
-            .strip_prefix(project_root)
-            .unwrap_or(file_path);
+        let relative = file_path.strip_prefix(project_root).unwrap_or(file_path);
         self.files.get(relative)
     }
 
@@ -242,7 +237,11 @@ impl AnalysisCache {
         CacheStats {
             total_files: self.files.len(),
             total_declarations: self.files.values().map(|e| e.declarations.len()).sum(),
-            total_references: self.files.values().map(|e| e.unresolved_references.len()).sum(),
+            total_references: self
+                .files
+                .values()
+                .map(|e| e.unresolved_references.len())
+                .sum(),
         }
     }
 }
@@ -276,9 +275,8 @@ impl IncrementalAnalyzer {
     /// Create a new incremental analyzer for a project
     pub fn new(project_root: PathBuf) -> Self {
         let cache_path = AnalysisCache::default_cache_path(&project_root);
-        let cache = AnalysisCache::load(&cache_path).unwrap_or_else(|_| {
-            AnalysisCache::new(project_root.clone())
-        });
+        let cache = AnalysisCache::load(&cache_path)
+            .unwrap_or_else(|_| AnalysisCache::new(project_root.clone()));
 
         Self {
             cache,
@@ -289,9 +287,8 @@ impl IncrementalAnalyzer {
 
     /// Create analyzer with custom cache path
     pub fn with_cache_path(project_root: PathBuf, cache_path: PathBuf) -> Self {
-        let cache = AnalysisCache::load(&cache_path).unwrap_or_else(|_| {
-            AnalysisCache::new(project_root.clone())
-        });
+        let cache = AnalysisCache::load(&cache_path)
+            .unwrap_or_else(|_| AnalysisCache::new(project_root.clone()));
 
         Self {
             cache,
@@ -301,7 +298,10 @@ impl IncrementalAnalyzer {
     }
 
     /// Check which files need re-parsing
-    pub fn get_files_to_parse<'a>(&self, all_files: &'a [PathBuf]) -> (Vec<&'a PathBuf>, Vec<&'a PathBuf>) {
+    pub fn get_files_to_parse<'a>(
+        &self,
+        all_files: &'a [PathBuf],
+    ) -> (Vec<&'a PathBuf>, Vec<&'a PathBuf>) {
         let mut needs_parse = Vec::new();
         let mut cached = Vec::new();
 
@@ -323,7 +323,8 @@ impl IncrementalAnalyzer {
 
     /// Update cache for a file
     pub fn update_cache(&mut self, file_path: &Path, entry: FileCacheEntry) {
-        self.cache.update_entry(file_path, &self.project_root, entry);
+        self.cache
+            .update_entry(file_path, &self.project_root, entry);
     }
 
     /// Save cache to disk
@@ -343,7 +344,7 @@ impl IncrementalAnalyzer {
 
     /// Check if cache exists and is valid
     pub fn has_valid_cache(&self) -> bool {
-        self.cache.files.len() > 0
+        !self.cache.files.is_empty()
     }
 }
 

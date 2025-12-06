@@ -17,11 +17,7 @@ impl FileEditor {
             return Err(miette::miette!("Invalid byte range"));
         }
 
-        let new_contents = format!(
-            "{}{}",
-            &contents[..start_byte],
-            &contents[end_byte..]
-        );
+        let new_contents = format!("{}{}", &contents[..start_byte], &contents[end_byte..]);
 
         std::fs::write(path, new_contents).into_diagnostic()?;
 
@@ -86,8 +82,8 @@ impl Default for FileEditor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::NamedTempFile;
     use std::io::Write;
+    use tempfile::NamedTempFile;
 
     #[test]
     fn test_remove_range() {

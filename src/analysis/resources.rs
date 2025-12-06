@@ -3,11 +3,11 @@
 //! This module detects unused Android resources like strings, colors, dimensions,
 //! drawables, etc. by cross-referencing resource definitions with code references.
 
+use quick_xml::events::Event;
+use quick_xml::Reader;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use quick_xml::events::Event;
-use quick_xml::Reader;
 
 /// Represents an Android resource
 #[derive(Debug, Clone)]
@@ -28,7 +28,7 @@ pub struct ResourceAnalysis {
     /// All defined resources by type -> name
     pub defined: HashMap<String, HashMap<String, AndroidResource>>,
     /// Resources referenced in code
-    pub referenced: HashSet<(String, String)>,  // (type, name)
+    pub referenced: HashSet<(String, String)>, // (type, name)
     /// Unused resources (defined but not referenced)
     pub unused: Vec<AndroidResource>,
 }
@@ -62,7 +62,10 @@ impl ResourceDetector {
         // Find unused resources
         for (res_type, resources) in &analysis.defined {
             for (name, resource) in resources {
-                if !analysis.referenced.contains(&(res_type.clone(), name.clone())) {
+                if !analysis
+                    .referenced
+                    .contains(&(res_type.clone(), name.clone()))
+                {
                     // Check for common false positives
                     if !self.should_skip_resource(name, res_type) {
                         analysis.unused.push(resource.clone());
@@ -72,9 +75,9 @@ impl ResourceDetector {
         }
 
         // Sort by file and line
-        analysis.unused.sort_by(|a, b| {
-            a.file.cmp(&b.file).then(a.line.cmp(&b.line))
-        });
+        analysis
+            .unused
+            .sort_by(|a, b| a.file.cmp(&b.file).then(a.line.cmp(&b.line)));
 
         analysis
     }
@@ -106,8 +109,16 @@ impl ResourceDetector {
     /// Parse all resource files in a res directory
     fn parse_resource_dir(&self, res_dir: &Path, analysis: &mut ResourceAnalysis) {
         // Check common resource subdirectories
-        let subdirs = ["values", "values-en", "values-fr", "values-es", "values-de",
-                       "values-night", "values-v21", "values-w600dp"];
+        let subdirs = [
+            "values",
+            "values-en",
+            "values-fr",
+            "values-es",
+            "values-de",
+            "values-night",
+            "values-v21",
+            "values-w600dp",
+        ];
 
         for subdir in subdirs {
             let values_dir = res_dir.join(subdir);
@@ -171,7 +182,8 @@ impl ResourceDetector {
                                     line,
                                 };
 
-                                analysis.defined
+                                analysis
+                                    .defined
                                     .entry(res_type.to_string())
                                     .or_default()
                                     .insert(name, resource);
@@ -237,7 +249,9 @@ impl ResourceDetector {
         for cap in r_pattern.captures_iter(&content) {
             let res_type = &cap[1];
             let res_name = &cap[2];
-            analysis.referenced.insert((res_type.to_string(), res_name.to_string()));
+            analysis
+                .referenced
+                .insert((res_type.to_string(), res_name.to_string()));
         }
     }
 
@@ -254,7 +268,9 @@ impl ResourceDetector {
         for cap in ref_pattern.captures_iter(&content) {
             let res_type = &cap[1];
             let res_name = &cap[2];
-            analysis.referenced.insert((res_type.to_string(), res_name.to_string()));
+            analysis
+                .referenced
+                .insert((res_type.to_string(), res_name.to_string()));
         }
     }
 
@@ -269,10 +285,7 @@ impl ResourceDetector {
         }
 
         // Skip common Android-required resources
-        let required_strings = [
-            "app_name",
-            "content_description",
-        ];
+        let required_strings = ["app_name", "content_description"];
         if res_type == "string" && required_strings.contains(&name) {
             return true;
         }
@@ -310,11 +323,15 @@ mod tests {
         fs::create_dir_all(&res_dir).unwrap();
 
         let strings_xml = res_dir.join("strings.xml");
-        fs::write(&strings_xml, r#"<?xml version="1.0" encoding="utf-8"?>
+        fs::write(
+            &strings_xml,
+            r#"<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="test_string">Test</string>
     <string name="another_string">Another</string>
-</resources>"#).unwrap();
+</resources>"#,
+        )
+        .unwrap();
 
         let mut analysis = ResourceAnalysis::default();
         let detector = ResourceDetector::new();

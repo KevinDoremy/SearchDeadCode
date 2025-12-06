@@ -13,16 +13,17 @@
 //! 7. Tests et mocks
 //! 8. JNI et code natif
 
-use searchdeadcode::graph::{GraphBuilder, DeclarationKind};
-use searchdeadcode::analysis::ReachabilityAnalyzer;
 use searchdeadcode::analysis::detectors::{
-    Detector, WriteOnlyDetector, UnusedSealedVariantDetector,
-    UnusedParamDetector, RedundantOverrideDetector,
+    Detector, RedundantOverrideDetector, UnusedParamDetector, UnusedSealedVariantDetector,
+    WriteOnlyDetector,
 };
-use searchdeadcode::discovery::{SourceFile, FileType};
-use std::path::PathBuf;
+use searchdeadcode::analysis::ReachabilityAnalyzer;
+use searchdeadcode::discovery::{FileType, SourceFile};
+use searchdeadcode::graph::GraphBuilder;
 use std::collections::HashSet;
+use std::path::PathBuf;
 
+#[allow(dead_code)]
 fn fixtures_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
 }
@@ -38,10 +39,13 @@ fn build_graph_from_content(content: &str) -> searchdeadcode::graph::Graph {
     let (_temp_dir, file_path) = create_temp_kotlin_file(content);
     let source = SourceFile::new(file_path, FileType::Kotlin);
     let mut builder = GraphBuilder::new();
-    builder.process_file(&source).expect("Failed to process file");
+    builder
+        .process_file(&source)
+        .expect("Failed to process file");
     builder.build()
 }
 
+#[allow(dead_code)]
 fn get_dead_code_names(graph: &searchdeadcode::graph::Graph, entry_point: &str) -> HashSet<String> {
     let entry_points: HashSet<_> = graph
         .declarations()
@@ -56,7 +60,8 @@ fn get_dead_code_names(graph: &searchdeadcode::graph::Graph, entry_point: &str) 
     let analyzer = ReachabilityAnalyzer::new();
     let (dead_code, _) = analyzer.find_unreachable_with_reachable(graph, &entry_points);
 
-    dead_code.iter()
+    dead_code
+        .iter()
         .map(|d| d.declaration.name.clone())
         .collect()
 }
@@ -97,13 +102,14 @@ fun main() {
         let graph = build_graph_from_content(content);
 
         // Vérifier que UserRepository existe
-        let user_repo = graph.declarations()
-            .find(|d| d.name == "UserRepository");
+        let user_repo = graph.declarations().find(|d| d.name == "UserRepository");
         assert!(user_repo.is_some(), "UserRepository doit être trouvé");
 
         // Vérifier que la classe a l'annotation @Inject
         if let Some(decl) = user_repo {
-            let has_inject = decl.modifiers.iter()
+            let _has_inject = decl
+                .modifiers
+                .iter()
                 .any(|m| m.contains("Inject") || m.contains("inject"));
             println!("UserRepository modifiers: {:?}", decl.modifiers);
             // Note: Le parser peut ou non capturer les annotations
@@ -153,7 +159,8 @@ fun main() {
         let graph = build_graph_from_content(content);
 
         // Les méthodes @Provides sont utilisées par Dagger
-        let provide_methods: Vec<_> = graph.declarations()
+        let provide_methods: Vec<_> = graph
+            .declarations()
             .filter(|d| d.name.starts_with("provide"))
             .collect();
 
@@ -199,12 +206,9 @@ fun main() {
         let graph = build_graph_from_content(content);
 
         // Vérifier que les data classes existent
-        let api_response = graph.declarations()
-            .find(|d| d.name == "ApiResponse");
-        let response_data = graph.declarations()
-            .find(|d| d.name == "ResponseData");
-        let item = graph.declarations()
-            .find(|d| d.name == "Item");
+        let api_response = graph.declarations().find(|d| d.name == "ApiResponse");
+        let response_data = graph.declarations().find(|d| d.name == "ResponseData");
+        let item = graph.declarations().find(|d| d.name == "Item");
 
         assert!(api_response.is_some(), "ApiResponse doit exister");
         assert!(response_data.is_some(), "ResponseData doit exister");
@@ -254,13 +258,15 @@ fun main() {
         let graph = build_graph_from_content(content);
 
         // UserEntity est utilisé par Room via réflexion
-        let entity = graph.declarations()
-            .find(|d| d.name == "UserEntity");
+        let entity = graph.declarations().find(|d| d.name == "UserEntity");
         assert!(entity.is_some(), "UserEntity doit exister");
 
         // Les méthodes DAO sont utilisées par Room
-        let dao_methods: Vec<_> = graph.declarations()
-            .filter(|d| d.name == "getAllUsers" || d.name == "insertUser" || d.name == "getUserById")
+        let dao_methods: Vec<_> = graph
+            .declarations()
+            .filter(|d| {
+                d.name == "getAllUsers" || d.name == "insertUser" || d.name == "getUserById"
+            })
             .collect();
 
         assert!(dao_methods.len() >= 3, "DAO methods doivent exister");
@@ -344,11 +350,17 @@ object R {
         let graph = build_graph_from_content(content);
 
         // Toutes les méthodes lifecycle doivent exister
-        let lifecycle_methods = ["onCreate", "onStart", "onResume", "onPause", "onStop", "onDestroy"];
+        let lifecycle_methods = [
+            "onCreate",
+            "onStart",
+            "onResume",
+            "onPause",
+            "onStop",
+            "onDestroy",
+        ];
 
         for method_name in &lifecycle_methods {
-            let found = graph.declarations()
-                .any(|d| d.name == *method_name);
+            let found = graph.declarations().any(|d| d.name == *method_name);
             assert!(found, "{} doit être trouvé", method_name);
         }
 
@@ -391,11 +403,15 @@ class View
         let graph = build_graph_from_content(content);
 
         // Les méthodes onClick existent
-        let onclick_methods: Vec<_> = graph.declarations()
+        let onclick_methods: Vec<_> = graph
+            .declarations()
             .filter(|d| d.name.contains("Click"))
             .collect();
 
-        assert!(onclick_methods.len() >= 3, "onClick methods doivent exister");
+        assert!(
+            onclick_methods.len() >= 3,
+            "onClick methods doivent exister"
+        );
 
         // Vérifier qu'elles ont le bon paramètre (View)
         for method in &onclick_methods {
@@ -452,11 +468,15 @@ class Intent {
         let graph = build_graph_from_content(content);
 
         // onReceive est appelé par Android
-        let on_receive_methods: Vec<_> = graph.declarations()
+        let on_receive_methods: Vec<_> = graph
+            .declarations()
             .filter(|d| d.name == "onReceive")
             .collect();
 
-        assert!(on_receive_methods.len() >= 2, "onReceive methods doivent exister");
+        assert!(
+            on_receive_methods.len() >= 2,
+            "onReceive methods doivent exister"
+        );
     }
 
     /// Les méthodes Fragment lifecycle ne doivent PAS être signalées
@@ -510,7 +530,8 @@ interface ViewBinding
         let fragment_methods = ["onCreate", "onViewCreated", "onDestroyView"];
 
         for method_name in &fragment_methods {
-            let count = graph.declarations()
+            let count = graph
+                .declarations()
                 .filter(|d| d.name == *method_name)
                 .count();
             assert!(count >= 1, "{} doit être trouvé", method_name);
@@ -590,16 +611,19 @@ class Parcel {
         let graph = build_graph_from_content(content);
 
         // CREATOR companion object
-        let creator = graph.declarations()
-            .find(|d| d.name == "CREATOR");
+        let creator = graph.declarations().find(|d| d.name == "CREATOR");
         assert!(creator.is_some(), "CREATOR doit exister");
 
         // writeToParcel et describeContents
-        let parcel_methods: Vec<_> = graph.declarations()
+        let parcel_methods: Vec<_> = graph
+            .declarations()
             .filter(|d| d.name == "writeToParcel" || d.name == "describeContents")
             .collect();
 
-        assert!(parcel_methods.len() >= 2, "Parcelable methods doivent exister");
+        assert!(
+            parcel_methods.len() >= 2,
+            "Parcelable methods doivent exister"
+        );
     }
 
     /// Les champs @SerializedName ne doivent PAS être signalés
@@ -637,15 +661,13 @@ fun main() {
         let graph = build_graph_from_content(content);
 
         // La data class existe
-        let api_user = graph.declarations()
-            .find(|d| d.name == "ApiUser");
+        let api_user = graph.declarations().find(|d| d.name == "ApiUser");
         assert!(api_user.is_some(), "ApiUser doit exister");
 
         // Les propriétés existent
         let properties = ["userId", "firstName", "lastName", "email", "isActive"];
         for prop in &properties {
-            let found = graph.declarations()
-                .any(|d| d.name == *prop);
+            let found = graph.declarations().any(|d| d.name == *prop);
             // Les propriétés de data class peuvent être inline
             println!("Property {}: found = {}", prop, found);
         }
@@ -716,11 +738,19 @@ fun main() {
         let graph = build_graph_from_content(content);
 
         // Toutes les fonctions opérateur doivent exister
-        let operators = ["plus", "minus", "times", "div", "unaryMinus", "get", "component1", "component2"];
+        let operators = [
+            "plus",
+            "minus",
+            "times",
+            "div",
+            "unaryMinus",
+            "get",
+            "component1",
+            "component2",
+        ];
 
         for op in &operators {
-            let found = graph.declarations()
-                .any(|d| d.name == *op);
+            let found = graph.declarations().any(|d| d.name == *op);
             assert!(found, "Operator {} doit être trouvé", op);
         }
 
@@ -775,9 +805,7 @@ fun main() {
         let graph = build_graph_from_content(content);
 
         // invoke doit exister
-        let invoke_count = graph.declarations()
-            .filter(|d| d.name == "invoke")
-            .count();
+        let invoke_count = graph.declarations().filter(|d| d.name == "invoke").count();
 
         assert!(invoke_count >= 2, "invoke operators doivent exister");
     }
@@ -832,10 +860,12 @@ fun main() {
         let graph = build_graph_from_content(content);
 
         // getValue et setValue sont utilisés par les delegates
-        let get_value = graph.declarations()
+        let get_value = graph
+            .declarations()
             .filter(|d| d.name == "getValue")
             .count();
-        let set_value = graph.declarations()
+        let set_value = graph
+            .declarations()
             .filter(|d| d.name == "setValue")
             .count();
 
@@ -883,8 +913,7 @@ fun main() {
         let infix_fns = ["times", "shouldBe", "shouldEqual", "to"];
 
         for fn_name in &infix_fns {
-            let found = graph.declarations()
-                .any(|d| d.name == *fn_name);
+            let found = graph.declarations().any(|d| d.name == *fn_name);
             assert!(found, "Infix function {} doit être trouvée", fn_name);
         }
     }
@@ -954,11 +983,15 @@ fun String.truncateTo(length: Int): String = StringUtils.truncate(this, length)
         let graph = build_graph_from_content(content);
 
         // Toutes les méthodes publiques doivent exister
-        let public_methods = ["toTitleCase", "removeWhitespace", "truncate", "isValidEmail"];
+        let public_methods = [
+            "toTitleCase",
+            "removeWhitespace",
+            "truncate",
+            "isValidEmail",
+        ];
 
         for method in &public_methods {
-            let found = graph.declarations()
-                .any(|d| d.name == *method);
+            let found = graph.declarations().any(|d| d.name == *method);
             assert!(found, "Public method {} doit exister", method);
         }
 
@@ -966,8 +999,7 @@ fun String.truncateTo(length: Int): String = StringUtils.truncate(this, length)
         let extensions = ["capitalizeWords", "isEmail", "truncateTo"];
 
         for ext in &extensions {
-            let found = graph.declarations()
-                .any(|d| d.name == *ext);
+            let found = graph.declarations().any(|d| d.name == *ext);
             assert!(found, "Extension {} doit exister", ext);
         }
     }
@@ -1016,8 +1048,7 @@ data class Request(val url: String)
         let interfaces = ["OnResultListener", "CacheStrategy", "RequestBuilder"];
 
         for iface in &interfaces {
-            let found = graph.declarations()
-                .any(|d| d.name == *iface);
+            let found = graph.declarations().any(|d| d.name == *iface);
             assert!(found, "Interface {} doit exister", iface);
         }
     }
@@ -1110,7 +1141,8 @@ class UserRepository(private val api: MockApiService) {
         let graph = build_graph_from_content(content);
 
         // Les méthodes de test doivent exister
-        let test_methods: Vec<_> = graph.declarations()
+        let test_methods: Vec<_> = graph
+            .declarations()
             .filter(|d| d.name.starts_with("test") || d.name == "setUp" || d.name == "tearDown")
             .collect();
 
@@ -1118,8 +1150,7 @@ class UserRepository(private val api: MockApiService) {
         assert!(test_methods.len() >= 4, "Test methods doivent exister");
 
         // Les mocks aussi
-        let mock_class = graph.declarations()
-            .find(|d| d.name == "MockApiService");
+        let mock_class = graph.declarations().find(|d| d.name == "MockApiService");
         assert!(mock_class.is_some(), "MockApiService doit exister");
     }
 }
@@ -1180,9 +1211,8 @@ class ViewModel {
         let detector = UnusedSealedVariantDetector::new();
         let issues = detector.detect(&graph);
 
-        let variant_names: HashSet<_> = issues.iter()
-            .map(|i| i.declaration.name.as_str())
-            .collect();
+        let variant_names: HashSet<_> =
+            issues.iter().map(|i| i.declaration.name.as_str()).collect();
 
         println!("Sealed variant issues: {:?}", variant_names);
 
@@ -1222,11 +1252,13 @@ fun handleState(state: NetworkState) {
         let detector = UnusedSealedVariantDetector::new();
         let issues = detector.detect(&graph);
 
-        let variant_names: HashSet<_> = issues.iter()
-            .map(|i| i.declaration.name.as_str())
-            .collect();
+        let variant_names: HashSet<_> =
+            issues.iter().map(|i| i.declaration.name.as_str()).collect();
 
-        println!("Limitation documented - variants detected as unused: {:?}", variant_names);
+        println!(
+            "Limitation documented - variants detected as unused: {:?}",
+            variant_names
+        );
 
         // Note: Ce test documente une limitation connue
         // Les variants utilisés seulement via `is` peuvent être signalés
@@ -1262,9 +1294,8 @@ fun handleState(state: NetworkState) {
         let detector = UnusedSealedVariantDetector::new();
         let issues = detector.detect(&graph);
 
-        let variant_names: HashSet<_> = issues.iter()
-            .map(|i| i.declaration.name.as_str())
-            .collect();
+        let variant_names: HashSet<_> =
+            issues.iter().map(|i| i.declaration.name.as_str()).collect();
 
         println!("Detected unused variants: {:?}", variant_names);
 
@@ -1323,8 +1354,7 @@ fun main() {
         let used_extensions = ["toSlug", "removeHtml", "second", "isEven"];
 
         for ext in &used_extensions {
-            let found = graph.declarations()
-                .any(|d| d.name == *ext);
+            let found = graph.declarations().any(|d| d.name == *ext);
             assert!(found, "Extension {} doit être trouvée", ext);
         }
 
@@ -1332,9 +1362,12 @@ fun main() {
         let unused_extensions = ["truncate", "safeFirst", "isOdd"];
 
         for ext in &unused_extensions {
-            let found = graph.declarations()
-                .any(|d| d.name == *ext);
-            assert!(found, "Extension {} doit être trouvée (mais devrait être signalée)", ext);
+            let found = graph.declarations().any(|d| d.name == *ext);
+            assert!(
+                found,
+                "Extension {} doit être trouvée (mais devrait être signalée)",
+                ext
+            );
         }
     }
 }
@@ -1370,14 +1403,18 @@ class DataHolder {
         let issues = detector.detect(&graph);
 
         // _data NE DOIT PAS être signalé
-        let backing_field_issues: Vec<_> = issues.iter()
+        let backing_field_issues: Vec<_> = issues
+            .iter()
             .filter(|i| i.declaration.name.starts_with("_"))
             .collect();
 
         assert!(
             backing_field_issues.is_empty(),
             "Backing fields ne doivent pas être signalés: {:?}",
-            backing_field_issues.iter().map(|i| &i.declaration.name).collect::<Vec<_>>()
+            backing_field_issues
+                .iter()
+                .map(|i| &i.declaration.name)
+                .collect::<Vec<_>>()
         );
     }
 
@@ -1410,14 +1447,23 @@ class Config {
         let issues = detector.detect(&graph);
 
         // Les constantes (UPPERCASE) ne doivent pas être signalées
-        let constant_issues: Vec<_> = issues.iter()
-            .filter(|i| i.declaration.name.chars().all(|c| c.is_uppercase() || c == '_'))
+        let constant_issues: Vec<_> = issues
+            .iter()
+            .filter(|i| {
+                i.declaration
+                    .name
+                    .chars()
+                    .all(|c| c.is_uppercase() || c == '_')
+            })
             .collect();
 
         assert!(
             constant_issues.is_empty(),
             "Constantes ne doivent pas être signalées: {:?}",
-            constant_issues.iter().map(|i| &i.declaration.name).collect::<Vec<_>>()
+            constant_issues
+                .iter()
+                .map(|i| &i.declaration.name)
+                .collect::<Vec<_>>()
         );
     }
 
@@ -1447,14 +1493,18 @@ class Event
         let issues = detector.detect(&graph);
 
         // _event ne doit PAS être signalé
-        let underscore_issues: Vec<_> = issues.iter()
+        let underscore_issues: Vec<_> = issues
+            .iter()
             .filter(|i| i.declaration.name.starts_with("_"))
             .collect();
 
         assert!(
             underscore_issues.is_empty(),
             "Underscore params ne doivent pas être signalés: {:?}",
-            underscore_issues.iter().map(|i| &i.declaration.name).collect::<Vec<_>>()
+            underscore_issues
+                .iter()
+                .map(|i| &i.declaration.name)
+                .collect::<Vec<_>>()
         );
     }
 
@@ -1502,9 +1552,7 @@ class Derived : Base() {
         let detector = RedundantOverrideDetector::new();
         let issues = detector.detect(&graph);
 
-        let issue_names: HashSet<_> = issues.iter()
-            .map(|i| i.declaration.name.as_str())
-            .collect();
+        let issue_names: HashSet<_> = issues.iter().map(|i| i.declaration.name.as_str()).collect();
 
         println!("Redundant override issues: {:?}", issue_names);
 

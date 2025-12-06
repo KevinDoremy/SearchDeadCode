@@ -36,7 +36,9 @@ impl FileType {
                     Some(FileType::XmlManifest)
                 } else if path_str.contains("/res/layout") || path_str.contains("\\res\\layout") {
                     Some(FileType::XmlLayout)
-                } else if path_str.contains("/res/navigation") || path_str.contains("\\res\\navigation") {
+                } else if path_str.contains("/res/navigation")
+                    || path_str.contains("\\res\\navigation")
+                {
                     Some(FileType::XmlNavigation)
                 } else if path_str.contains("/res/menu") || path_str.contains("\\res\\menu") {
                     Some(FileType::XmlMenu)
@@ -57,7 +59,11 @@ impl FileType {
     pub fn is_xml(&self) -> bool {
         matches!(
             self,
-            FileType::XmlManifest | FileType::XmlLayout | FileType::XmlNavigation | FileType::XmlMenu | FileType::XmlOther
+            FileType::XmlManifest
+                | FileType::XmlLayout
+                | FileType::XmlNavigation
+                | FileType::XmlMenu
+                | FileType::XmlOther
         )
     }
 }
@@ -87,8 +93,7 @@ impl SourceFile {
     /// Load file contents
     pub fn load(&mut self) -> Result<&str> {
         if self.contents.is_none() {
-            let contents = std::fs::read_to_string(&self.path)
-                .into_diagnostic()?;
+            let contents = std::fs::read_to_string(&self.path).into_diagnostic()?;
             self.contents = Some(contents);
         }
         Ok(self.contents.as_ref().unwrap())
@@ -122,11 +127,7 @@ impl<'a> FileFinder<'a> {
         let targets = if self.config.targets.is_empty() {
             vec![root.to_path_buf()]
         } else {
-            self.config
-                .targets
-                .iter()
-                .map(|t| root.join(t))
-                .collect()
+            self.config.targets.iter().map(|t| root.join(t)).collect()
         };
 
         let files: Vec<SourceFile> = targets
@@ -146,13 +147,13 @@ impl<'a> FileFinder<'a> {
         }
 
         let walker = WalkBuilder::new(dir)
-            .hidden(true)           // Skip hidden files
-            .git_ignore(true)       // Respect .gitignore
-            .git_global(true)       // Respect global gitignore
-            .git_exclude(true)      // Respect .git/info/exclude
-            .ignore(true)           // Respect .ignore files
-            .parents(true)          // Check parent directories for ignore files
-            .follow_links(false)    // Don't follow symlinks
+            .hidden(true) // Skip hidden files
+            .git_ignore(true) // Respect .gitignore
+            .git_global(true) // Respect global gitignore
+            .git_exclude(true) // Respect .git/info/exclude
+            .ignore(true) // Respect .ignore files
+            .parents(true) // Check parent directories for ignore files
+            .follow_links(false) // Don't follow symlinks
             .build();
 
         walker
@@ -179,7 +180,10 @@ impl<'a> FileFinder<'a> {
     /// Find only Kotlin and Java source files
     pub fn find_source_files(&self, root: &Path) -> Result<Vec<SourceFile>> {
         let files = self.find_files(root)?;
-        Ok(files.into_iter().filter(|f| f.file_type.is_source()).collect())
+        Ok(files
+            .into_iter()
+            .filter(|f| f.file_type.is_source())
+            .collect())
     }
 
     /// Find only XML files
@@ -305,10 +309,7 @@ mod tests {
 
     #[test]
     fn test_source_file_creation() {
-        let file = SourceFile::new(
-            PathBuf::from("test.kt"),
-            FileType::Kotlin,
-        );
+        let file = SourceFile::new(PathBuf::from("test.kt"), FileType::Kotlin);
         assert_eq!(file.file_type, FileType::Kotlin);
         assert!(file.contents().is_none());
     }

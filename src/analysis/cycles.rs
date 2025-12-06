@@ -94,24 +94,14 @@ impl CycleDetector {
                             | DeclarationKind::Method
                     )
                 })
-                .map(|decl| {
-                    format!(
-                        "{} '{}'",
-                        decl.kind.display_name(),
-                        decl.name
-                    )
-                })
+                .map(|decl| format!("{} '{}'", decl.kind.display_name(), decl.name))
                 .collect();
 
             if names.is_empty() {
                 continue; // Skip cycles with no significant declarations
             }
 
-            debug!(
-                "Found dead cycle with {} members: {:?}",
-                names.len(),
-                names
-            );
+            debug!("Found dead cycle with {} members: {:?}", names.len(), names);
 
             dead_cycles.push(CycleInfo {
                 members: member_ids,
@@ -128,11 +118,7 @@ impl CycleDetector {
     }
 
     /// Check if any declaration outside the given set references a member of the set
-    fn has_external_incoming_edge(
-        &self,
-        graph: &Graph,
-        members: &HashSet<&DeclarationId>,
-    ) -> bool {
+    fn has_external_incoming_edge(&self, graph: &Graph, members: &HashSet<&DeclarationId>) -> bool {
         for member_id in members {
             let refs = graph.get_references_to(member_id);
             for (ref_decl, _) in refs {
@@ -186,11 +172,7 @@ impl CycleDetector {
     }
 
     /// Get statistics about cycles in the codebase
-    pub fn get_cycle_stats(
-        &self,
-        graph: &Graph,
-        reachable: &HashSet<DeclarationId>,
-    ) -> CycleStats {
+    pub fn get_cycle_stats(&self, graph: &Graph, reachable: &HashSet<DeclarationId>) -> CycleStats {
         let dead_cycles = self.find_dead_cycles(graph, reachable);
         let zombie_pairs = self.find_zombie_pairs(graph, reachable);
 

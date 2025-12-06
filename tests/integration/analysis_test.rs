@@ -2,12 +2,14 @@
 //!
 //! These tests verify the complete analysis pipeline against test fixtures.
 
-use searchdeadcode::graph::GraphBuilder;
+use searchdeadcode::analysis::detectors::{
+    Detector, UnusedSealedVariantDetector, WriteOnlyDetector,
+};
 use searchdeadcode::analysis::ReachabilityAnalyzer;
-use searchdeadcode::analysis::detectors::{Detector, WriteOnlyDetector, UnusedSealedVariantDetector};
-use searchdeadcode::discovery::{SourceFile, FileType};
-use std::path::PathBuf;
+use searchdeadcode::discovery::{FileType, SourceFile};
+use searchdeadcode::graph::GraphBuilder;
 use std::collections::HashSet;
+use std::path::PathBuf;
 
 /// Get the path to the test fixtures directory
 fn fixtures_path() -> PathBuf {
@@ -26,7 +28,9 @@ fn build_graph_from_file(path: &PathBuf) -> searchdeadcode::graph::Graph {
 
     let source_file = SourceFile::new(path.clone(), file_type);
     let mut builder = GraphBuilder::new();
-    builder.process_file(&source_file).expect("Failed to process file");
+    builder
+        .process_file(&source_file)
+        .expect("Failed to process file");
     builder.build()
 }
 
@@ -49,8 +53,14 @@ fn test_dead_code_kotlin_fixture() {
 
     // Should find the classes
     assert!(names.contains(&"UnusedClass"), "Should find UnusedClass");
-    assert!(names.contains(&"UsedClassWithDeadMethod"), "Should find UsedClassWithDeadMethod");
-    assert!(names.contains(&"WriteOnlyExample"), "Should find WriteOnlyExample");
+    assert!(
+        names.contains(&"UsedClassWithDeadMethod"),
+        "Should find UsedClassWithDeadMethod"
+    );
+    assert!(
+        names.contains(&"WriteOnlyExample"),
+        "Should find WriteOnlyExample"
+    );
 }
 
 #[test]
@@ -68,7 +78,10 @@ fn test_all_used_kotlin_fixture() {
     assert!(decl_count > 0, "Should have parsed some declarations");
 
     let names: Vec<_> = graph.declarations().map(|d| d.name.as_str()).collect();
-    assert!(names.contains(&"DataProcessor"), "Should find DataProcessor");
+    assert!(
+        names.contains(&"DataProcessor"),
+        "Should find DataProcessor"
+    );
     assert!(names.contains(&"Calculator"), "Should find Calculator");
 }
 
@@ -82,7 +95,10 @@ fn test_java_fixture() {
 
     let graph = build_graph_from_file(&fixture);
     let decl_count = graph.declarations().count();
-    assert!(decl_count > 0, "Should have parsed some declarations from Java file");
+    assert!(
+        decl_count > 0,
+        "Should have parsed some declarations from Java file"
+    );
 }
 
 #[test]
@@ -100,7 +116,11 @@ fn test_write_only_detector_on_fixture() {
     // Check that we can run the detector without errors
     println!("Write-only issues found: {}", issues.len());
     for issue in &issues {
-        println!("  - {} in {}", issue.declaration.name, issue.declaration.location.file.display());
+        println!(
+            "  - {} in {}",
+            issue.declaration.name,
+            issue.declaration.location.file.display()
+        );
     }
 }
 
@@ -118,7 +138,11 @@ fn test_sealed_variant_detector_on_fixture() {
     // The fixture has a sealed class with an unused variant: Empty
     println!("Sealed variant issues found: {}", issues.len());
     for issue in &issues {
-        println!("  - {} in {}", issue.declaration.name, issue.declaration.location.file.display());
+        println!(
+            "  - {} in {}",
+            issue.declaration.name,
+            issue.declaration.location.file.display()
+        );
     }
 }
 
@@ -153,7 +177,10 @@ fn test_reachability_analysis() {
     println!("  Dead code candidates: {}", dead_code.len());
 
     // We should find some dead code
-    assert!(!dead_code.is_empty(), "Should find some dead code in the fixture");
+    assert!(
+        !dead_code.is_empty(),
+        "Should find some dead code in the fixture"
+    );
 }
 
 #[test]
@@ -169,18 +196,24 @@ fn test_multiple_files() {
     let java_source = SourceFile::new(java_fixture.clone(), FileType::Java);
 
     let mut builder = GraphBuilder::new();
-    builder.process_file(&kotlin_source).expect("Failed to process Kotlin file");
-    builder.process_file(&java_source).expect("Failed to process Java file");
+    builder
+        .process_file(&kotlin_source)
+        .expect("Failed to process Kotlin file");
+    builder
+        .process_file(&java_source)
+        .expect("Failed to process Java file");
     let graph = builder.build();
 
     let decl_count = graph.declarations().count();
     println!("Total declarations from both files: {}", decl_count);
 
     // Should have declarations from both files
-    let kotlin_decls = graph.declarations()
+    let kotlin_decls = graph
+        .declarations()
         .filter(|d| d.location.file.to_string_lossy().ends_with(".kt"))
         .count();
-    let java_decls = graph.declarations()
+    let java_decls = graph
+        .declarations()
         .filter(|d| d.location.file.to_string_lossy().ends_with(".java"))
         .count();
 

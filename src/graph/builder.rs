@@ -48,7 +48,10 @@ impl GraphBuilder {
             FileType::Java => {
                 self.process_java_file(&file.path, &contents)?;
             }
-            FileType::XmlManifest | FileType::XmlLayout | FileType::XmlNavigation | FileType::XmlMenu => {
+            FileType::XmlManifest
+            | FileType::XmlLayout
+            | FileType::XmlNavigation
+            | FileType::XmlMenu => {
                 // XML files are processed separately for entry point detection
             }
             FileType::XmlOther => {
@@ -174,7 +177,7 @@ impl GraphBuilder {
                 }
 
                 let reference = Reference::new(
-                    unresolved.kind.clone(),
+                    unresolved.kind,
                     super::Location::new(
                         unresolved.from.file.clone(),
                         0, // Line info not preserved in unresolved ref
@@ -184,7 +187,8 @@ impl GraphBuilder {
                     ),
                     unresolved.name.clone(),
                 );
-                self.graph.add_reference(&unresolved.from, &to_id, reference);
+                self.graph
+                    .add_reference(&unresolved.from, &to_id, reference);
             }
         }
     }

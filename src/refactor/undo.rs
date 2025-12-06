@@ -18,7 +18,8 @@ impl UndoScript {
     /// Record the state of a file before modification
     pub fn record_file_state(&mut self, path: &Path, contents: &str) {
         if !self.file_states.contains_key(path) {
-            self.file_states.insert(path.to_path_buf(), contents.to_string());
+            self.file_states
+                .insert(path.to_path_buf(), contents.to_string());
         }
     }
 
@@ -29,11 +30,11 @@ impl UndoScript {
         script.push_str("#!/bin/bash\n");
         script.push_str("# SearchDeadCode Undo Script\n");
         script.push_str("# Generated automatically - run to restore deleted code\n");
-        script.push_str("\n");
+        script.push('\n');
         script.push_str("set -e\n");
-        script.push_str("\n");
+        script.push('\n');
         script.push_str("echo 'Restoring deleted code...'\n");
-        script.push_str("\n");
+        script.push('\n');
 
         for (file_path, contents) in &self.file_states {
             // Use heredoc to restore file contents
@@ -41,14 +42,17 @@ impl UndoScript {
             let escaped_contents = contents.replace("'", "'\\''");
 
             script.push_str(&format!("# Restore {}\n", file_path.display()));
-            script.push_str(&format!("cat > '{}' << 'SEARCHDEADCODE_EOF'\n", escaped_path));
+            script.push_str(&format!(
+                "cat > '{}' << 'SEARCHDEADCODE_EOF'\n",
+                escaped_path
+            ));
             script.push_str(&escaped_contents);
             if !escaped_contents.ends_with('\n') {
                 script.push('\n');
             }
             script.push_str("SEARCHDEADCODE_EOF\n");
             script.push_str(&format!("echo '  Restored: {}'\n", file_path.display()));
-            script.push_str("\n");
+            script.push('\n');
         }
 
         script.push_str("echo 'Done! All files restored.'\n");

@@ -5,8 +5,8 @@
 // - seeds.txt: Lists code that matched -keep rules
 // - mapping.txt: Obfuscation mapping (for reverse lookups)
 
-mod usage;
 mod report_generator;
+mod usage;
 
-pub use usage::{ProguardUsage, UsageEntryKind};
 pub use report_generator::ReportGenerator;
+pub use usage::{ProguardUsage, UsageEntryKind};

@@ -81,9 +81,7 @@ pub struct UnusedIntentExtraDetector {
 impl UnusedIntentExtraDetector {
     pub fn new() -> Self {
         // Match: putExtra("KEY", value) or putExtra(KEY_CONST, value)
-        let put_extra_pattern = Regex::new(
-            r#"putExtra\s*\(\s*"([^"]+)""#
-        ).unwrap();
+        let put_extra_pattern = Regex::new(r#"putExtra\s*\(\s*"([^"]+)""#).unwrap();
 
         // Match: getStringExtra("KEY"), getIntExtra("KEY", ...), getBooleanExtra("KEY", ...), etc.
         let get_extra_pattern = Regex::new(
@@ -91,9 +89,7 @@ impl UnusedIntentExtraDetector {
         ).unwrap();
 
         // Match: hasExtra("KEY")
-        let has_extra_pattern = Regex::new(
-            r#"hasExtra\s*\(\s*"([^"]+)""#
-        ).unwrap();
+        let has_extra_pattern = Regex::new(r#"hasExtra\s*\(\s*"([^"]+)""#).unwrap();
 
         Self {
             put_extra_pattern,
@@ -111,10 +107,7 @@ impl UnusedIntentExtraDetector {
         // Collect all get_extra keys (including hasExtra)
         let mut get_extras: HashSet<String> = HashSet::new();
 
-        let walker = WalkBuilder::new(root)
-            .hidden(true)
-            .git_ignore(true)
-            .build();
+        let walker = WalkBuilder::new(root).hidden(true).git_ignore(true).build();
 
         for entry in walker.flatten() {
             let path = entry.path();
@@ -139,7 +132,7 @@ impl UnusedIntentExtraDetector {
                             let key_str = key.as_str().to_string();
                             put_extras
                                 .entry(key_str.clone())
-                                .or_insert_with(Vec::new)
+                                .or_default()
                                 .push(ExtraLocation {
                                     file: path.to_path_buf(),
                                     line: line_num + 1,
@@ -191,9 +184,7 @@ impl UnusedIntentExtraDetector {
         }
 
         // Sort by file and line
-        unused_extras.sort_by(|a, b| {
-            a.file.cmp(&b.file).then(a.line.cmp(&b.line))
-        });
+        unused_extras.sort_by(|a, b| a.file.cmp(&b.file).then(a.line.cmp(&b.line)));
 
         IntentExtraAnalysis {
             unused_extras,

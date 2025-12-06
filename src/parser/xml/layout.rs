@@ -74,7 +74,9 @@ impl LayoutParser {
                     }
 
                     // Handle <fragment> tags
-                    if tag_name == "fragment" || tag_name == "androidx.fragment.app.FragmentContainerView" {
+                    if tag_name == "fragment"
+                        || tag_name == "androidx.fragment.app.FragmentContainerView"
+                    {
                         for attr in e.attributes().filter_map(|a| a.ok()) {
                             let key = String::from_utf8_lossy(attr.key.as_ref());
                             if key == "android:name" || key == "class" || key.ends_with(":name") {
@@ -128,7 +130,11 @@ impl LayoutParser {
             for word in inner.split(|c: char| !c.is_alphanumeric() && c != '.') {
                 let word = word.trim();
                 if word.contains('.')
-                    && word.chars().next().map(|c| c.is_uppercase()).unwrap_or(false)
+                    && word
+                        .chars()
+                        .next()
+                        .map(|c| c.is_uppercase())
+                        .unwrap_or(false)
                 {
                     // Likely a class reference
                     result.class_references.insert(word.to_string());
@@ -138,10 +144,13 @@ impl LayoutParser {
 
         // Also handle type references like "type="com.example.MyType""
         if expression.contains('.') && !expression.contains(' ') {
-            let cleaned = expression
-                .trim_matches('"')
-                .trim_matches('\'');
-            if cleaned.chars().next().map(|c| c.is_alphabetic()).unwrap_or(false) {
+            let cleaned = expression.trim_matches('"').trim_matches('\'');
+            if cleaned
+                .chars()
+                .next()
+                .map(|c| c.is_alphabetic())
+                .unwrap_or(false)
+            {
                 result.class_references.insert(cleaned.to_string());
             }
         }

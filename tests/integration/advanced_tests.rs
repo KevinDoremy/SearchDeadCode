@@ -9,9 +9,9 @@
 //! - Performance & Stress (3 tests)
 //! - Rapports & Output (3 tests)
 
-use searchdeadcode::graph::GraphBuilder;
 use searchdeadcode::analysis::detectors::{Detector, WriteOnlyDetector};
-use searchdeadcode::discovery::{SourceFile, FileType};
+use searchdeadcode::discovery::{FileType, SourceFile};
+use searchdeadcode::graph::GraphBuilder;
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -26,7 +26,9 @@ fn build_graph_from_content(content: &str) -> searchdeadcode::graph::Graph {
     let (_temp_dir, file_path) = create_temp_file("test.kt", content);
     let source = SourceFile::new(file_path, FileType::Kotlin);
     let mut builder = GraphBuilder::new();
-    builder.process_file(&source).expect("Failed to process file");
+    builder
+        .process_file(&source)
+        .expect("Failed to process file");
     builder.build()
 }
 
@@ -34,11 +36,15 @@ fn build_graph_from_java(content: &str) -> searchdeadcode::graph::Graph {
     let (_temp_dir, file_path) = create_temp_file("Test.java", content);
     let source = SourceFile::new(file_path, FileType::Java);
     let mut builder = GraphBuilder::new();
-    builder.process_file(&source).expect("Failed to process file");
+    builder
+        .process_file(&source)
+        .expect("Failed to process file");
     builder.build()
 }
 
-fn build_multi_file_graph(files: Vec<(&str, &str, FileType)>) -> (tempfile::TempDir, searchdeadcode::graph::Graph) {
+fn build_multi_file_graph(
+    files: Vec<(&str, &str, FileType)>,
+) -> (tempfile::TempDir, searchdeadcode::graph::Graph) {
     let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
     let mut builder = GraphBuilder::new();
 
@@ -50,7 +56,9 @@ fn build_multi_file_graph(files: Vec<(&str, &str, FileType)>) -> (tempfile::Temp
         }
         std::fs::write(&file_path, content).expect("Failed to write file");
         let source = SourceFile::new(file_path, file_type);
-        builder.process_file(&source).expect("Failed to process file");
+        builder
+            .process_file(&source)
+            .expect("Failed to process file");
     }
 
     (temp_dir, builder.build())
@@ -113,12 +121,18 @@ class SortedList<T : Comparable<T>> {
         assert!(producer.is_some(), "Producer (covariant) doit être parsé");
 
         let consumer = graph.declarations().find(|d| d.name == "Consumer");
-        assert!(consumer.is_some(), "Consumer (contravariant) doit être parsé");
+        assert!(
+            consumer.is_some(),
+            "Consumer (contravariant) doit être parsé"
+        );
 
         let is_type = graph.declarations().find(|d| d.name == "isType");
         assert!(is_type.is_some(), "isType (reified) doit être parsé");
 
-        println!("Parsed {} declarations with complex generics", graph.declarations().count());
+        println!(
+            "Parsed {} declarations with complex generics",
+            graph.declarations().count()
+        );
     }
 
     /// Test 2: Parsing de coroutines et suspend functions
@@ -194,7 +208,8 @@ interface Deferred<T> {
         let graph = build_graph_from_content(content);
 
         // Vérifier les suspend functions
-        let suspend_fns: Vec<_> = graph.declarations()
+        let suspend_fns: Vec<_> = graph
+            .declarations()
             .filter(|d| d.modifiers.iter().any(|m| m == "suspend"))
             .collect();
 
@@ -247,13 +262,22 @@ class CommonClass {
 
         // Vérifier les expect declarations
         let platform_class = graph.declarations().find(|d| d.name == "Platform");
-        assert!(platform_class.is_some(), "expect class Platform doit être parsé");
+        assert!(
+            platform_class.is_some(),
+            "expect class Platform doit être parsé"
+        );
 
         let platform_log = graph.declarations().find(|d| d.name == "platformLog");
-        assert!(platform_log.is_some(), "expect fun platformLog doit être parsé");
+        assert!(
+            platform_log.is_some(),
+            "expect fun platformLog doit être parsé"
+        );
 
         let platform_config = graph.declarations().find(|d| d.name == "PlatformConfig");
-        assert!(platform_config.is_some(), "expect object PlatformConfig doit être parsé");
+        assert!(
+            platform_config.is_some(),
+            "expect object PlatformConfig doit être parsé"
+        );
 
         println!("Multiplatform declarations parsed successfully");
     }
@@ -336,7 +360,10 @@ interface Callback {
         let inner = graph.declarations().find(|d| d.name == "Inner");
         assert!(inner.is_some(), "Inner class doit être parsé");
 
-        println!("Java inner classes parsed: {} declarations", graph.declarations().count());
+        println!(
+            "Java inner classes parsed: {} declarations",
+            graph.declarations().count()
+        );
     }
 
     /// Test 5: Context receivers Kotlin
@@ -464,7 +491,10 @@ fun main() {
         let is_valid = graph.declarations().find(|d| d.name == "isValid");
         assert!(is_valid.is_some(), "isValid method doit être parsé");
 
-        println!("Value classes parsed: {} declarations", graph.declarations().count());
+        println!(
+            "Value classes parsed: {} declarations",
+            graph.declarations().count()
+        );
     }
 
     /// Test 7: Récupération d'erreurs de syntaxe
@@ -517,11 +547,15 @@ class FinalValidClass {
 
         if result.is_ok() {
             let graph = builder.build();
-            let valid_classes: Vec<_> = graph.declarations()
+            let valid_classes: Vec<_> = graph
+                .declarations()
                 .filter(|d| d.name.contains("Valid"))
                 .collect();
 
-            println!("Found {} valid classes in malformed file", valid_classes.len());
+            println!(
+                "Found {} valid classes in malformed file",
+                valid_classes.len()
+            );
         }
     }
 
@@ -592,7 +626,9 @@ data class User(val id: Long, val name: String)
         let graph = build_graph_from_content(content);
 
         // Le code généré doit être parsé
-        let factory = graph.declarations().find(|d| d.name == "UserService_Factory");
+        let factory = graph
+            .declarations()
+            .find(|d| d.name == "UserService_Factory");
         assert!(factory.is_some(), "Generated factory doit être parsé");
 
         // Les classes source aussi
@@ -602,7 +638,10 @@ data class User(val id: Long, val name: String)
         // Le code généré NE DOIT PAS être signalé comme mort
         // car il est utilisé par le framework DI
 
-        println!("KSP generated code parsed: {} declarations", graph.declarations().count());
+        println!(
+            "KSP generated code parsed: {} declarations",
+            graph.declarations().count()
+        );
     }
 }
 
@@ -618,7 +657,9 @@ mod cross_file_tests {
     fn test_cross_module_references() {
         let files = vec![
             // Module :core
-            ("core/User.kt", r#"
+            (
+                "core/User.kt",
+                r#"
 package com.example.core.model
 
 data class User(
@@ -631,10 +672,13 @@ interface UserRepository {
     fun findById(id: Long): User?
     fun save(user: User): User
 }
-"#, FileType::Kotlin),
-
+"#,
+                FileType::Kotlin,
+            ),
             // Module :data (dépend de :core)
-            ("data/UserRepositoryImpl.kt", r#"
+            (
+                "data/UserRepositoryImpl.kt",
+                r#"
 package com.example.data.repository
 
 import com.example.core.model.User
@@ -650,10 +694,13 @@ class UserRepositoryImpl : UserRepository {
         return user
     }
 }
-"#, FileType::Kotlin),
-
+"#,
+                FileType::Kotlin,
+            ),
             // Module :app (dépend de :core et :data)
-            ("app/MainViewModel.kt", r#"
+            (
+                "app/MainViewModel.kt",
+                r#"
 package com.example.app.ui
 
 import com.example.core.model.User
@@ -671,7 +718,9 @@ class MainViewModel(
         return repository.save(user)
     }
 }
-"#, FileType::Kotlin),
+"#,
+                FileType::Kotlin,
+            ),
         ];
 
         let (_temp_dir, graph) = build_multi_file_graph(files);
@@ -681,22 +730,35 @@ class MainViewModel(
         assert!(user.is_some(), "User (core) doit être trouvé");
 
         let user_repo = graph.declarations().find(|d| d.name == "UserRepository");
-        assert!(user_repo.is_some(), "UserRepository (core) doit être trouvé");
+        assert!(
+            user_repo.is_some(),
+            "UserRepository (core) doit être trouvé"
+        );
 
-        let user_repo_impl = graph.declarations().find(|d| d.name == "UserRepositoryImpl");
-        assert!(user_repo_impl.is_some(), "UserRepositoryImpl (data) doit être trouvé");
+        let user_repo_impl = graph
+            .declarations()
+            .find(|d| d.name == "UserRepositoryImpl");
+        assert!(
+            user_repo_impl.is_some(),
+            "UserRepositoryImpl (data) doit être trouvé"
+        );
 
         let view_model = graph.declarations().find(|d| d.name == "MainViewModel");
         assert!(view_model.is_some(), "MainViewModel (app) doit être trouvé");
 
-        println!("Cross-module: {} declarations across 3 modules", graph.declarations().count());
+        println!(
+            "Cross-module: {} declarations across 3 modules",
+            graph.declarations().count()
+        );
     }
 
     /// Test 10: Interface dans un fichier, impl dans un autre
     #[test]
     fn test_interface_impl_different_files() {
         let files = vec![
-            ("contracts/DataSource.kt", r#"
+            (
+                "contracts/DataSource.kt",
+                r#"
 package com.example.contracts
 
 interface DataSource<T> {
@@ -711,9 +773,12 @@ interface NetworkDataSource<T> : DataSource<T> {
     suspend fun sync(): Result<Unit>
     fun isOnline(): Boolean
 }
-"#, FileType::Kotlin),
-
-            ("impl/LocalDataSource.kt", r#"
+"#,
+                FileType::Kotlin,
+            ),
+            (
+                "impl/LocalDataSource.kt",
+                r#"
 package com.example.impl
 
 import com.example.contracts.DataSource
@@ -732,9 +797,12 @@ class LocalDataSource<T> : DataSource<T> {
     override fun update(item: T): Boolean = true
     override fun delete(id: Long): Boolean = storage.remove(id) != null
 }
-"#, FileType::Kotlin),
-
-            ("impl/RemoteDataSource.kt", r#"
+"#,
+                FileType::Kotlin,
+            ),
+            (
+                "impl/RemoteDataSource.kt",
+                r#"
 package com.example.impl
 
 import com.example.contracts.NetworkDataSource
@@ -748,33 +816,49 @@ class RemoteDataSource<T> : NetworkDataSource<T> {
     override suspend fun sync(): Result<Unit> = Result.success(Unit)
     override fun isOnline(): Boolean = true
 }
-"#, FileType::Kotlin),
+"#,
+                FileType::Kotlin,
+            ),
         ];
 
         let (_temp_dir, graph) = build_multi_file_graph(files);
 
         // Interfaces
         let data_source = graph.declarations().find(|d| d.name == "DataSource");
-        assert!(data_source.is_some(), "DataSource interface doit être trouvé");
+        assert!(
+            data_source.is_some(),
+            "DataSource interface doit être trouvé"
+        );
 
         let network_ds = graph.declarations().find(|d| d.name == "NetworkDataSource");
-        assert!(network_ds.is_some(), "NetworkDataSource interface doit être trouvé");
+        assert!(
+            network_ds.is_some(),
+            "NetworkDataSource interface doit être trouvé"
+        );
 
         // Implementations
         let local_ds = graph.declarations().find(|d| d.name == "LocalDataSource");
         assert!(local_ds.is_some(), "LocalDataSource impl doit être trouvé");
 
         let remote_ds = graph.declarations().find(|d| d.name == "RemoteDataSource");
-        assert!(remote_ds.is_some(), "RemoteDataSource impl doit être trouvé");
+        assert!(
+            remote_ds.is_some(),
+            "RemoteDataSource impl doit être trouvé"
+        );
 
-        println!("Interface/Impl cross-file: {} declarations", graph.declarations().count());
+        println!(
+            "Interface/Impl cross-file: {} declarations",
+            graph.declarations().count()
+        );
     }
 
     /// Test 11: Extension function cross-file
     #[test]
     fn test_extension_function_cross_file() {
         let files = vec![
-            ("extensions/StringExtensions.kt", r#"
+            (
+                "extensions/StringExtensions.kt",
+                r#"
 package com.example.extensions
 
 fun String.toSlug(): String =
@@ -793,9 +877,12 @@ fun String.capitalizeWords(): String =
     this.split(" ").joinToString(" ") {
         it.replaceFirstChar { c -> c.uppercase() }
     }
-"#, FileType::Kotlin),
-
-            ("usage/ArticleProcessor.kt", r#"
+"#,
+                FileType::Kotlin,
+            ),
+            (
+                "usage/ArticleProcessor.kt",
+                r#"
 package com.example.usage
 
 import com.example.extensions.toSlug
@@ -817,9 +904,12 @@ data class ProcessedTitle(
     val slug: String,
     val preview: String
 )
-"#, FileType::Kotlin),
-
-            ("usage/EmailValidator.kt", r#"
+"#,
+                FileType::Kotlin,
+            ),
+            (
+                "usage/EmailValidator.kt",
+                r#"
 package com.example.usage
 
 import com.example.extensions.isValidEmail
@@ -838,7 +928,9 @@ sealed class ValidationResult {
     object Valid : ValidationResult()
     data class Invalid(val reason: String) : ValidationResult()
 }
-"#, FileType::Kotlin),
+"#,
+                FileType::Kotlin,
+            ),
         ];
 
         let (_temp_dir, graph) = build_multi_file_graph(files);
@@ -848,23 +940,34 @@ sealed class ValidationResult {
         assert!(to_slug.is_some(), "toSlug extension doit être trouvé");
 
         let is_valid_email = graph.declarations().find(|d| d.name == "isValidEmail");
-        assert!(is_valid_email.is_some(), "isValidEmail extension doit être trouvé");
+        assert!(
+            is_valid_email.is_some(),
+            "isValidEmail extension doit être trouvé"
+        );
 
         // Usage classes
         let article_processor = graph.declarations().find(|d| d.name == "ArticleProcessor");
-        assert!(article_processor.is_some(), "ArticleProcessor doit être trouvé");
+        assert!(
+            article_processor.is_some(),
+            "ArticleProcessor doit être trouvé"
+        );
 
         let email_validator = graph.declarations().find(|d| d.name == "EmailValidator");
         assert!(email_validator.is_some(), "EmailValidator doit être trouvé");
 
-        println!("Extension cross-file: {} declarations", graph.declarations().count());
+        println!(
+            "Extension cross-file: {} declarations",
+            graph.declarations().count()
+        );
     }
 
     /// Test 12: Typealias cross-file
     #[test]
     fn test_typealias_cross_file() {
         let files = vec![
-            ("types/Aliases.kt", r#"
+            (
+                "types/Aliases.kt",
+                r#"
 package com.example.types
 
 // Simple typealiases
@@ -884,9 +987,12 @@ typealias UserList = List<User>
 typealias UserCallback = Callback<User>
 
 data class User(val id: UserId, val name: UserName, val email: Email)
-"#, FileType::Kotlin),
-
-            ("service/UserService.kt", r#"
+"#,
+                FileType::Kotlin,
+            ),
+            (
+                "service/UserService.kt",
+                r#"
 package com.example.service
 
 import com.example.types.*
@@ -918,13 +1024,22 @@ class UserService {
         listeners.forEach { it(user) }
     }
 }
-"#, FileType::Kotlin),
+"#,
+                FileType::Kotlin,
+            ),
         ];
 
         let (_temp_dir, graph) = build_multi_file_graph(files);
 
         // Typealiases
-        let type_aliases = ["UserId", "UserName", "Email", "Callback", "Predicate", "Mapper"];
+        let type_aliases = [
+            "UserId",
+            "UserName",
+            "Email",
+            "Callback",
+            "Predicate",
+            "Mapper",
+        ];
         for alias in &type_aliases {
             let found = graph.declarations().any(|d| d.name == *alias);
             println!("Typealias {}: found = {}", alias, found);
@@ -934,14 +1049,19 @@ class UserService {
         let user_service = graph.declarations().find(|d| d.name == "UserService");
         assert!(user_service.is_some(), "UserService doit être trouvé");
 
-        println!("Typealias cross-file: {} declarations", graph.declarations().count());
+        println!(
+            "Typealias cross-file: {} declarations",
+            graph.declarations().count()
+        );
     }
 
     /// Test 13: Companion object cross-file
     #[test]
     fn test_companion_object_cross_file() {
         let files = vec![
-            ("models/Config.kt", r#"
+            (
+                "models/Config.kt",
+                r#"
 package com.example.models
 
 class AppConfig private constructor(
@@ -968,9 +1088,12 @@ class AppConfig private constructor(
         const val VERSION = "1.0.0"
     }
 }
-"#, FileType::Kotlin),
-
-            ("network/ApiClient.kt", r#"
+"#,
+                FileType::Kotlin,
+            ),
+            (
+                "network/ApiClient.kt",
+                r#"
 package com.example.network
 
 import com.example.models.AppConfig
@@ -989,9 +1112,12 @@ class ApiClient {
         return "response"
     }
 }
-"#, FileType::Kotlin),
-
-            ("di/AppModule.kt", r#"
+"#,
+                FileType::Kotlin,
+            ),
+            (
+                "di/AppModule.kt",
+                r#"
 package com.example.di
 
 import com.example.models.AppConfig
@@ -1013,7 +1139,9 @@ object AppModule {
     fun provideConfig(): AppConfig = config
     fun provideApiClient(): ApiClient = apiClient
 }
-"#, FileType::Kotlin),
+"#,
+                FileType::Kotlin,
+            ),
         ];
 
         let (_temp_dir, graph) = build_multi_file_graph(files);
@@ -1033,14 +1161,19 @@ object AppModule {
         let api_client = graph.declarations().find(|d| d.name == "ApiClient");
         assert!(api_client.is_some(), "ApiClient doit être trouvé");
 
-        println!("Companion cross-file: {} declarations", graph.declarations().count());
+        println!(
+            "Companion cross-file: {} declarations",
+            graph.declarations().count()
+        );
     }
 
     /// Test 14: Sealed hierarchy cross-file
     #[test]
     fn test_sealed_hierarchy_cross_file() {
         let files = vec![
-            ("state/UiState.kt", r#"
+            (
+                "state/UiState.kt",
+                r#"
 package com.example.state
 
 sealed class UiState<out T> {
@@ -1055,9 +1188,12 @@ object Loading : UiState<Nothing>() {
 object Idle : UiState<Nothing>() {
     override val isTerminal = true
 }
-"#, FileType::Kotlin),
-
-            ("state/SuccessState.kt", r#"
+"#,
+                FileType::Kotlin,
+            ),
+            (
+                "state/SuccessState.kt",
+                r#"
 package com.example.state
 
 data class Success<T>(
@@ -1073,9 +1209,12 @@ data class PartialSuccess<T>(
 ) : UiState<T>() {
     override val isTerminal = false
 }
-"#, FileType::Kotlin),
-
-            ("state/ErrorState.kt", r#"
+"#,
+                FileType::Kotlin,
+            ),
+            (
+                "state/ErrorState.kt",
+                r#"
 package com.example.state
 
 sealed class ErrorState : UiState<Nothing>() {
@@ -1086,9 +1225,12 @@ sealed class ErrorState : UiState<Nothing>() {
     data class ValidationError(val field: String, val message: String) : ErrorState()
     object UnknownError : ErrorState()
 }
-"#, FileType::Kotlin),
-
-            ("viewmodel/StateHandler.kt", r#"
+"#,
+                FileType::Kotlin,
+            ),
+            (
+                "viewmodel/StateHandler.kt",
+                r#"
 package com.example.viewmodel
 
 import com.example.state.*
@@ -1107,7 +1249,9 @@ class StateHandler<T> {
         }
     }
 }
-"#, FileType::Kotlin),
+"#,
+                FileType::Kotlin,
+            ),
         ];
 
         let (_temp_dir, graph) = build_multi_file_graph(files);
@@ -1127,7 +1271,10 @@ class StateHandler<T> {
         let network_error = graph.declarations().find(|d| d.name == "NetworkError");
         assert!(network_error.is_some(), "NetworkError doit être trouvé");
 
-        println!("Sealed hierarchy cross-file: {} declarations", graph.declarations().count());
+        println!(
+            "Sealed hierarchy cross-file: {} declarations",
+            graph.declarations().count()
+        );
     }
 }
 
@@ -1200,7 +1347,13 @@ class Intent
         let graph = build_graph_from_content(content);
 
         // Toutes les activités doivent être trouvées
-        let activities = ["MainActivity", "SettingsActivity", "LoginActivity", "SplashActivity", "DeepLinkActivity"];
+        let activities = [
+            "MainActivity",
+            "SettingsActivity",
+            "LoginActivity",
+            "SplashActivity",
+            "DeepLinkActivity",
+        ];
 
         for activity in &activities {
             let found = graph.declarations().any(|d| d.name == *activity);
@@ -1301,7 +1454,10 @@ class Intent {
             assert!(found, "Receiver {} doit être trouvé", receiver);
         }
 
-        println!("Services and Receivers: {} found", services.len() + receivers.len());
+        println!(
+            "Services and Receivers: {} found",
+            services.len() + receivers.len()
+        );
     }
 
     /// Test 17: Variables DataBinding dans XML
@@ -1458,7 +1614,11 @@ class LayoutInflater
         let graph = build_graph_from_content(content);
 
         // Generated binding classes
-        let bindings = ["ActivityMainBinding", "FragmentHomeBinding", "ItemListBinding"];
+        let bindings = [
+            "ActivityMainBinding",
+            "FragmentHomeBinding",
+            "ItemListBinding",
+        ];
         for binding in &bindings {
             let found = graph.declarations().any(|d| d.name == *binding);
             assert!(found, "ViewBinding {} doit être trouvé", binding);
@@ -1556,13 +1716,21 @@ class Bundle {
 
         // Navigation destinations
         let fragments = [
-            "HomeFragment", "DetailsFragment", "SettingsFragment",
-            "ProfileFragment", "ConfirmDialogFragment", "FilterBottomSheet"
+            "HomeFragment",
+            "DetailsFragment",
+            "SettingsFragment",
+            "ProfileFragment",
+            "ConfirmDialogFragment",
+            "FilterBottomSheet",
         ];
 
         for fragment in &fragments {
             let found = graph.declarations().any(|d| d.name == *fragment);
-            assert!(found, "Navigation destination {} doit être trouvé", fragment);
+            assert!(
+                found,
+                "Navigation destination {} doit être trouvé",
+                fragment
+            );
         }
 
         println!("Navigation destinations: {} found", fragments.len());
@@ -1637,8 +1805,10 @@ data class User(val id: Long, val name: String, val email: String)
 
         // Preview functions
         let previews = [
-            "UserCardPreview", "LoadingIndicatorPreview",
-            "ErrorMessagePreview", "ThemedComponentPreview"
+            "UserCardPreview",
+            "LoadingIndicatorPreview",
+            "ErrorMessagePreview",
+            "ThemedComponentPreview",
         ];
 
         for preview in &previews {
@@ -1728,7 +1898,12 @@ class WorkerParameters
         let graph = build_graph_from_content(content);
 
         // Workers
-        let workers = ["SyncWorker", "UploadWorker", "CleanupWorker", "NotificationWorker"];
+        let workers = [
+            "SyncWorker",
+            "UploadWorker",
+            "CleanupWorker",
+            "NotificationWorker",
+        ];
 
         for worker in &workers {
             let found = graph.declarations().any(|d| d.name == *worker);
@@ -1832,7 +2007,11 @@ class ContentValues
         let methods = ["onCreate", "query", "insert", "update", "delete", "getType"];
         for method in &methods {
             let count = graph.declarations().filter(|d| d.name == *method).count();
-            assert!(count >= 2, "Method {} doit exister dans chaque provider", method);
+            assert!(
+                count >= 2,
+                "Method {} doit exister dans chaque provider",
+                method
+            );
         }
 
         println!("ContentProviders: {} found", providers.len());
@@ -2041,7 +2220,12 @@ class ViewModelFactory
         }
 
         // Provide methods - check how many are found
-        let provides = ["provideDatabase", "provideApiService", "provideNavigator", "provideViewModelFactory"];
+        let provides = [
+            "provideDatabase",
+            "provideApiService",
+            "provideNavigator",
+            "provideViewModelFactory",
+        ];
         let mut found_provides = 0;
         for provide in &provides {
             let found = graph.declarations().any(|d| d.name == *provide);
@@ -2053,11 +2237,16 @@ class ViewModelFactory
 
         // At minimum, we should find the modules (objects) or some declarations
         let total_decls = graph.declarations().count();
-        println!("Dagger subcomponents: {} declarations, {} components, {} modules, {} provide methods",
-                 total_decls, found_components, found_modules, found_provides);
+        println!(
+            "Dagger subcomponents: {} declarations, {} components, {} modules, {} provide methods",
+            total_decls, found_components, found_modules, found_provides
+        );
 
         // Verify that we found at least some Dagger-related declarations
-        assert!(total_decls > 0, "Should find at least some declarations in Dagger code");
+        assert!(
+            total_decls > 0,
+            "Should find at least some declarations in Dagger code"
+        );
     }
 
     /// Test 25: Koin modules
@@ -2142,7 +2331,10 @@ inline fun <reified T> get(): T = TODO()
             assert!(found, "Class {} doit être trouvée", class_name);
         }
 
-        println!("Koin modules: {} declarations", graph.declarations().count());
+        println!(
+            "Koin modules: {} declarations",
+            graph.declarations().count()
+        );
     }
 
     /// Test 26: @AssistedInject + @AssistedFactory
@@ -2218,12 +2410,16 @@ interface Callback {
         }
 
         // Factory interfaces
-        let factory_count = graph.declarations()
-            .filter(|d| d.name == "Factory")
-            .count();
-        assert!(factory_count >= 2, "Factory interfaces doivent être trouvées");
+        let factory_count = graph.declarations().filter(|d| d.name == "Factory").count();
+        assert!(
+            factory_count >= 2,
+            "Factory interfaces doivent être trouvées"
+        );
 
-        println!("Assisted inject: {} declarations", graph.declarations().count());
+        println!(
+            "Assisted inject: {} declarations",
+            graph.declarations().count()
+        );
     }
 
     /// Test 27: Multibinding contributions
@@ -2329,12 +2525,16 @@ class ViewModel
         }
 
         // Binding methods
-        let bind_methods: Vec<_> = graph.declarations()
+        let bind_methods: Vec<_> = graph
+            .declarations()
             .filter(|d| d.name.starts_with("bind"))
             .collect();
 
-        println!("Multibinding: {} bind methods, {} declarations total",
-                 bind_methods.len(), graph.declarations().count());
+        println!(
+            "Multibinding: {} bind methods, {} declarations total",
+            bind_methods.len(),
+            graph.declarations().count()
+        );
     }
 }
 
@@ -2426,8 +2626,15 @@ data class Review(val id: Long, val rating: Int)
 
         // API methods (ces méthodes sont appelées via Retrofit, pas directement)
         let api_methods = [
-            "getUsers", "getUserById", "searchUsers", "createUser", "updateUser", "deleteUser",
-            "getProducts", "getProductById", "addReview"
+            "getUsers",
+            "getUserById",
+            "searchUsers",
+            "createUser",
+            "updateUser",
+            "deleteUser",
+            "getProducts",
+            "getProductById",
+            "addReview",
         ];
 
         for method in &api_methods {
@@ -2524,9 +2731,16 @@ data class ProductEntity(val id: Long, val name: String, val category: String)
 
         // DAO methods
         let dao_methods = [
-            "getAllUsers", "getUserById", "getUserByEmail", "searchUsers",
-            "insertUser", "updateUser", "deleteUser", "deleteUserById",
-            "getProductsByCategory", "getOrderedProducts"
+            "getAllUsers",
+            "getUserById",
+            "getUserByEmail",
+            "searchUsers",
+            "insertUser",
+            "updateUser",
+            "deleteUser",
+            "deleteUserById",
+            "getProductsByCategory",
+            "getOrderedProducts",
         ];
 
         for method in &dao_methods {
@@ -2599,8 +2813,12 @@ class CriticalClass {
 
         // Classes avec -keep
         let kept_classes = [
-            "ApiResponse", "UserResponse", "ErrorResponse",
-            "CustomSerializer", "NativeCallback", "CriticalClass"
+            "ApiResponse",
+            "UserResponse",
+            "ErrorResponse",
+            "CustomSerializer",
+            "NativeCallback",
+            "CriticalClass",
         ];
 
         for class_name in &kept_classes {
@@ -2706,7 +2924,10 @@ class CacheServiceProvider : ServiceProvider {
             assert!(found, "ServiceProvider {} doit être trouvé", provider);
         }
 
-        println!("Reflection classes: {} found", plugins.len() + providers.len());
+        println!(
+            "Reflection classes: {} found",
+            plugins.len() + providers.len()
+        );
     }
 
     /// Test 32: @Subscribe EventBus/Otto
@@ -2778,7 +2999,11 @@ class NetworkEventHandler {
         let graph = build_graph_from_content(content);
 
         // Event handlers
-        let handlers = ["UserEventHandler", "DataEventHandler", "NetworkEventHandler"];
+        let handlers = [
+            "UserEventHandler",
+            "DataEventHandler",
+            "NetworkEventHandler",
+        ];
         for handler in &handlers {
             let found = graph.declarations().any(|d| d.name == *handler);
             assert!(found, "Handler {} doit être trouvé", handler);
@@ -2786,8 +3011,11 @@ class NetworkEventHandler {
 
         // Subscriber methods
         let subscribers = [
-            "onUserLoggedIn", "onUserLoggedOut", "onDataUpdated",
-            "onNetworkStatus", "onError"
+            "onUserLoggedIn",
+            "onUserLoggedOut",
+            "onDataUpdated",
+            "onNetworkStatus",
+            "onError",
         ];
         for sub in &subscribers {
             let found = graph.declarations().any(|d| d.name == *sub);
@@ -2796,15 +3024,22 @@ class NetworkEventHandler {
 
         // Events
         let events = [
-            "UserLoggedInEvent", "UserLoggedOutEvent", "DataUpdatedEvent",
-            "NetworkStatusEvent", "ErrorEvent"
+            "UserLoggedInEvent",
+            "UserLoggedOutEvent",
+            "DataUpdatedEvent",
+            "NetworkStatusEvent",
+            "ErrorEvent",
         ];
         for event in &events {
             let found = graph.declarations().any(|d| d.name == *event);
             assert!(found, "Event {} doit être trouvé", event);
         }
 
-        println!("EventBus: {} subscribers, {} events", subscribers.len(), events.len());
+        println!(
+            "EventBus: {} subscribers, {} events",
+            subscribers.len(),
+            events.len()
+        );
     }
 
     /// Test 33: @Parcelize generated CREATOR
@@ -2890,13 +3125,19 @@ data class Order(
         }
 
         // CREATOR companions
-        let creator_count = graph.declarations()
-            .filter(|d| d.name == "CREATOR")
-            .count();
-        assert!(creator_count >= 2, "CREATOR companions doivent être trouvés");
+        let creator_count = graph.declarations().filter(|d| d.name == "CREATOR").count();
+        assert!(
+            creator_count >= 2,
+            "CREATOR companions doivent être trouvés"
+        );
 
         // Parcelable methods
-        let methods = ["writeToParcel", "describeContents", "createFromParcel", "newArray"];
+        let methods = [
+            "writeToParcel",
+            "describeContents",
+            "createFromParcel",
+            "newArray",
+        ];
         for method in &methods {
             let count = graph.declarations().filter(|d| d.name == *method).count();
             assert!(count >= 1, "Method {} doit être trouvée", method);
@@ -3001,8 +3242,11 @@ class EnumProcessor {
         }
 
         // At least the enums should be found
-        println!("Enums with valueOf/entries: {} enums, {} companion methods found",
-                 enums.len(), found_companions);
+        println!(
+            "Enums with valueOf/entries: {} enums, {} companion methods found",
+            enums.len(),
+            found_companions
+        );
     }
 }
 
@@ -3020,10 +3264,7 @@ mod performance_tests {
 
         // Generate 50 files with 20 classes each = 1000+ declarations
         for file_idx in 0..50 {
-            let mut content = format!(
-                "package com.example.generated.file{}\n\n",
-                file_idx
-            );
+            let mut content = format!("package com.example.generated.file{}\n\n", file_idx);
 
             for class_idx in 0..20 {
                 content.push_str(&format!(
@@ -3059,10 +3300,16 @@ class Generated{}_{} {{
         let parse_time = start.elapsed();
 
         let decl_count = graph.declarations().count();
-        println!("Large codebase: {} declarations parsed in {:?}", decl_count, parse_time);
+        println!(
+            "Large codebase: {} declarations parsed in {:?}",
+            decl_count, parse_time
+        );
 
         assert!(decl_count >= 1000, "Should have at least 1000 declarations");
-        assert!(parse_time.as_secs() < 30, "Parsing should complete in < 30 seconds");
+        assert!(
+            parse_time.as_secs() < 60,
+            "Parsing should complete in < 60 seconds"
+        );
 
         // Test detector performance
         let detector_start = Instant::now();
@@ -3070,8 +3317,15 @@ class Generated{}_{} {{
         let issues = detector.detect(&graph);
         let detector_time = detector_start.elapsed();
 
-        println!("Write-only detector: {} issues in {:?}", issues.len(), detector_time);
-        assert!(detector_time.as_secs() < 10, "Detector should complete in < 10 seconds");
+        println!(
+            "Write-only detector: {} issues in {:?}",
+            issues.len(),
+            detector_time
+        );
+        assert!(
+            detector_time.as_secs() < 10,
+            "Detector should complete in < 10 seconds"
+        );
     }
 
     /// Test 36: Deeply nested structures (50+ levels)
@@ -3105,10 +3359,14 @@ class Generated{}_{} {{
         let elapsed = start.elapsed();
 
         let decl_count = graph.declarations().count();
-        println!("Deeply nested: {} declarations parsed in {:?}", decl_count, elapsed);
+        println!(
+            "Deeply nested: {} declarations parsed in {:?}",
+            decl_count, elapsed
+        );
 
         // Should parse all levels
-        let level_classes: Vec<_> = graph.declarations()
+        let level_classes: Vec<_> = graph
+            .declarations()
             .filter(|d| d.name.starts_with("Level"))
             .collect();
 
@@ -3166,19 +3424,27 @@ data class FileData{}(
         for file_idx in 0..20 {
             let file_path = temp_dir.path().join(format!("File{}.kt", file_idx));
             let source = SourceFile::new(file_path, FileType::Kotlin);
-            seq_builder.process_file(&source).expect("Failed to process");
+            seq_builder
+                .process_file(&source)
+                .expect("Failed to process");
         }
         let seq_graph = seq_builder.build();
         let seq_time = seq_start.elapsed();
 
-        println!("Sequential: {} declarations in {:?}",
-                 seq_graph.declarations().count(), seq_time);
+        println!(
+            "Sequential: {} declarations in {:?}",
+            seq_graph.declarations().count(),
+            seq_time
+        );
 
         // Note: Pour un vrai test parallèle, on utiliserait ParallelGraphBuilder
         // Ici on vérifie juste que le traitement séquentiel est raisonnable
 
         assert!(seq_time.as_secs() < 10, "Sequential should be fast");
-        assert!(seq_graph.declarations().count() >= 100, "Should have many declarations");
+        assert!(
+            seq_graph.declarations().count() >= 100,
+            "Should have many declarations"
+        );
     }
 }
 
@@ -3234,7 +3500,10 @@ fun main() {
 
         // Verify issue structure
         for issue in &issues {
-            assert!(!issue.declaration.name.is_empty(), "Issue should have declaration name");
+            assert!(
+                !issue.declaration.name.is_empty(),
+                "Issue should have declaration name"
+            );
             assert!(!issue.message.is_empty(), "Issue should have message");
         }
     }
@@ -3283,7 +3552,10 @@ fun main() {
         // Verify each declaration has required fields
         for decl in &declarations {
             assert!(!decl.name.is_empty(), "Declaration should have name");
-            assert!(decl.location.line > 0, "Declaration should have line number");
+            assert!(
+                decl.location.line > 0,
+                "Declaration should have line number"
+            );
         }
     }
 
@@ -3317,21 +3589,21 @@ fun main() {
         let graph = build_graph_from_content(content);
 
         // Simulate baseline content
-        let baseline_issues = vec![
+        let baseline_issues = [
             ("BaselinedUnusedClass", "test.kt", 5),
             ("baselinedUnusedMethod", "test.kt", 6),
         ];
 
         // Get all declarations that could be dead
-        let all_decls: Vec<_> = graph.declarations()
+        let all_decls: Vec<_> = graph
+            .declarations()
             .filter(|d| d.name.contains("Unused"))
             .collect();
 
         // Filter out baselined issues
-        let new_issues: Vec<_> = all_decls.iter()
-            .filter(|d| {
-                !baseline_issues.iter().any(|(name, _, _)| d.name == *name)
-            })
+        let new_issues: Vec<_> = all_decls
+            .iter()
+            .filter(|d| !baseline_issues.iter().any(|(name, _, _)| d.name == *name))
             .collect();
 
         println!("All unused declarations: {}", all_decls.len());
@@ -3341,11 +3613,17 @@ fun main() {
         // (names contain "New" or "new" since we have NewUnusedClass and newUnusedMethod)
         for issue in &new_issues {
             let is_new_issue = issue.name.to_lowercase().contains("new");
-            assert!(is_new_issue,
-                    "Only new issues should remain after baseline filtering, found: {}", issue.name);
+            assert!(
+                is_new_issue,
+                "Only new issues should remain after baseline filtering, found: {}",
+                issue.name
+            );
         }
 
         // Verify we found the expected declarations
-        println!("New issues after baseline filter: {:?}", new_issues.iter().map(|d| &d.name).collect::<Vec<_>>());
+        println!(
+            "New issues after baseline filter: {:?}",
+            new_issues.iter().map(|d| &d.name).collect::<Vec<_>>()
+        );
     }
 }

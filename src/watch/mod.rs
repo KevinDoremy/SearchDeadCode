@@ -5,13 +5,13 @@
 
 #![allow(dead_code)] // Builder pattern methods for future configuration
 
+use colored::Colorize;
 use notify::RecursiveMode;
 use notify_debouncer_mini::{new_debouncer, DebouncedEventKind};
 use std::path::Path;
 use std::sync::mpsc::channel;
 use std::time::Duration;
 use thiserror::Error;
-use colored::Colorize;
 
 /// Watch mode errors
 #[derive(Error, Debug)]
@@ -35,11 +35,7 @@ impl FileWatcher {
     pub fn new() -> Self {
         Self {
             debounce_ms: 500,
-            extensions: vec![
-                "kt".to_string(),
-                "java".to_string(),
-                "xml".to_string(),
-            ],
+            extensions: vec!["kt".to_string(), "java".to_string(), "xml".to_string()],
         }
     }
 
@@ -77,27 +73,23 @@ impl FileWatcher {
     }
 
     /// Start watching a directory and call the callback on changes
-    pub fn watch<F>(
-        &self,
-        path: &Path,
-        mut on_change: F,
-    ) -> Result<(), WatchError>
+    pub fn watch<F>(&self, path: &Path, mut on_change: F) -> Result<(), WatchError>
     where
-        F: FnMut() -> bool,  // Returns false to stop watching
+        F: FnMut() -> bool, // Returns false to stop watching
     {
         let (tx, rx) = channel();
 
         // Create debounced watcher
-        let mut debouncer = new_debouncer(
-            Duration::from_millis(self.debounce_ms),
-            tx,
-        )?;
+        let mut debouncer = new_debouncer(Duration::from_millis(self.debounce_ms), tx)?;
 
         // Start watching
         debouncer.watcher().watch(path, RecursiveMode::Recursive)?;
 
         println!();
-        println!("{}", "👁  Watch mode active. Press Ctrl+C to stop.".cyan().bold());
+        println!(
+            "{}",
+            "👁  Watch mode active. Press Ctrl+C to stop.".cyan().bold()
+        );
         println!("{}", format!("   Watching: {}", path.display()).dimmed());
         println!();
 
@@ -116,8 +108,10 @@ impl FileWatcher {
                             let relevant: Vec<_> = events
                                 .iter()
                                 .filter(|e| {
-                                    matches!(e.kind, DebouncedEventKind::Any | DebouncedEventKind::AnyContinuous)
-                                        && self.should_trigger(&e.path)
+                                    matches!(
+                                        e.kind,
+                                        DebouncedEventKind::Any | DebouncedEventKind::AnyContinuous
+                                    ) && self.should_trigger(&e.path)
                                 })
                                 .collect();
 
@@ -128,7 +122,8 @@ impl FileWatcher {
                                     format!(
                                         "🔄 Changes detected in {} file(s), re-analyzing...",
                                         relevant.len()
-                                    ).yellow()
+                                    )
+                                    .yellow()
                                 );
 
                                 // List changed files (up to 5)

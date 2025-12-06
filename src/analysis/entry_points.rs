@@ -1,7 +1,9 @@
 use crate::config::Config;
 use crate::discovery::FileFinder;
 use crate::graph::{Declaration, DeclarationId, DeclarationKind, Graph};
-use crate::parser::xml::{LayoutParser, ManifestParser, MenuParser, NavigationParser, XmlParseResult};
+use crate::parser::xml::{
+    LayoutParser, ManifestParser, MenuParser, NavigationParser, XmlParseResult,
+};
 use miette::Result;
 use std::collections::HashSet;
 use std::path::Path;
@@ -65,7 +67,11 @@ impl<'a> EntryPointDetector<'a> {
     fn detect_code_entry_points(&self, graph: &Graph, entry_points: &mut HashSet<DeclarationId>) {
         for decl in graph.declarations() {
             if self.is_code_entry_point(decl) {
-                debug!("Code entry point: {} ({})", decl.name, decl.kind.display_name());
+                debug!(
+                    "Code entry point: {} ({})",
+                    decl.name,
+                    decl.kind.display_name()
+                );
                 entry_points.insert(decl.id.clone());
             }
         }
@@ -338,7 +344,7 @@ impl<'a> EntryPointDetector<'a> {
             }
 
             // Try to find by simple name (last component)
-            let simple_name = class_ref.split('.').last().unwrap_or(class_ref);
+            let simple_name = class_ref.split('.').next_back().unwrap_or(class_ref);
             let candidates = graph.find_by_name(simple_name);
             for candidate in candidates {
                 debug!("XML entry point: {} (simple)", candidate.name);
@@ -368,11 +374,7 @@ impl<'a> EntryPointDetector<'a> {
     }
 
     /// Apply retain patterns to mark additional entry points
-    fn apply_retain_patterns(
-        &self,
-        graph: &Graph,
-        entry_points: &mut HashSet<DeclarationId>,
-    ) {
+    fn apply_retain_patterns(&self, graph: &Graph, entry_points: &mut HashSet<DeclarationId>) {
         for decl in graph.declarations() {
             // Check config retain patterns
             for pattern in &self.config.retain_patterns {

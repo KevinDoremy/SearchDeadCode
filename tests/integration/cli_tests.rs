@@ -2,8 +2,8 @@
 //!
 //! These tests verify that the CLI works correctly with various options.
 
-use std::process::Command;
 use std::path::PathBuf;
+use std::process::Command;
 
 /// Get the path to the test fixtures directory
 fn fixtures_path() -> PathBuf {
@@ -65,9 +65,15 @@ fn test_cli_help() {
     let (stdout, _, success) = run_cli(&["--help"]);
 
     assert!(success, "Help should succeed");
-    assert!(stdout.contains("searchdeadcode"), "Should show program name");
+    assert!(
+        stdout.contains("searchdeadcode"),
+        "Should show program name"
+    );
     assert!(stdout.contains("--deep"), "Should show --deep option");
-    assert!(stdout.contains("--parallel"), "Should show --parallel option");
+    assert!(
+        stdout.contains("--parallel"),
+        "Should show --parallel option"
+    );
 }
 
 #[test]
@@ -75,7 +81,10 @@ fn test_cli_version() {
     let (stdout, _, success) = run_cli(&["--version"]);
 
     assert!(success, "Version should succeed");
-    assert!(stdout.contains("searchdeadcode"), "Should show program name");
+    assert!(
+        stdout.contains("searchdeadcode"),
+        "Should show program name"
+    );
 }
 
 #[test]
@@ -92,7 +101,10 @@ fn test_cli_analyze_fixtures() {
     println!("stderr: {}", stderr);
 
     // Should complete (may have warnings)
-    assert!(success || stderr.contains("Found"), "Should analyze fixtures");
+    assert!(
+        success || stderr.contains("Found"),
+        "Should analyze fixtures"
+    );
 }
 
 // ============================================================================
@@ -106,10 +118,7 @@ fn test_cli_write_only_flag() {
         return;
     }
 
-    let (stdout, stderr, _) = run_cli(&[
-        fixtures.to_str().unwrap(),
-        "--write-only",
-    ]);
+    let (stdout, stderr, _) = run_cli(&[fixtures.to_str().unwrap(), "--write-only"]);
 
     let combined = format!("{}{}", stdout, stderr);
     // Should run write-only detection
@@ -123,10 +132,7 @@ fn test_cli_sealed_variants_flag() {
         return;
     }
 
-    let (stdout, stderr, _) = run_cli(&[
-        fixtures.to_str().unwrap(),
-        "--sealed-variants",
-    ]);
+    let (stdout, stderr, _) = run_cli(&[fixtures.to_str().unwrap(), "--sealed-variants"]);
 
     let combined = format!("{}{}", stdout, stderr);
     println!("Sealed variants output: {}", combined);
@@ -139,10 +145,7 @@ fn test_cli_unused_params_flag() {
         return;
     }
 
-    let (stdout, stderr, _) = run_cli(&[
-        fixtures.to_str().unwrap(),
-        "--unused-params",
-    ]);
+    let (stdout, stderr, _) = run_cli(&[fixtures.to_str().unwrap(), "--unused-params"]);
 
     let combined = format!("{}{}", stdout, stderr);
     println!("Unused params output: {}", combined);
@@ -155,10 +158,7 @@ fn test_cli_redundant_overrides_flag() {
         return;
     }
 
-    let (stdout, stderr, _) = run_cli(&[
-        fixtures.to_str().unwrap(),
-        "--redundant-overrides",
-    ]);
+    let (stdout, stderr, _) = run_cli(&[fixtures.to_str().unwrap(), "--redundant-overrides"]);
 
     let combined = format!("{}{}", stdout, stderr);
     println!("Redundant overrides output: {}", combined);
@@ -171,13 +171,13 @@ fn test_cli_deep_mode() {
         return;
     }
 
-    let (stdout, stderr, _) = run_cli(&[
-        fixtures.to_str().unwrap(),
-        "--deep",
-    ]);
+    let (stdout, stderr, _) = run_cli(&[fixtures.to_str().unwrap(), "--deep"]);
 
     let combined = format!("{}{}", stdout, stderr);
-    assert!(combined.contains("Deep mode") || combined.contains("deep"), "Should run in deep mode");
+    assert!(
+        combined.contains("Deep mode") || combined.contains("deep"),
+        "Should run in deep mode"
+    );
 }
 
 #[test]
@@ -187,13 +187,13 @@ fn test_cli_parallel_mode() {
         return;
     }
 
-    let (stdout, stderr, _) = run_cli(&[
-        fixtures.to_str().unwrap(),
-        "--parallel",
-    ]);
+    let (stdout, stderr, _) = run_cli(&[fixtures.to_str().unwrap(), "--parallel"]);
 
     let combined = format!("{}{}", stdout, stderr);
-    assert!(combined.contains("Parallel") || combined.contains("parallel"), "Should run in parallel mode");
+    assert!(
+        combined.contains("Parallel") || combined.contains("parallel"),
+        "Should run in parallel mode"
+    );
 }
 
 // ============================================================================
@@ -209,8 +209,9 @@ fn test_cli_json_output() {
 
     let (stdout, stderr, success) = run_cli(&[
         fixtures.to_str().unwrap(),
-        "--format", "json",
-        "--quiet",  // Suppress INFO logs
+        "--format",
+        "json",
+        "--quiet", // Suppress INFO logs
     ]);
 
     println!("JSON stdout: {}", &stdout[..stdout.len().min(200)]);
@@ -236,10 +237,7 @@ fn test_cli_quiet_mode() {
         return;
     }
 
-    let (stdout, stderr, _) = run_cli(&[
-        fixtures.to_str().unwrap(),
-        "--quiet",
-    ]);
+    let (stdout, stderr, _) = run_cli(&[fixtures.to_str().unwrap(), "--quiet"]);
 
     // Quiet mode should have minimal output
     let combined = format!("{}{}", stdout, stderr);
@@ -260,10 +258,7 @@ fn test_cli_min_confidence_high() {
         return;
     }
 
-    let (stdout, stderr, _) = run_cli(&[
-        fixtures.to_str().unwrap(),
-        "--min-confidence", "high",
-    ]);
+    let (stdout, stderr, _) = run_cli(&[fixtures.to_str().unwrap(), "--min-confidence", "high"]);
 
     let combined = format!("{}{}", stdout, stderr);
     // Should only show high confidence results
@@ -277,10 +272,7 @@ fn test_cli_min_confidence_low() {
         return;
     }
 
-    let (stdout, stderr, _) = run_cli(&[
-        fixtures.to_str().unwrap(),
-        "--min-confidence", "low",
-    ]);
+    let (stdout, stderr, _) = run_cli(&[fixtures.to_str().unwrap(), "--min-confidence", "low"]);
 
     let combined = format!("{}{}", stdout, stderr);
     // Should show all results including low confidence
@@ -322,10 +314,7 @@ fn test_cli_detect_cycles() {
         return;
     }
 
-    let (stdout, stderr, _) = run_cli(&[
-        fixtures.to_str().unwrap(),
-        "--detect-cycles",
-    ]);
+    let (stdout, stderr, _) = run_cli(&[fixtures.to_str().unwrap(), "--detect-cycles"]);
 
     let combined = format!("{}{}", stdout, stderr);
     println!("Cycle detection output: {}", combined);
@@ -345,7 +334,10 @@ fn test_cli_nonexistent_path() {
 
     // May fail or warn, but shouldn't crash
     assert!(
-        !success || combined.contains("No Kotlin") || combined.contains("not found") || combined.is_empty(),
+        !success
+            || combined.contains("No Kotlin")
+            || combined.contains("not found")
+            || combined.is_empty(),
         "Should handle nonexistent path gracefully"
     );
 }
@@ -364,7 +356,9 @@ fn test_cli_empty_directory() {
 
     // Should handle empty directory
     if success {
-        assert!(combined.contains("No Kotlin") || combined.contains("0 files") || combined.is_empty());
+        assert!(
+            combined.contains("No Kotlin") || combined.contains("0 files") || combined.is_empty()
+        );
     }
 }
 

@@ -63,7 +63,10 @@ impl DeepAnalyzer {
         // Step 3: Find unused members in reachable classes
         if self.detect_unused_members {
             let unused_members = self.find_unused_members(graph, &reachable);
-            info!("Found {} unused members in reachable classes", unused_members.len());
+            info!(
+                "Found {} unused members in reachable classes",
+                unused_members.len()
+            );
             dead_code.extend(unused_members);
         }
 
@@ -73,11 +76,18 @@ impl DeepAnalyzer {
 
         // Sort and deduplicate
         dead_code.sort_by(|a, b| {
-            let file_cmp = a.declaration.location.file.cmp(&b.declaration.location.file);
+            let file_cmp = a
+                .declaration
+                .location
+                .file
+                .cmp(&b.declaration.location.file);
             if file_cmp != std::cmp::Ordering::Equal {
                 return file_cmp;
             }
-            a.declaration.location.line.cmp(&b.declaration.location.line)
+            a.declaration
+                .location
+                .line
+                .cmp(&b.declaration.location.line)
         });
 
         // Deduplicate by declaration ID
@@ -139,7 +149,7 @@ impl DeepAnalyzer {
         // Mark ancestors as reachable
         let mut all_reachable = reachable.clone();
         for id in &reachable {
-            self.collect_ancestors(graph, id, &mut all_reachable);
+            Self::collect_ancestors(graph, id, &mut all_reachable);
         }
 
         // IMPORTANT: Only mark certain members as reachable:
@@ -182,14 +192,16 @@ impl DeepAnalyzer {
 
                     // Companion object (named or default "Companion")
                     if decl.kind == DeclarationKind::Object
-                        && decl.modifiers.iter().any(|m| m == "companion") {
+                        && decl.modifiers.iter().any(|m| m == "companion")
+                    {
                         additional.insert(decl.id.clone());
                         continue;
                     }
 
                     // Lazy/delegated properties - the delegate is used
                     if decl.kind == DeclarationKind::Property
-                        && decl.modifiers.iter().any(|m| m == "delegated") {
+                        && decl.modifiers.iter().any(|m| m == "delegated")
+                    {
                         additional.insert(decl.id.clone());
                         continue;
                     }
@@ -287,7 +299,6 @@ impl DeepAnalyzer {
 
     /// Collect ancestors
     fn collect_ancestors(
-        &self,
         graph: &Graph,
         id: &DeclarationId,
         ancestors: &mut HashSet<DeclarationId>,
@@ -295,18 +306,14 @@ impl DeepAnalyzer {
         if let Some(decl) = graph.get_declaration(id) {
             if let Some(parent_id) = &decl.parent {
                 if ancestors.insert(parent_id.clone()) {
-                    self.collect_ancestors(graph, parent_id, ancestors);
+                    Self::collect_ancestors(graph, parent_id, ancestors);
                 }
             }
         }
     }
 
     /// Find unreachable declarations
-    fn find_unreachable(
-        &self,
-        graph: &Graph,
-        reachable: &HashSet<DeclarationId>,
-    ) -> Vec<DeadCode> {
+    fn find_unreachable(&self, graph: &Graph, reachable: &HashSet<DeclarationId>) -> Vec<DeadCode> {
         let declarations: Vec<_> = graph.declarations().collect();
 
         let dead_code: Vec<_> = if self.parallel {
@@ -455,10 +462,7 @@ impl DeepAnalyzer {
         if has_writes && !has_reads {
             let mut dc = DeadCode::new(decl.clone(), DeadCodeIssue::AssignOnly);
             dc.confidence = Confidence::Medium;
-            dc.message = format!(
-                "Property '{}' is written but never read",
-                decl.name
-            );
+            dc.message = format!("Property '{}' is written but never read", decl.name);
             return Some(dc);
         }
 
@@ -720,10 +724,8 @@ impl DeepAnalyzer {
                         return true;
                     }
                     // componentN methods (component1, component2, etc.)
-                    if decl.name.starts_with("component") {
-                        if decl.name[9..].parse::<u32>().is_ok() {
-                            return true;
-                        }
+                    if decl.name.starts_with("component") && decl.name[9..].parse::<u32>().is_ok() {
+                        return true;
                     }
                 }
             }
@@ -744,7 +746,11 @@ impl DeepAnalyzer {
         let sealed_classes: Vec<_> = graph
             .declarations()
             .filter(|d| reachable.contains(&d.id) && self.is_sealed_class(d))
-            .map(|d| d.fully_qualified_name.clone().unwrap_or_else(|| d.name.clone()))
+            .map(|d| {
+                d.fully_qualified_name
+                    .clone()
+                    .unwrap_or_else(|| d.name.clone())
+            })
             .collect();
 
         if sealed_classes.is_empty() {
@@ -759,9 +765,9 @@ impl DeepAnalyzer {
 
             // Check if this class extends a sealed class
             for super_type in &decl.super_types {
-                let simple_super = super_type.split('.').last().unwrap_or(super_type);
+                let simple_super = super_type.split('.').next_back().unwrap_or(super_type);
                 for sealed in &sealed_classes {
-                    let simple_sealed = sealed.split('.').last().unwrap_or(sealed);
+                    let simple_sealed = sealed.split('.').next_back().unwrap_or(sealed);
                     if simple_super == simple_sealed || super_type == sealed {
                         additional.insert(decl.id.clone());
                         break;
@@ -785,7 +791,11 @@ impl DeepAnalyzer {
         let reachable_interfaces: Vec<_> = graph
             .declarations()
             .filter(|d| reachable.contains(&d.id) && d.kind == DeclarationKind::Interface)
-            .map(|d| d.fully_qualified_name.clone().unwrap_or_else(|| d.name.clone()))
+            .map(|d| {
+                d.fully_qualified_name
+                    .clone()
+                    .unwrap_or_else(|| d.name.clone())
+            })
             .collect();
 
         if reachable_interfaces.is_empty() {
@@ -800,9 +810,9 @@ impl DeepAnalyzer {
 
             // Check if this class implements a reachable interface
             for super_type in &decl.super_types {
-                let simple_super = super_type.split('.').last().unwrap_or(super_type);
+                let simple_super = super_type.split('.').next_back().unwrap_or(super_type);
                 for interface in &reachable_interfaces {
-                    let simple_interface = interface.split('.').last().unwrap_or(interface);
+                    let simple_interface = interface.split('.').next_back().unwrap_or(interface);
                     if simple_super == simple_interface || super_type == interface {
                         additional.insert(decl.id.clone());
                         break;
@@ -826,7 +836,13 @@ impl DeepAnalyzer {
     /// Check if a declaration is a Flow-related pattern
     fn is_flow_pattern(&self, decl: &Declaration) -> bool {
         // Check for Flow types in name or annotations
-        let flow_patterns = ["Flow", "StateFlow", "SharedFlow", "MutableStateFlow", "MutableSharedFlow"];
+        let flow_patterns = [
+            "Flow",
+            "StateFlow",
+            "SharedFlow",
+            "MutableStateFlow",
+            "MutableSharedFlow",
+        ];
 
         for pattern in &flow_patterns {
             if decl.name.contains(pattern) {
@@ -835,9 +851,9 @@ impl DeepAnalyzer {
         }
 
         // Check for flow-related annotations
-        decl.annotations.iter().any(|a| {
-            a.contains("FlowPreview") || a.contains("ExperimentalCoroutinesApi")
-        })
+        decl.annotations
+            .iter()
+            .any(|a| a.contains("FlowPreview") || a.contains("ExperimentalCoroutinesApi"))
     }
 
     /// Check if a declaration is a DI/framework entry point (Dagger, Hilt, etc.)

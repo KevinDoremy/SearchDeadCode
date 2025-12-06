@@ -2,15 +2,15 @@
 //!
 //! These tests verify that each detector correctly identifies dead code patterns.
 
-use searchdeadcode::graph::GraphBuilder;
-use searchdeadcode::analysis::ReachabilityAnalyzer;
 use searchdeadcode::analysis::detectors::{
-    Detector, WriteOnlyDetector, UnusedSealedVariantDetector,
-    UnusedParamDetector, RedundantOverrideDetector,
+    Detector, RedundantOverrideDetector, UnusedParamDetector, UnusedSealedVariantDetector,
+    WriteOnlyDetector,
 };
-use searchdeadcode::discovery::{SourceFile, FileType};
-use std::path::PathBuf;
+use searchdeadcode::analysis::ReachabilityAnalyzer;
+use searchdeadcode::discovery::{FileType, SourceFile};
+use searchdeadcode::graph::GraphBuilder;
 use std::collections::HashSet;
+use std::path::PathBuf;
 
 /// Get the path to the test fixtures directory
 fn fixtures_path() -> PathBuf {
@@ -25,7 +25,9 @@ fn build_kotlin_graph(filename: &str) -> searchdeadcode::graph::Graph {
     }
     let source = SourceFile::new(path, FileType::Kotlin);
     let mut builder = GraphBuilder::new();
-    builder.process_file(&source).expect("Failed to process file");
+    builder
+        .process_file(&source)
+        .expect("Failed to process file");
     builder.build()
 }
 
@@ -81,7 +83,10 @@ mod write_only_tests {
         assert!(
             backing_field_issues.is_empty(),
             "Should not report backing fields: {:?}",
-            backing_field_issues.iter().map(|i| &i.declaration.name).collect::<Vec<_>>()
+            backing_field_issues
+                .iter()
+                .map(|i| &i.declaration.name)
+                .collect::<Vec<_>>()
         );
     }
 
@@ -94,13 +99,21 @@ mod write_only_tests {
         // Should NOT report MAX_SIZE (constant naming)
         let constant_issues: Vec<_> = issues
             .iter()
-            .filter(|i| i.declaration.name.chars().all(|c| c.is_uppercase() || c == '_'))
+            .filter(|i| {
+                i.declaration
+                    .name
+                    .chars()
+                    .all(|c| c.is_uppercase() || c == '_')
+            })
             .collect();
 
         assert!(
             constant_issues.is_empty(),
             "Should not report constants: {:?}",
-            constant_issues.iter().map(|i| &i.declaration.name).collect::<Vec<_>>()
+            constant_issues
+                .iter()
+                .map(|i| &i.declaration.name)
+                .collect::<Vec<_>>()
         );
     }
 }
@@ -149,7 +162,10 @@ mod unused_param_tests {
         assert!(
             underscore_issues.is_empty(),
             "Should not report underscore-prefixed params: {:?}",
-            underscore_issues.iter().map(|i| &i.declaration.name).collect::<Vec<_>>()
+            underscore_issues
+                .iter()
+                .map(|i| &i.declaration.name)
+                .collect::<Vec<_>>()
         );
     }
 }
@@ -189,7 +205,8 @@ mod sealed_variant_tests {
         let graph = build_kotlin_graph("sealed_classes.kt");
 
         // Find all declarations with "sealed" modifier
-        let sealed_count = graph.declarations()
+        let sealed_count = graph
+            .declarations()
             .filter(|d| d.modifiers.iter().any(|m| m == "sealed"))
             .count();
 
@@ -252,11 +269,15 @@ mod redundant_override_tests {
         let graph = build_kotlin_graph("redundant_overrides.kt");
 
         // Find all declarations with "override" modifier
-        let override_count = graph.declarations()
+        let override_count = graph
+            .declarations()
             .filter(|d| d.modifiers.iter().any(|m| m == "override"))
             .count();
 
-        assert!(override_count > 0, "Should find override methods in fixture");
+        assert!(
+            override_count > 0,
+            "Should find override methods in fixture"
+        );
         println!("Found {} override methods", override_count);
     }
 }
@@ -296,7 +317,8 @@ mod unreferenced_tests {
         }
 
         let analyzer = ReachabilityAnalyzer::new();
-        let (dead_code, reachable) = analyzer.find_unreachable_with_reachable(&graph, &entry_points);
+        let (dead_code, reachable) =
+            analyzer.find_unreachable_with_reachable(&graph, &entry_points);
 
         println!("Reachability analysis:");
         println!("  Reachable: {}", reachable.len());
@@ -306,7 +328,8 @@ mod unreferenced_tests {
         assert!(!dead_code.is_empty(), "Should find unreachable code");
 
         // Check for specific expected dead code
-        let dead_names: Vec<_> = dead_code.iter()
+        let dead_names: Vec<_> = dead_code
+            .iter()
             .map(|d| d.declaration.name.as_str())
             .collect();
 
@@ -330,7 +353,8 @@ mod unreferenced_tests {
         let analyzer = ReachabilityAnalyzer::new();
         let (dead_code, _) = analyzer.find_unreachable_with_reachable(&graph, &entry_points);
 
-        let dead_names: HashSet<_> = dead_code.iter()
+        let dead_names: HashSet<_> = dead_code
+            .iter()
             .map(|d| d.declaration.name.as_str())
             .collect();
 
@@ -359,7 +383,8 @@ mod unreferenced_tests {
         let analyzer = ReachabilityAnalyzer::new();
         let (dead_code, _) = analyzer.find_unreachable_with_reachable(&graph, &entry_points);
 
-        let dead_names: HashSet<_> = dead_code.iter()
+        let dead_names: HashSet<_> = dead_code
+            .iter()
             .map(|d| d.declaration.name.as_str())
             .collect();
 
@@ -367,7 +392,10 @@ mod unreferenced_tests {
         if dead_names.contains("unusedMethod") {
             println!("Correctly found unusedMethod as dead");
         } else {
-            println!("Warning: unusedMethod not found as dead. Found: {:?}", dead_names);
+            println!(
+                "Warning: unusedMethod not found as dead. Found: {:?}",
+                dead_names
+            );
         }
     }
 }
@@ -405,11 +433,7 @@ mod multi_file_tests {
 
     #[test]
     fn test_combined_analysis() {
-        let kotlin_files = vec![
-            "write_only.kt",
-            "unused_params.kt",
-            "sealed_classes.kt",
-        ];
+        let kotlin_files = vec!["write_only.kt", "unused_params.kt", "sealed_classes.kt"];
 
         let mut builder = GraphBuilder::new();
 
@@ -417,7 +441,9 @@ mod multi_file_tests {
             let path = fixtures_path().join("kotlin").join(filename);
             if path.exists() {
                 let source = SourceFile::new(path, FileType::Kotlin);
-                builder.process_file(&source).expect("Failed to process file");
+                builder
+                    .process_file(&source)
+                    .expect("Failed to process file");
             }
         }
 
@@ -428,6 +454,9 @@ mod multi_file_tests {
         println!("  Files: {}", kotlin_files.len());
         println!("  Total declarations: {}", total_decls);
 
-        assert!(total_decls > 50, "Should have many declarations from combined files");
+        assert!(
+            total_decls > 50,
+            "Should have many declarations from combined files"
+        );
     }
 }

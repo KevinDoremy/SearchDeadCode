@@ -153,8 +153,12 @@ mod tests {
         let result = parser.parse(Path::new("nav_main.xml"), nav).unwrap();
 
         assert!(result.class_references.contains("com.example.HomeFragment"));
-        assert!(result.class_references.contains("com.example.DetailFragment"));
-        assert!(result.class_references.contains("com.example.ConfirmDialogFragment"));
+        assert!(result
+            .class_references
+            .contains("com.example.DetailFragment"));
+        assert!(result
+            .class_references
+            .contains("com.example.ConfirmDialogFragment"));
     }
 
     #[test]
@@ -177,7 +181,9 @@ mod tests {
 
         let result = parser.parse(Path::new("nav_main.xml"), nav).unwrap();
 
-        assert!(result.class_references.contains("com.example.DetailFragment"));
+        assert!(result
+            .class_references
+            .contains("com.example.DetailFragment"));
         assert!(result.class_references.contains("com.example.model.Item"));
     }
 }

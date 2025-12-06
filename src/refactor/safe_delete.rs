@@ -86,10 +86,7 @@ impl SafeDeleter {
             if let Some(ref mut script) = undo_script {
                 // Record for undo
                 if let Ok(contents) = std::fs::read_to_string(&item.declaration.location.file) {
-                    script.record_file_state(
-                        &item.declaration.location.file,
-                        &contents,
-                    );
+                    script.record_file_state(&item.declaration.location.file, &contents);
                 }
             }
 
@@ -118,11 +115,7 @@ impl SafeDeleter {
         if let (Some(script), Some(path)) = (undo_script, &self.undo_script_path) {
             script.write(path)?;
             println!();
-            println!(
-                "{} Undo script saved to: {}",
-                "→".dimmed(),
-                path.display()
-            );
+            println!("{} Undo script saved to: {}", "→".dimmed(), path.display());
         }
 
         Ok(())
@@ -133,7 +126,10 @@ impl SafeDeleter {
         let mut selected = Vec::new();
 
         println!();
-        println!("{}", "Interactive mode - confirm each deletion:".cyan().bold());
+        println!(
+            "{}",
+            "Interactive mode - confirm each deletion:".cyan().bold()
+        );
         println!();
 
         for item in dead_code {
@@ -183,10 +179,7 @@ impl SafeDeleter {
             .interact()
             .into_diagnostic()?;
 
-        let selected: Vec<&DeadCode> = selections
-            .into_iter()
-            .map(|i| &dead_code[i])
-            .collect();
+        let selected: Vec<&DeadCode> = selections.into_iter().map(|i| &dead_code[i]).collect();
 
         // Confirm final selection
         if !selected.is_empty() {

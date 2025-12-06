@@ -15,9 +15,9 @@ pub use jacoco::JacocoParser;
 pub use kover::KoverParser;
 pub use lcov::LcovParser;
 
+use miette::Result;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use miette::Result;
 
 /// Represents coverage data for a single source file
 #[derive(Debug, Clone, Default)]
@@ -332,7 +332,7 @@ pub fn parse_coverage_file(path: &Path) -> Result<CoverageData> {
     }
 
     // Default to trying JaCoCo for XML files
-    if path.extension().map_or(false, |e| e == "xml") {
+    if path.extension().is_some_and(|e| e == "xml") {
         return jacoco.parse(path);
     }
 

@@ -142,7 +142,12 @@ impl Detector for RedundantOverrideDetector {
                 .location
                 .file
                 .cmp(&b.declaration.location.file)
-                .then(a.declaration.location.line.cmp(&b.declaration.location.line))
+                .then(
+                    a.declaration
+                        .location
+                        .line
+                        .cmp(&b.declaration.location.line),
+                )
         });
 
         issues

@@ -30,9 +30,8 @@ impl ManifestParser {
                     if tag_name == "manifest" {
                         for attr in e.attributes().filter_map(|a| a.ok()) {
                             if attr.key.as_ref() == b"package" {
-                                result.package = Some(
-                                    String::from_utf8_lossy(&attr.value).to_string()
-                                );
+                                result.package =
+                                    Some(String::from_utf8_lossy(&attr.value).to_string());
                             }
                         }
                     }
@@ -59,7 +58,8 @@ impl ManifestParser {
                         for attr in e.attributes().filter_map(|a| a.ok()) {
                             let key = String::from_utf8_lossy(attr.key.as_ref());
                             if key == "android:value" || key.ends_with(":value") {
-                                value_value = Some(String::from_utf8_lossy(&attr.value).to_string());
+                                value_value =
+                                    Some(String::from_utf8_lossy(&attr.value).to_string());
                             }
                         }
 
@@ -92,12 +92,12 @@ impl ManifestParser {
 
     /// Resolve a class name, handling relative names like ".MainActivity"
     fn resolve_class_name(&self, name: &str, package: &Option<String>) -> String {
-        if name.starts_with('.') {
+        if let Some(stripped) = name.strip_prefix('.') {
             // Relative class name
             if let Some(pkg) = package {
-                format!("{}{}", pkg, name)
+                format!("{}.{}", pkg, stripped)
             } else {
-                name[1..].to_string() // Remove leading dot
+                stripped.to_string() // Remove leading dot
             }
         } else if !name.contains('.') {
             // Simple class name, assume same package
@@ -137,12 +137,20 @@ mod tests {
             </manifest>
         "#;
 
-        let result = parser.parse(Path::new("AndroidManifest.xml"), manifest).unwrap();
+        let result = parser
+            .parse(Path::new("AndroidManifest.xml"), manifest)
+            .unwrap();
 
         assert_eq!(result.package, Some("com.example.app".to_string()));
-        assert!(result.class_references.contains("com.example.app.MainActivity"));
-        assert!(result.class_references.contains("com.example.app.MyService"));
-        assert!(result.class_references.contains("com.example.app.MyApplication"));
+        assert!(result
+            .class_references
+            .contains("com.example.app.MainActivity"));
+        assert!(result
+            .class_references
+            .contains("com.example.app.MyService"));
+        assert!(result
+            .class_references
+            .contains("com.example.app.MyApplication"));
     }
 
     #[test]

@@ -24,7 +24,7 @@
 //! ```
 
 use super::Detector;
-use crate::analysis::{DeadCode, DeadCodeIssue, Confidence};
+use crate::analysis::{Confidence, DeadCode, DeadCodeIssue};
 use crate::graph::{DeclarationKind, Graph, Visibility};
 
 /// Detector for write-only variables (assigned but never read)
@@ -53,7 +53,10 @@ impl WriteOnlyDetector {
     /// Check if a declaration is a variable/property that could be write-only
     fn is_candidate(&self, decl: &crate::graph::Declaration) -> bool {
         // Must be a property or field
-        if !matches!(decl.kind, DeclarationKind::Property | DeclarationKind::Field) {
+        if !matches!(
+            decl.kind,
+            DeclarationKind::Property | DeclarationKind::Field
+        ) {
             return false;
         }
 
@@ -75,9 +78,9 @@ impl WriteOnlyDetector {
 
         // Skip common framework-required fields
         let skip_names = [
-            "binding",      // ViewBinding
-            "viewModel",    // ViewModel
-            "adapter",      // RecyclerView adapter
+            "binding",       // ViewBinding
+            "viewModel",     // ViewModel
+            "adapter",       // RecyclerView adapter
             "layoutManager", // RecyclerView layoutManager
         ];
         if skip_names.contains(&decl.name.as_str()) {
@@ -134,7 +137,12 @@ impl Detector for WriteOnlyDetector {
                 .location
                 .file
                 .cmp(&b.declaration.location.file)
-                .then(a.declaration.location.line.cmp(&b.declaration.location.line))
+                .then(
+                    a.declaration
+                        .location
+                        .line
+                        .cmp(&b.declaration.location.line),
+                )
         });
 
         issues
@@ -162,10 +170,7 @@ mod tests {
             crate::graph::DeclarationId::new(PathBuf::from("test.kt"), 0, 10),
             "MAX_COUNT".to_string(),
             DeclarationKind::Property,
-            crate::graph::Location::new(
-                PathBuf::from("test.kt"),
-                1, 1, 0, 10
-            ),
+            crate::graph::Location::new(PathBuf::from("test.kt"), 1, 1, 0, 10),
             crate::graph::Language::Kotlin,
         );
         decl.visibility = Visibility::Private;
@@ -183,10 +188,7 @@ mod tests {
             crate::graph::DeclarationId::new(PathBuf::from("test.kt"), 0, 10),
             "_state".to_string(),
             DeclarationKind::Property,
-            crate::graph::Location::new(
-                PathBuf::from("test.kt"),
-                1, 1, 0, 10
-            ),
+            crate::graph::Location::new(PathBuf::from("test.kt"), 1, 1, 0, 10),
             crate::graph::Language::Kotlin,
         );
         decl.visibility = Visibility::Private;

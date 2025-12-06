@@ -1,10 +1,10 @@
-mod terminal;
 mod json;
 mod sarif;
+mod terminal;
 
-pub use terminal::TerminalReporter;
 pub use json::JsonReporter;
 pub use sarif::SarifReporter;
+pub use terminal::TerminalReporter;
 
 use crate::analysis::DeadCode;
 use miette::Result;
@@ -27,7 +27,10 @@ pub struct Reporter {
 
 impl Reporter {
     pub fn new(format: ReportFormat, output_path: Option<PathBuf>) -> Self {
-        Self { format, output_path }
+        Self {
+            format,
+            output_path,
+        }
     }
 
     /// Report the dead code findings

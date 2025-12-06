@@ -1,6 +1,6 @@
 // Parallel graph builder using rayon
 
-use super::{Declaration, DeclarationId, Graph, Reference, ReferenceKind, Location};
+use super::{Declaration, DeclarationId, Graph, Location, Reference, ReferenceKind};
 use crate::discovery::{FileType, SourceFile};
 use crate::parser::{JavaParser, KotlinParser, Parser as SourceParser};
 use miette::Result;
@@ -34,10 +34,8 @@ impl ParallelGraphBuilder {
         info!("Parsing {} files in parallel...", files.len());
 
         // Parse files in parallel
-        let results: Vec<Result<ParsedFile>> = files
-            .par_iter()
-            .map(|file| self.parse_file(file))
-            .collect();
+        let results: Vec<Result<ParsedFile>> =
+            files.par_iter().map(|file| self.parse_file(file)).collect();
 
         // Collect results
         let mut all_declarations = Vec::new();
@@ -88,11 +86,7 @@ impl ParallelGraphBuilder {
         }
     }
 
-    fn parse_kotlin_file(
-        &self,
-        path: &std::path::Path,
-        contents: &str,
-    ) -> Result<ParsedFile> {
+    fn parse_kotlin_file(&self, path: &std::path::Path, contents: &str) -> Result<ParsedFile> {
         let parser = KotlinParser::new();
         let result = parser.parse(path, contents)?;
 
@@ -105,11 +99,7 @@ impl ParallelGraphBuilder {
         })
     }
 
-    fn parse_java_file(
-        &self,
-        path: &std::path::Path,
-        contents: &str,
-    ) -> Result<ParsedFile> {
+    fn parse_java_file(&self, path: &std::path::Path, contents: &str) -> Result<ParsedFile> {
         let parser = JavaParser::new();
         let result = parser.parse(path, contents)?;
 
@@ -167,7 +157,7 @@ impl ParallelGraphBuilder {
             let resolved_ids = self.resolve_reference(graph, &unresolved);
             for to_id in resolved_ids {
                 let reference = Reference::new(
-                    unresolved.kind.clone(),
+                    unresolved.kind,
                     Location::new(
                         unresolved.from.file.clone(),
                         0,

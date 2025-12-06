@@ -43,7 +43,10 @@ pub struct IssueFingerprint {
 impl IssueFingerprint {
     /// Create a fingerprint from a dead code issue
     pub fn from_dead_code(dc: &DeadCode, project_root: &Path) -> Self {
-        let file = dc.declaration.location.file
+        let file = dc
+            .declaration
+            .location
+            .file
             .strip_prefix(project_root)
             .unwrap_or(&dc.declaration.location.file)
             .to_string_lossy()
@@ -60,7 +63,10 @@ impl IssueFingerprint {
 
     /// Check if this fingerprint matches a dead code issue (with some tolerance)
     pub fn matches(&self, dc: &DeadCode, project_root: &Path) -> bool {
-        let dc_file = dc.declaration.location.file
+        let dc_file = dc
+            .declaration
+            .location
+            .file
             .strip_prefix(project_root)
             .unwrap_or(&dc.declaration.location.file)
             .to_string_lossy()
@@ -143,7 +149,11 @@ impl Baseline {
     }
 
     /// Filter out findings that are in the baseline
-    pub fn filter_new<'a>(&self, findings: &'a [DeadCode], project_root: &Path) -> Vec<&'a DeadCode> {
+    pub fn filter_new<'a>(
+        &self,
+        findings: &'a [DeadCode],
+        project_root: &Path,
+    ) -> Vec<&'a DeadCode> {
         findings
             .iter()
             .filter(|dc| !self.is_baselined(dc, project_root))
@@ -213,8 +223,8 @@ fn chrono_lite_now() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{Declaration, DeclarationId, DeclarationKind, Language, Location};
     use crate::analysis::DeadCodeIssue;
+    use crate::graph::{Declaration, DeclarationId, DeclarationKind, Language, Location};
     use std::path::PathBuf;
     use tempfile::TempDir;
 

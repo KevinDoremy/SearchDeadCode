@@ -127,8 +127,10 @@ impl ProguardUsage {
 
         if line.contains('(') {
             // Method or constructor
-            let is_constructor = !line.contains(' ') ||
-                line.split_whitespace().next()
+            let is_constructor = !line.contains(' ')
+                || line
+                    .split_whitespace()
+                    .next()
                     .map(|first| class_name.ends_with(first) || first == "<init>")
                     .unwrap_or(false);
 
@@ -137,7 +139,8 @@ impl ProguardUsage {
                 line.split('(').next().map(|s| s.trim().to_string())
             } else {
                 // Method: "returnType methodName(params)"
-                line.split('(').next()
+                line.split('(')
+                    .next()
                     .and_then(|before_paren| before_paren.split_whitespace().last())
                     .map(|s| s.to_string())
             };
@@ -145,7 +148,11 @@ impl ProguardUsage {
             Some(UsageEntry {
                 class_name: class_name.to_string(),
                 member_name: name,
-                kind: if is_constructor { UsageEntryKind::Constructor } else { UsageEntryKind::Method },
+                kind: if is_constructor {
+                    UsageEntryKind::Constructor
+                } else {
+                    UsageEntryKind::Method
+                },
                 signature: Some(line.to_string()),
             })
         } else {
@@ -179,7 +186,10 @@ impl ProguardUsage {
     pub fn is_member_dead(&self, class_name: &str, member_name: &str) -> bool {
         if let Some(entries) = self.entries.get(class_name) {
             entries.iter().any(|e| {
-                e.member_name.as_ref().map(|n| n == member_name).unwrap_or(false)
+                e.member_name
+                    .as_ref()
+                    .map(|n| n == member_name)
+                    .unwrap_or(false)
             })
         } else {
             false
@@ -232,7 +242,7 @@ impl ProguardUsage {
 
         for entry in self.all_entries() {
             // Add class simple name
-            if let Some(simple) = entry.class_name.split('.').last() {
+            if let Some(simple) = entry.class_name.split('.').next_back() {
                 names.insert(simple.to_string());
             }
 
@@ -264,7 +274,7 @@ impl ProguardUsage {
                     return Some(0.8); // Name matches but might be different class
                 }
             }
-            if let Some(simple) = entry.class_name.split('.').last() {
+            if let Some(simple) = entry.class_name.split('.').next_back() {
                 if simple == member_name {
                     return Some(0.8);
                 }

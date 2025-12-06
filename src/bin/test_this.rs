@@ -2,7 +2,9 @@ use tree_sitter::Parser;
 
 fn main() {
     let mut parser = Parser::new();
-    parser.set_language(&tree_sitter_kotlin::language()).unwrap();
+    parser
+        .set_language(&tree_sitter_kotlin::language())
+        .unwrap();
 
     let source = r#"
 sealed class UiState {

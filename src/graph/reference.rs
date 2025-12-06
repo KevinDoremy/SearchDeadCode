@@ -1,8 +1,8 @@
 // Reference types - some variants and methods reserved for future use
 #![allow(dead_code)]
 
-use serde::{Deserialize, Serialize};
 use super::Location;
+use serde::{Deserialize, Serialize};
 
 /// Kind of reference between declarations
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -160,7 +160,10 @@ impl ReferenceCollector {
         // Check if it's a qualified name
         let (simple_name, qualified_name) = if name.contains('.') {
             let parts: Vec<&str> = name.split('.').collect();
-            let last_part = parts.last().map(|s| s.to_string()).unwrap_or_else(|| name.clone());
+            let last_part = parts
+                .last()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| name.clone());
             (last_part, Some(name))
         } else {
             (name, None)

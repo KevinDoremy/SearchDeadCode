@@ -1,13 +1,13 @@
 // XML parser module - some methods reserved for future use
 #![allow(dead_code)]
 
-mod manifest;
 mod layout;
+mod manifest;
 mod menu;
 mod navigation;
 
-pub use manifest::ManifestParser;
 pub use layout::LayoutParser;
+pub use manifest::ManifestParser;
 pub use menu::MenuParser;
 pub use navigation::NavigationParser;
 

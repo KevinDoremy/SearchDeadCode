@@ -1,15 +1,17 @@
 // Graph module - some methods reserved for future use
 #![allow(dead_code)]
 
-mod declaration;
-pub mod reference;
 mod builder;
+mod declaration;
 mod parallel_builder;
+pub mod reference;
 
-pub use declaration::{Declaration, DeclarationId, DeclarationKind, Language, Location, Visibility};
-pub use reference::{Reference, ReferenceKind, UnresolvedReference};
 pub use builder::GraphBuilder;
+pub use declaration::{
+    Declaration, DeclarationId, DeclarationKind, Language, Location, Visibility,
+};
 pub use parallel_builder::ParallelGraphBuilder;
+pub use reference::{Reference, ReferenceKind, UnresolvedReference};
 
 use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::EdgeRef;
@@ -85,7 +87,12 @@ impl Graph {
     }
 
     /// Add a reference between two declarations
-    pub fn add_reference(&mut self, from: &DeclarationId, to: &DeclarationId, reference: Reference) {
+    pub fn add_reference(
+        &mut self,
+        from: &DeclarationId,
+        to: &DeclarationId,
+        reference: Reference,
+    ) {
         if let (Some(&from_idx), Some(&to_idx)) = (self.node_map.get(from), self.node_map.get(to)) {
             self.inner.add_edge(from_idx, to_idx, reference);
         }
@@ -110,7 +117,11 @@ impl Graph {
     pub fn find_by_name(&self, name: &str) -> Vec<&Declaration> {
         self.name_index
             .get(name)
-            .map(|ids| ids.iter().filter_map(|id| self.declarations.get(id)).collect())
+            .map(|ids| {
+                ids.iter()
+                    .filter_map(|id| self.declarations.get(id))
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
@@ -179,7 +190,11 @@ impl Graph {
     }
 
     /// Get all references to a declaration, filtered by kind
-    pub fn get_references_by_kind(&self, id: &DeclarationId, kind: ReferenceKind) -> Vec<(&Declaration, &Reference)> {
+    pub fn get_references_by_kind(
+        &self,
+        id: &DeclarationId,
+        kind: ReferenceKind,
+    ) -> Vec<(&Declaration, &Reference)> {
         let Some(&node_idx) = self.node_map.get(id) else {
             return Vec::new();
         };

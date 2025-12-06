@@ -13,21 +13,23 @@
 //! 5. **Reachability Analysis** - Find unreachable code
 //! 6. **Reporting** - Output results in various formats
 
+pub mod analysis;
 pub mod config;
 pub mod coverage;
 pub mod discovery;
-pub mod parser;
 pub mod graph;
-pub mod analysis;
+pub mod parser;
+pub mod proguard;
 pub mod refactor;
 pub mod report;
-pub mod proguard;
 
+pub use analysis::{
+    Confidence, DeadCode, EntryPointDetector, HybridAnalyzer, ReachabilityAnalyzer,
+};
 pub use config::Config;
-pub use coverage::{CoverageData, CoverageParser, parse_coverage_file, parse_coverage_files};
+pub use coverage::{parse_coverage_file, parse_coverage_files, CoverageData, CoverageParser};
 pub use discovery::FileFinder;
-pub use graph::{Graph, Declaration, DeclarationKind, Reference};
-pub use analysis::{EntryPointDetector, ReachabilityAnalyzer, HybridAnalyzer, DeadCode, Confidence};
-pub use report::{Reporter, ReportFormat};
-pub use refactor::SafeDeleter;
+pub use graph::{Declaration, DeclarationKind, Graph, Reference};
 pub use proguard::{ProguardUsage, UsageEntryKind};
+pub use refactor::SafeDeleter;
+pub use report::{ReportFormat, Reporter};

@@ -54,7 +54,7 @@ pub fn point_to_location(
 ) -> Location {
     Location::new(
         file.to_path_buf(),
-        start.row + 1,  // tree-sitter uses 0-indexed lines
+        start.row + 1,    // tree-sitter uses 0-indexed lines
         start.column + 1, // tree-sitter uses 0-indexed columns
         start_byte,
         end_byte,
@@ -67,15 +67,15 @@ pub fn node_text<'a>(node: tree_sitter::Node<'a>, source: &'a str) -> &'a str {
 }
 
 /// Find child node by field name
-pub fn child_by_field<'a>(node: tree_sitter::Node<'a>, field: &str) -> Option<tree_sitter::Node<'a>> {
+pub fn child_by_field<'a>(
+    node: tree_sitter::Node<'a>,
+    field: &str,
+) -> Option<tree_sitter::Node<'a>> {
     node.child_by_field_name(field)
 }
 
 /// Find all children of a specific kind
-pub fn children_of_kind<'a>(
-    node: tree_sitter::Node<'a>,
-    kind: &str,
-) -> Vec<tree_sitter::Node<'a>> {
+pub fn children_of_kind<'a>(node: tree_sitter::Node<'a>, kind: &str) -> Vec<tree_sitter::Node<'a>> {
     let mut cursor = node.walk();
     node.children(&mut cursor)
         .filter(|child| child.kind() == kind)

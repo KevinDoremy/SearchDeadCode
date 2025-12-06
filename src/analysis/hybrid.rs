@@ -109,10 +109,7 @@ impl HybridAnalyzer {
                 // Runtime confirms this is dead code
                 dc.runtime_confirmed = true;
                 dc.confidence = Confidence::Confirmed;
-                dc.message = format!(
-                    "{} (confirmed by runtime coverage)",
-                    dc.message
-                );
+                dc.message = format!("{} (confirmed by runtime coverage)", dc.message);
             }
             CoverageStatus::Executed => {
                 // Runtime shows this WAS executed - false positive from static analysis
@@ -149,10 +146,18 @@ impl HybridAnalyzer {
 
         // Try variations of the name
         let simple_name = &decl.name;
-        if coverage.covered_classes.iter().any(|c| c.ends_with(simple_name)) {
+        if coverage
+            .covered_classes
+            .iter()
+            .any(|c| c.ends_with(simple_name))
+        {
             return CoverageStatus::Executed;
         }
-        if coverage.uncovered_classes.iter().any(|c| c.ends_with(simple_name)) {
+        if coverage
+            .uncovered_classes
+            .iter()
+            .any(|c| c.ends_with(simple_name))
+        {
             return CoverageStatus::NeverExecuted;
         }
 
@@ -172,10 +177,18 @@ impl HybridAnalyzer {
 
         // Try just the method name for top-level functions or partial matches
         let method_name = &decl.name;
-        if coverage.covered_methods.iter().any(|m| m.ends_with(&format!(".{}", method_name))) {
+        if coverage
+            .covered_methods
+            .iter()
+            .any(|m| m.ends_with(&format!(".{}", method_name)))
+        {
             return CoverageStatus::Executed;
         }
-        if coverage.uncovered_methods.iter().any(|m| m.ends_with(&format!(".{}", method_name))) {
+        if coverage
+            .uncovered_methods
+            .iter()
+            .any(|m| m.ends_with(&format!(".{}", method_name)))
+        {
             return CoverageStatus::NeverExecuted;
         }
 

@@ -3,13 +3,13 @@
 
 use super::common::{node_text, point_to_location, ParseResult, Parser};
 use crate::graph::{
-    Declaration, DeclarationId, DeclarationKind, Language, ReferenceKind, Visibility,
-    UnresolvedReference,
+    Declaration, DeclarationId, DeclarationKind, Language, ReferenceKind, UnresolvedReference,
+    Visibility,
 };
 use miette::{IntoDiagnostic, Result};
 use std::path::Path;
-use tree_sitter::{Node, Parser as TsParser};
 use tracing::debug;
+use tree_sitter::{Node, Parser as TsParser};
 
 /// Kotlin source code parser using tree-sitter
 pub struct KotlinParser {
@@ -197,7 +197,9 @@ impl KotlinParser {
         // to the delegation expression. We need to look for class members inside these
         // misplaced lambda_literal nodes.
         if !found_class_body {
-            self.extract_class_members_from_misplaced_lambda(path, node, source, package, id, result)?;
+            self.extract_class_members_from_misplaced_lambda(
+                path, node, source, package, id, result,
+            )?;
         }
 
         Ok(())
@@ -218,7 +220,14 @@ impl KotlinParser {
         let mut cursor = class_node.walk();
         for child in class_node.children(&mut cursor) {
             if child.kind() == "delegation_specifier" {
-                self.find_lambda_class_members(path, child, source, package, parent.clone(), result)?;
+                self.find_lambda_class_members(
+                    path,
+                    child,
+                    source,
+                    package,
+                    parent.clone(),
+                    result,
+                )?;
             }
         }
         Ok(())
@@ -243,13 +252,27 @@ impl KotlinParser {
                     for lambda_child in child.children(&mut lambda_cursor) {
                         if lambda_child.kind() == "statements" {
                             // This is likely the misplaced class body - extract members from it
-                            self.extract_class_members(path, lambda_child, source, package, parent.clone(), result)?;
+                            self.extract_class_members(
+                                path,
+                                lambda_child,
+                                source,
+                                package,
+                                parent.clone(),
+                                result,
+                            )?;
                         }
                     }
                 }
                 // Recurse into nested structures
                 "call_expression" | "call_suffix" | "annotated_lambda" | "explicit_delegation" => {
-                    self.find_lambda_class_members(path, child, source, package, parent.clone(), result)?;
+                    self.find_lambda_class_members(
+                        path,
+                        child,
+                        source,
+                        package,
+                        parent.clone(),
+                        result,
+                    )?;
                 }
                 _ => {}
             }
@@ -323,19 +346,47 @@ impl KotlinParser {
                     self.extract_class(path, child, source, package, Some(parent.clone()), result)?;
                 }
                 "object_declaration" => {
-                    self.extract_object(path, child, source, package, Some(parent.clone()), result)?;
+                    self.extract_object(
+                        path,
+                        child,
+                        source,
+                        package,
+                        Some(parent.clone()),
+                        result,
+                    )?;
                 }
                 "function_declaration" => {
-                    self.extract_function(path, child, source, package, Some(parent.clone()), result)?;
+                    self.extract_function(
+                        path,
+                        child,
+                        source,
+                        package,
+                        Some(parent.clone()),
+                        result,
+                    )?;
                 }
                 "property_declaration" => {
-                    self.extract_property(path, child, source, package, Some(parent.clone()), result)?;
+                    self.extract_property(
+                        path,
+                        child,
+                        source,
+                        package,
+                        Some(parent.clone()),
+                        result,
+                    )?;
                 }
                 "secondary_constructor" | "primary_constructor" => {
                     self.extract_constructor(path, child, source, parent.clone(), result)?;
                 }
                 "companion_object" => {
-                    self.extract_companion_object(path, child, source, package, parent.clone(), result)?;
+                    self.extract_companion_object(
+                        path,
+                        child,
+                        source,
+                        package,
+                        parent.clone(),
+                        result,
+                    )?;
                 }
                 "enum_entry" => {
                     self.extract_enum_entry(path, child, source, parent.clone(), result)?;
@@ -428,14 +479,14 @@ impl KotlinParser {
                     // Strip generic parameters if present
                     let name = type_text.split('<').next().unwrap_or(type_text);
                     // Take the last component of qualified names
-                    let simple_name = name.split('.').last().unwrap_or(name);
+                    let simple_name = name.split('.').next_back().unwrap_or(name);
                     return Some(simple_name.to_string());
                 }
                 // For simple user types
                 if kind == "user_type" {
                     let type_text = node_text(child, source);
                     let name = type_text.split('<').next().unwrap_or(type_text);
-                    let simple_name = name.split('.').last().unwrap_or(name);
+                    let simple_name = name.split('.').next_back().unwrap_or(name);
                     return Some(simple_name.to_string());
                 }
                 // Once we hit the function name (simple_identifier after receiver), stop
@@ -462,7 +513,8 @@ impl KotlinParser {
             if child.kind() == "variable_declaration" {
                 // Find the simple_identifier child (not a named field, just a child node)
                 let mut var_cursor = child.walk();
-                let name_node = child.children(&mut var_cursor)
+                let name_node = child
+                    .children(&mut var_cursor)
                     .find(|c| c.kind() == "simple_identifier");
 
                 if let Some(name_node) = name_node {
@@ -482,11 +534,7 @@ impl KotlinParser {
                         end_byte,
                     );
 
-                    let id = DeclarationId::new(
-                        path.to_path_buf(),
-                        node.start_byte(),
-                        end_byte,
-                    );
+                    let id = DeclarationId::new(path.to_path_buf(), node.start_byte(), end_byte);
 
                     let mut decl = Declaration::new(
                         id,
@@ -583,7 +631,6 @@ impl KotlinParser {
 
     /// Extract generic type arguments from a type (e.g., List<MyClass, OtherClass>)
     fn extract_generic_type_arguments(
-        &self,
         node: Node,
         source: &str,
         path: &Path,
@@ -613,7 +660,10 @@ impl KotlinParser {
                         }
 
                         // Skip common built-in types
-                        let builtins = ["String", "Int", "Long", "Boolean", "Float", "Double", "Unit", "Any", "Nothing"];
+                        let builtins = [
+                            "String", "Int", "Long", "Boolean", "Float", "Double", "Unit", "Any",
+                            "Nothing",
+                        ];
                         if builtins.contains(&cleaned) {
                             continue;
                         }
@@ -635,7 +685,9 @@ impl KotlinParser {
                         });
 
                         // Recursively extract nested generics (e.g., Map<String, List<MyClass>>)
-                        self.extract_generic_type_arguments(arg_child, source, path, imports, result);
+                        Self::extract_generic_type_arguments(
+                            arg_child, source, path, imports, result,
+                        );
                     }
                 }
             }
@@ -935,7 +987,7 @@ impl KotlinParser {
                             self.determine_reference_kind(parent)
                         };
 
-                        if kind.is_some() {
+                        if let Some(kind) = kind {
                             let name = node_text(current, source).to_string();
                             let location = point_to_location(
                                 path,
@@ -948,7 +1000,7 @@ impl KotlinParser {
                             result.references.push(UnresolvedReference {
                                 name,
                                 qualified_name: None,
-                                kind: kind.unwrap(),
+                                kind,
                                 location,
                                 imports: imports.to_vec(),
                             });
@@ -959,7 +1011,11 @@ impl KotlinParser {
                     // Extract just the base type name, stripping generic arguments
                     let full_name = node_text(current, source).to_string();
                     // Strip generic arguments: "Focusable<FeedState>" -> "Focusable"
-                    let name = full_name.split('<').next().unwrap_or(&full_name).to_string();
+                    let name = full_name
+                        .split('<')
+                        .next()
+                        .unwrap_or(&full_name)
+                        .to_string();
 
                     let location = point_to_location(
                         path,
@@ -978,11 +1034,11 @@ impl KotlinParser {
                     });
 
                     // Extract generic type arguments (e.g., FeedState from List<FeedState>)
-                    self.extract_generic_type_arguments(current, source, path, imports, result);
+                    Self::extract_generic_type_arguments(current, source, path, imports, result);
                 }
                 // Handle type_arguments directly for better coverage
                 "type_arguments" => {
-                    self.extract_generic_type_arguments(current, source, path, imports, result);
+                    Self::extract_generic_type_arguments(current, source, path, imports, result);
                 }
                 // Handle callable references like SomeClass::class or viewModel::method
                 // Used in @PreviewParameter(SomeClass::class), method references, etc.
@@ -1083,8 +1139,16 @@ impl KotlinParser {
                 // Check if this looks like an enum constant import:
                 // - Last segment should be ALL_CAPS or PascalCase (enum constant)
                 // - Second-to-last should be PascalCase (class name)
-                let last_is_constant = last.chars().next().map(|c| c.is_uppercase()).unwrap_or(false);
-                let second_last_is_class = second_last.chars().next().map(|c| c.is_uppercase()).unwrap_or(false);
+                let last_is_constant = last
+                    .chars()
+                    .next()
+                    .map(|c| c.is_uppercase())
+                    .unwrap_or(false);
+                let second_last_is_class = second_last
+                    .chars()
+                    .next()
+                    .map(|c| c.is_uppercase())
+                    .unwrap_or(false);
 
                 if last_is_constant && second_last_is_class {
                     // Create a synthetic reference to the parent class
@@ -1137,7 +1201,10 @@ impl KotlinParser {
         for keyword in ["class", "interface", "object", "enum"] {
             if let Some(pos) = text.find(keyword) {
                 let after_keyword = &text[pos + keyword.len()..].trim_start();
-                if let Some(name) = after_keyword.split(|c: char| !c.is_alphanumeric() && c != '_').next() {
+                if let Some(name) = after_keyword
+                    .split(|c: char| !c.is_alphanumeric() && c != '_')
+                    .next()
+                {
                     if !name.is_empty() {
                         return Ok(name.to_string());
                     }
@@ -1145,7 +1212,10 @@ impl KotlinParser {
             }
         }
 
-        Err(miette::miette!("Could not find type name in node: {}", node.kind()))
+        Err(miette::miette!(
+            "Could not find type name in node: {}",
+            node.kind()
+        ))
     }
 
     /// Extract function name, handling both regular and extension functions
@@ -1194,7 +1264,12 @@ impl KotlinParser {
                 let text = node_text(child, source);
                 // Return first identifier that starts with lowercase (likely function name)
                 // or any identifier if we haven't found one yet
-                if text.chars().next().map(|c| c.is_lowercase()).unwrap_or(false) {
+                if text
+                    .chars()
+                    .next()
+                    .map(|c| c.is_lowercase())
+                    .unwrap_or(false)
+                {
                     return text.to_string();
                 }
             }
@@ -1240,9 +1315,14 @@ impl KotlinParser {
 
             // Handle specific modifier types
             match kind {
-                "visibility_modifier" | "inheritance_modifier" | "member_modifier"
-                | "class_modifier" | "function_modifier" | "property_modifier"
-                | "parameter_modifier" | "type_parameter_modifier" => {
+                "visibility_modifier"
+                | "inheritance_modifier"
+                | "member_modifier"
+                | "class_modifier"
+                | "function_modifier"
+                | "property_modifier"
+                | "parameter_modifier"
+                | "type_parameter_modifier" => {
                     // Extract the actual modifier keyword
                     let mut inner_cursor = modifier.walk();
                     for inner_child in modifier.children(&mut inner_cursor) {
@@ -1294,7 +1374,7 @@ impl KotlinParser {
                     // Get full text and strip "by ..." delegation part
                     let text = node_text(child, source);
                     // Take only the type part before "by"
-                    let type_part = text.split(" by ").next().unwrap_or(&text);
+                    let type_part = text.split(" by ").next().unwrap_or(text);
                     super_types.push(type_part.to_string());
                 }
             }
@@ -1309,7 +1389,7 @@ impl KotlinParser {
                     // Get full text and strip "by ..." delegation part
                     let text = node_text(child, source);
                     // Take only the type part before "by"
-                    let type_part = text.split(" by ").next().unwrap_or(&text);
+                    let type_part = text.split(" by ").next().unwrap_or(text);
                     super_types.push(type_part.to_string());
                 }
             }
@@ -1336,7 +1416,10 @@ impl KotlinParser {
                     if let Some(by_pos) = text.find(" by ") {
                         let delegate_expr = &text[by_pos + 4..].trim();
                         // Extract the delegate identifier (first word)
-                        if let Some(delegate_name) = delegate_expr.split(|c: char| !c.is_alphanumeric() && c != '_').next() {
+                        if let Some(delegate_name) = delegate_expr
+                            .split(|c: char| !c.is_alphanumeric() && c != '_')
+                            .next()
+                        {
                             if !delegate_name.is_empty() {
                                 let location = point_to_location(
                                     path,
@@ -1450,21 +1533,36 @@ impl KotlinParser {
             "property_declaration" | "variable_declaration" => Some(ReferenceKind::Read),
             // Default parameter values: fun test(x: Int = MY_CONST)
             // The default value is a sibling of parameter node, parented by function_value_parameters
-            "parameter" | "class_parameter" | "function_value_parameters" => Some(ReferenceKind::Read),
+            "parameter" | "class_parameter" | "function_value_parameters" => {
+                Some(ReferenceKind::Read)
+            }
             // Return statements and expression bodies
             "jump_expression" | "function_body" => Some(ReferenceKind::Read),
             // Binary/unary expressions (comparisons, arithmetic, infix, etc.)
             // Note: tree-sitter-kotlin uses _expression suffix for these
-            "comparison_expression" | "equality_expression" | "additive_expression"
-            | "multiplicative_expression" | "conjunction_expression" | "disjunction_expression"
-            | "prefix_expression" | "postfix_expression"
-            | "infix_expression" | "check_expression" | "elvis_expression"
-            | "as_expression" | "spread_expression" | "parenthesized_expression" => Some(ReferenceKind::Read),
+            "comparison_expression"
+            | "equality_expression"
+            | "additive_expression"
+            | "multiplicative_expression"
+            | "conjunction_expression"
+            | "disjunction_expression"
+            | "prefix_expression"
+            | "postfix_expression"
+            | "infix_expression"
+            | "check_expression"
+            | "elvis_expression"
+            | "as_expression"
+            | "spread_expression"
+            | "parenthesized_expression" => Some(ReferenceKind::Read),
             // Indexing and range expressions
             "indexing_expression" | "range_expression" => Some(ReferenceKind::Read),
             // If/when conditions and bodies
-            "if_expression" | "when_expression" | "when_condition" | "when_entry"
-            | "control_structure_body" | "statements" => Some(ReferenceKind::Read),
+            "if_expression"
+            | "when_expression"
+            | "when_condition"
+            | "when_entry"
+            | "control_structure_body"
+            | "statements" => Some(ReferenceKind::Read),
             // Lambda and anonymous function bodies
             "lambda_literal" | "anonymous_function" => Some(ReferenceKind::Read),
             // String templates
@@ -1600,7 +1698,7 @@ impl KotlinParser {
                     // Strip generic parameters if present
                     let name = type_text.split('<').next().unwrap_or(type_text);
                     // Also strip trailing dots for qualified names, take last component
-                    let simple_name = name.split('.').last().unwrap_or(name);
+                    let simple_name = name.split('.').next_back().unwrap_or(name);
                     return Some(simple_name.to_string());
                 }
                 // Simple identifier reference
@@ -1616,7 +1714,10 @@ impl KotlinParser {
                     // Recursively look for type inside
                     let mut inner_cursor = child.walk();
                     for inner in child.children(&mut inner_cursor) {
-                        if inner.kind() == "user_type" || inner.kind() == "type_identifier" || inner.kind() == "simple_identifier" {
+                        if inner.kind() == "user_type"
+                            || inner.kind() == "type_identifier"
+                            || inner.kind() == "simple_identifier"
+                        {
                             let text = node_text(inner, source);
                             let name = text.split('<').next().unwrap_or(text);
                             return Some(name.to_string());

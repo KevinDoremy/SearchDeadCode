@@ -50,8 +50,8 @@ impl JacocoParser {
                             // Extract package name
                             for attr in e.attributes().filter_map(|a| a.ok()) {
                                 if attr.key.as_ref() == b"name" {
-                                    current_package = String::from_utf8_lossy(&attr.value)
-                                        .replace('/', ".");
+                                    current_package =
+                                        String::from_utf8_lossy(&attr.value).replace('/', ".");
                                 }
                             }
                         }
@@ -60,8 +60,8 @@ impl JacocoParser {
                             for attr in e.attributes().filter_map(|a| a.ok()) {
                                 match attr.key.as_ref() {
                                     b"name" => {
-                                        let name = String::from_utf8_lossy(&attr.value)
-                                            .replace('/', ".");
+                                        let name =
+                                            String::from_utf8_lossy(&attr.value).replace('/', ".");
                                         current_class = name;
                                     }
                                     b"sourcefilename" => {
@@ -74,10 +74,8 @@ impl JacocoParser {
 
                             // Create file coverage entry if we have a source file
                             if !current_source_file.is_empty() {
-                                let file_path = self.resolve_source_file(
-                                    &current_package,
-                                    &current_source_file,
-                                );
+                                let file_path = self
+                                    .resolve_source_file(&current_package, &current_source_file);
                                 current_file_coverage = Some(FileCoverage::new(file_path));
                             }
                         }
@@ -87,8 +85,7 @@ impl JacocoParser {
 
                             for attr in e.attributes().filter_map(|a| a.ok()) {
                                 if attr.key.as_ref() == b"name" {
-                                    method_name =
-                                        String::from_utf8_lossy(&attr.value).to_string();
+                                    method_name = String::from_utf8_lossy(&attr.value).to_string();
                                 }
                             }
 
@@ -197,10 +194,9 @@ impl JacocoParser {
                                             .unwrap_or(0);
                                     }
                                     b"ci" => {
-                                        covered_instructions =
-                                            String::from_utf8_lossy(&attr.value)
-                                                .parse()
-                                                .unwrap_or(0);
+                                        covered_instructions = String::from_utf8_lossy(&attr.value)
+                                            .parse()
+                                            .unwrap_or(0);
                                     }
                                     b"mi" => {
                                         missed_instructions = String::from_utf8_lossy(&attr.value)
@@ -226,10 +222,10 @@ impl JacocoParser {
                                     if covered_instructions > 0 {
                                         fc.covered_lines.insert(line_nr);
                                         fc.uncovered_lines.remove(&line_nr);
-                                    } else if missed_instructions > 0 {
-                                        if !fc.covered_lines.contains(&line_nr) {
-                                            fc.uncovered_lines.insert(line_nr);
-                                        }
+                                    } else if missed_instructions > 0
+                                        && !fc.covered_lines.contains(&line_nr)
+                                    {
+                                        fc.uncovered_lines.insert(line_nr);
                                     }
 
                                     // Branch coverage
@@ -314,7 +310,7 @@ impl CoverageParser for JacocoParser {
 
     fn can_parse(&self, path: &Path) -> bool {
         // Check file extension
-        if !path.extension().map_or(false, |e| e == "xml") {
+        if path.extension().is_none_or(|e| e != "xml") {
             return false;
         }
 

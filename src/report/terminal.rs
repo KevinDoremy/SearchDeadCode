@@ -117,8 +117,7 @@ impl TerminalReporter {
 
         let location = format!(
             "{}:{}",
-            item.declaration.location.line,
-            item.declaration.location.column
+            item.declaration.location.line, item.declaration.location.column
         );
 
         // Build confidence badge

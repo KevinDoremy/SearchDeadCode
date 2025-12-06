@@ -3,13 +3,13 @@
 
 use super::common::{node_text, point_to_location, ParseResult, Parser};
 use crate::graph::{
-    Declaration, DeclarationId, DeclarationKind, Language, ReferenceKind, Visibility,
-    UnresolvedReference,
+    Declaration, DeclarationId, DeclarationKind, Language, ReferenceKind, UnresolvedReference,
+    Visibility,
 };
 use miette::{IntoDiagnostic, Result};
 use std::path::Path;
-use tree_sitter::{Node, Parser as TsParser};
 use tracing::debug;
+use tree_sitter::{Node, Parser as TsParser};
 
 /// Java source code parser using tree-sitter
 pub struct JavaParser {
@@ -263,7 +263,14 @@ impl JavaParser {
                     self.extract_enum_constant(path, child, source, parent.clone(), result)?;
                 }
                 "method_declaration" => {
-                    self.extract_method(path, child, source, package, Some(parent.clone()), result)?;
+                    self.extract_method(
+                        path,
+                        child,
+                        source,
+                        package,
+                        Some(parent.clone()),
+                        result,
+                    )?;
                 }
                 "field_declaration" => {
                     self.extract_field(path, child, source, Some(parent.clone()), result)?;
@@ -370,13 +377,27 @@ impl JavaParser {
                     self.extract_class(path, child, source, package, Some(parent.clone()), result)?;
                 }
                 "interface_declaration" => {
-                    self.extract_interface(path, child, source, package, Some(parent.clone()), result)?;
+                    self.extract_interface(
+                        path,
+                        child,
+                        source,
+                        package,
+                        Some(parent.clone()),
+                        result,
+                    )?;
                 }
                 "enum_declaration" => {
                     self.extract_enum(path, child, source, package, Some(parent.clone()), result)?;
                 }
                 "method_declaration" => {
-                    self.extract_method(path, child, source, package, Some(parent.clone()), result)?;
+                    self.extract_method(
+                        path,
+                        child,
+                        source,
+                        package,
+                        Some(parent.clone()),
+                        result,
+                    )?;
                 }
                 "constructor_declaration" => {
                     self.extract_constructor(path, child, source, parent.clone(), result)?;
@@ -591,8 +612,7 @@ impl JavaParser {
             match current.kind() {
                 "identifier" => {
                     if let Some(parent) = current.parent() {
-                        let kind = self.determine_reference_kind(parent);
-                        if kind.is_some() {
+                        if let Some(kind) = self.determine_reference_kind(parent) {
                             let name = node_text(current, source).to_string();
                             let location = point_to_location(
                                 path,
@@ -605,7 +625,7 @@ impl JavaParser {
                             result.references.push(UnresolvedReference {
                                 name,
                                 qualified_name: None,
-                                kind: kind.unwrap(),
+                                kind,
                                 location,
                                 imports: imports.to_vec(),
                             });
@@ -641,7 +661,7 @@ impl JavaParser {
                     );
 
                     result.references.push(UnresolvedReference {
-                        name: name.split('.').last().unwrap_or(&name).to_string(),
+                        name: name.split('.').next_back().unwrap_or(&name).to_string(),
                         qualified_name: Some(name),
                         kind: ReferenceKind::Type,
                         location,
@@ -686,9 +706,11 @@ impl JavaParser {
         }
 
         // Java default is package-private
-        if !decl.modifiers.iter().any(|m| {
-            m == "public" || m == "private" || m == "protected"
-        }) {
+        if !decl
+            .modifiers
+            .iter()
+            .any(|m| m == "public" || m == "private" || m == "protected")
+        {
             decl.visibility = Visibility::PackagePrivate;
         }
     }

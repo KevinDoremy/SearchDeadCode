@@ -62,11 +62,7 @@ const GENERATED_SUFFIXES: &[&str] = &[
 ];
 
 /// Patterns that indicate R resource classes
-const R_CLASS_PATTERNS: &[&str] = &[
-    ".R$",
-    ".R",
-    ".BR",
-];
+const R_CLASS_PATTERNS: &[&str] = &[".R$", ".R", ".BR"];
 
 /// Report generator configuration
 pub struct ReportGenerator {
@@ -112,7 +108,7 @@ impl ReportGenerator {
 
     /// Check if a class name matches generated code patterns
     fn is_generated_code(class_name: &str) -> bool {
-        let simple_name = class_name.split('.').last().unwrap_or(class_name);
+        let simple_name = class_name.split('.').next_back().unwrap_or(class_name);
 
         // Check R class patterns
         for pattern in R_CLASS_PATTERNS {
@@ -177,8 +173,14 @@ impl ReportGenerator {
         dead_classes.sort();
 
         // Get project name
-        let project_name = self.project_name.clone()
-            .or_else(|| self.package_filter.as_ref().and_then(|p| p.split('.').last().map(|s| s.to_uppercase())))
+        let project_name = self
+            .project_name
+            .clone()
+            .or_else(|| {
+                self.package_filter
+                    .as_ref()
+                    .and_then(|p| p.split('.').next_back().map(|s| s.to_uppercase()))
+            })
             .unwrap_or_else(|| "PROJECT".to_string());
 
         // Write header
@@ -189,19 +191,47 @@ impl ReportGenerator {
 
         let title1 = format!("DEAD CODE REPORT - {} PROJECT", project_name);
         let padding1 = (header_width - title1.len()) / 2;
-        writeln!(writer, "║{:>width$}{}{}║", "", title1, " ".repeat(header_width - padding1 - title1.len()), width = padding1).into_diagnostic()?;
+        writeln!(
+            writer,
+            "║{:>width$}{}{}║",
+            "",
+            title1,
+            " ".repeat(header_width - padding1 - title1.len()),
+            width = padding1
+        )
+        .into_diagnostic()?;
 
         let title2 = "Generated from R8/ProGuard usage.txt";
         let padding2 = (header_width - title2.len()) / 2;
-        writeln!(writer, "║{:>width$}{}{}║", "", title2, " ".repeat(header_width - padding2 - title2.len()), width = padding2).into_diagnostic()?;
+        writeln!(
+            writer,
+            "║{:>width$}{}{}║",
+            "",
+            title2,
+            " ".repeat(header_width - padding2 - title2.len()),
+            width = padding2
+        )
+        .into_diagnostic()?;
 
         writeln!(writer, "╚{}╝", border).into_diagnostic()?;
         writeln!(writer).into_diagnostic()?;
 
         // Write description
-        writeln!(writer, "This report shows code that R8/ProGuard determined is NEVER USED in your").into_diagnostic()?;
-        writeln!(writer, "release build. These items are removed by R8 during optimization, but remain").into_diagnostic()?;
-        writeln!(writer, "in your source code - cluttering the codebase and slowing down builds.").into_diagnostic()?;
+        writeln!(
+            writer,
+            "This report shows code that R8/ProGuard determined is NEVER USED in your"
+        )
+        .into_diagnostic()?;
+        writeln!(
+            writer,
+            "release build. These items are removed by R8 during optimization, but remain"
+        )
+        .into_diagnostic()?;
+        writeln!(
+            writer,
+            "in your source code - cluttering the codebase and slowing down builds."
+        )
+        .into_diagnostic()?;
         writeln!(writer).into_diagnostic()?;
 
         // Section: Completely unused classes
@@ -306,15 +336,35 @@ impl ReportGenerator {
         let total = stats.classes + stats.methods + stats.fields;
         writeln!(writer, "Total removable classes/items:      {}", total).into_diagnostic()?;
         if stats.classes > 0 {
-            writeln!(writer, "  - Classes:                        {}", stats.classes).into_diagnostic()?;
+            writeln!(
+                writer,
+                "  - Classes:                        {}",
+                stats.classes
+            )
+            .into_diagnostic()?;
         }
         if stats.methods > 0 {
-            writeln!(writer, "  - Methods:                        {}", stats.methods).into_diagnostic()?;
+            writeln!(
+                writer,
+                "  - Methods:                        {}",
+                stats.methods
+            )
+            .into_diagnostic()?;
         }
         if stats.fields > 0 {
-            writeln!(writer, "  - Fields:                         {}", stats.fields).into_diagnostic()?;
+            writeln!(
+                writer,
+                "  - Fields:                         {}",
+                stats.fields
+            )
+            .into_diagnostic()?;
         }
-        writeln!(writer, "Generated code filtered:            {}", stats.filtered_generated).into_diagnostic()?;
+        writeln!(
+            writer,
+            "Generated code filtered:            {}",
+            stats.filtered_generated
+        )
+        .into_diagnostic()?;
         writeln!(writer).into_diagnostic()?;
 
         writer.flush().into_diagnostic()?;
@@ -358,17 +408,27 @@ mod tests {
         assert!(ReportGenerator::is_generated_code("MyClass_Impl"));
         assert!(ReportGenerator::is_generated_code("DaggerAppComponent"));
         assert!(ReportGenerator::is_generated_code("Hilt_MainActivity"));
-        assert!(ReportGenerator::is_generated_code("MyModule_ProvideFactory"));
+        assert!(ReportGenerator::is_generated_code(
+            "MyModule_ProvideFactory"
+        ));
         assert!(ReportGenerator::is_generated_code("MyClass$1")); // Anonymous
-        assert!(ReportGenerator::is_generated_code("com.example.MyClass_MembersInjector"));
+        assert!(ReportGenerator::is_generated_code(
+            "com.example.MyClass_MembersInjector"
+        ));
         assert!(ReportGenerator::is_generated_code("com.example.R"));
         assert!(ReportGenerator::is_generated_code("com.example.R$string"));
         assert!(ReportGenerator::is_generated_code("com.example.BR"));
 
         // Should NOT be filtered
         assert!(!ReportGenerator::is_generated_code("com.example.MyClass"));
-        assert!(!ReportGenerator::is_generated_code("com.example.MyFragment"));
-        assert!(!ReportGenerator::is_generated_code("com.example.MyViewModel"));
-        assert!(!ReportGenerator::is_generated_code("com.example.UserRepository"));
+        assert!(!ReportGenerator::is_generated_code(
+            "com.example.MyFragment"
+        ));
+        assert!(!ReportGenerator::is_generated_code(
+            "com.example.MyViewModel"
+        ));
+        assert!(!ReportGenerator::is_generated_code(
+            "com.example.UserRepository"
+        ));
     }
 }

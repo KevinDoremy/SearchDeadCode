@@ -4,27 +4,33 @@ use miette::Result;
 use std::path::PathBuf;
 use tracing::info;
 
+mod analysis;
 mod baseline;
 mod cache;
 mod config;
 mod coverage;
 mod discovery;
-mod parser;
 mod graph;
-mod analysis;
+mod parser;
+mod proguard;
 mod refactor;
 mod report;
-mod proguard;
 mod watch;
 
 use proguard::{ProguardUsage, ReportGenerator};
 
+use analysis::detectors::{
+    Detector, RedundantOverrideDetector, UnusedIntentExtraDetector, UnusedParamDetector,
+    UnusedSealedVariantDetector, WriteOnlyDetector,
+};
+use analysis::{
+    Confidence, CycleDetector, DeepAnalyzer, EnhancedAnalyzer, EntryPointDetector, HybridAnalyzer,
+    ReachabilityAnalyzer, ResourceDetector,
+};
 use config::Config;
 use coverage::parse_coverage_files;
 use discovery::FileFinder;
 use graph::{GraphBuilder, ParallelGraphBuilder};
-use analysis::{Confidence, CycleDetector, DeepAnalyzer, EnhancedAnalyzer, EntryPointDetector, HybridAnalyzer, ReachabilityAnalyzer, ResourceDetector};
-use analysis::detectors::{Detector, UnusedParamDetector, WriteOnlyDetector, UnusedSealedVariantDetector, RedundantOverrideDetector, UnusedIntentExtraDetector};
 use report::Reporter;
 
 /// SearchDeadCode - Fast dead code detection for Android (Kotlin/Java)
@@ -256,47 +262,50 @@ fn run_watch_mode(config: &Config, cli: &Cli) -> Result<()> {
     let cli_coverage = cli.coverage.clone();
     let cli_proguard_usage = cli.proguard_usage.clone();
 
-    watcher.watch(&cli.path, move || {
-        // Suppress output for repeated runs except results
-        if !cli_verbose {
-            // Temporarily change log level
-        }
+    watcher
+        .watch(&cli.path, move || {
+            // Suppress output for repeated runs except results
+            if !cli_verbose {
+                // Temporarily change log level
+            }
 
-        // Re-run analysis
-        match run_analysis_internal(
-            &config,
-            &cli_path,
-            cli_format.clone(),
-            cli_output.clone(),
-            cli_deep,
-            cli_parallel,
-            cli_enhanced,
-            cli_detect_cycles,
-            &cli_min_confidence,
-            &cli_baseline,
-            &cli_coverage,
-            &cli_proguard_usage,
-            cli_quiet,
-        ) {
-            Ok(_) => {
-                println!();
-                println!("{}", "✓ Analysis complete. Waiting for changes...".green());
-                true
+            // Re-run analysis
+            match run_analysis_internal(
+                &config,
+                &cli_path,
+                cli_format.clone(),
+                cli_output.clone(),
+                cli_deep,
+                cli_parallel,
+                cli_enhanced,
+                cli_detect_cycles,
+                &cli_min_confidence,
+                &cli_baseline,
+                &cli_coverage,
+                &cli_proguard_usage,
+                cli_quiet,
+            ) {
+                Ok(_) => {
+                    println!();
+                    println!("{}", "✓ Analysis complete. Waiting for changes...".green());
+                    true
+                }
+                Err(e) => {
+                    eprintln!("{}: {}", "Analysis error".red(), e);
+                    true // Continue watching
+                }
             }
-            Err(e) => {
-                eprintln!("{}: {}", "Analysis error".red(), e);
-                true // Continue watching
-            }
-        }
-    }).map_err(|e| miette::miette!("Watch error: {}", e))?;
+        })
+        .map_err(|e| miette::miette!("Watch error: {}", e))?;
 
     Ok(())
 }
 
 /// Internal analysis function for watch mode
+#[allow(clippy::too_many_arguments)]
 fn run_analysis_internal(
     config: &Config,
-    path: &PathBuf,
+    path: &std::path::Path,
     format: OutputFormat,
     output: Option<PathBuf>,
     deep: bool,
@@ -398,7 +407,8 @@ fn run_analysis_internal(
                 if !quiet {
                     println!("{}", format!("📋 Baseline: {}", stats).cyan());
                 }
-                baseline.filter_new(&dead_code, path)
+                baseline
+                    .filter_new(&dead_code, path)
                     .into_iter()
                     .cloned()
                     .collect()
@@ -418,9 +428,9 @@ fn run_analysis_internal(
                 "{}",
                 format!(
                     "🧟 {} dead cycles ({} declarations)",
-                    cycle_stats.num_dead_cycles,
-                    cycle_stats.total_declarations_in_cycles
-                ).yellow()
+                    cycle_stats.num_dead_cycles, cycle_stats.total_declarations_in_cycles
+                )
+                .yellow()
             );
         }
     }
@@ -434,7 +444,12 @@ fn run_analysis_internal(
     if !quiet {
         println!(
             "{}",
-            format!("⏱  Analyzed {} files in {:.2}s", files.len(), elapsed.as_secs_f64()).dimmed()
+            format!(
+                "⏱  Analyzed {} files in {:.2}s",
+                files.len(),
+                elapsed.as_secs_f64()
+            )
+            .dimmed()
         );
     }
 
@@ -442,7 +457,7 @@ fn run_analysis_internal(
 }
 
 fn init_logging(verbose: bool, quiet: bool) {
-    use tracing_subscriber::{EnvFilter, fmt};
+    use tracing_subscriber::{fmt, EnvFilter};
 
     let filter = if quiet {
         EnvFilter::new("error")
@@ -452,10 +467,7 @@ fn init_logging(verbose: bool, quiet: bool) {
         EnvFilter::new("info")
     };
 
-    fmt()
-        .with_env_filter(filter)
-        .with_target(false)
-        .init();
+    fmt().with_env_filter(filter).with_target(false).init();
 }
 
 fn load_config(cli: &Cli) -> Result<Config> {
@@ -513,7 +525,9 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         let pb = ProgressBar::new(files.len() as u64);
         pb.set_style(
             ProgressStyle::default_bar()
-                .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})")
+                .template(
+                    "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})",
+                )
                 .unwrap()
                 .progress_chars("#>-"),
         );
@@ -534,7 +548,12 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     if cli.parallel {
         println!(
             "{}",
-            format!("⚡ Parsed {} files in {:.2}s", files.len(), parse_time.as_secs_f64()).green()
+            format!(
+                "⚡ Parsed {} files in {:.2}s",
+                files.len(),
+                parse_time.as_secs_f64()
+            )
+            .green()
         );
     }
 
@@ -557,7 +576,8 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
                     format!(
                         "📋 ProGuard usage.txt: {} unused items ({} classes, {} methods)",
                         stats.total, stats.classes, stats.methods
-                    ).cyan()
+                    )
+                    .cyan()
                 );
                 Some(data)
             }
@@ -575,14 +595,20 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
 
     let (dead_code, reachable) = if cli.deep {
         // Deep analysis mode - most aggressive
-        println!("{}", "🔬 Deep mode: aggressive dead code detection...".cyan());
+        println!(
+            "{}",
+            "🔬 Deep mode: aggressive dead code detection...".cyan()
+        );
         let deep = DeepAnalyzer::new()
             .with_parallel(cli.parallel)
             .with_unused_members(true);
         deep.analyze(&graph, &entry_points)
     } else if cli.enhanced && proguard_data.is_some() {
         // Enhanced mode with ProGuard cross-validation
-        println!("{}", "🔍 Enhanced mode: cross-validating with ProGuard data...".cyan());
+        println!(
+            "{}",
+            "🔍 Enhanced mode: cross-validating with ProGuard data...".cyan()
+        );
         let mut enhanced = EnhancedAnalyzer::new();
         if let Some(pg) = proguard_data.clone() {
             enhanced = enhanced.with_proguard(pg);
@@ -598,11 +624,18 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         analyzer.find_unreachable_with_reachable(&graph, &entry_points)
     };
 
-    info!("Reachability: {} reachable, {} total", reachable.len(), graph.declarations().count());
+    info!(
+        "Reachability: {} reachable, {} total",
+        reachable.len(),
+        graph.declarations().count()
+    );
 
     // Step 6: Load coverage data if provided
     let coverage_data = if !cli.coverage.is_empty() {
-        info!("Loading coverage data from {} file(s)...", cli.coverage.len());
+        info!(
+            "Loading coverage data from {} file(s)...",
+            cli.coverage.len()
+        );
         match parse_coverage_files(&cli.coverage) {
             Ok(data) => {
                 let stats = data.stats();
@@ -629,8 +662,7 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     if let Some(ref report_path) = cli.generate_report {
         if let Some(ref proguard) = proguard_data {
             info!("Generating filtered dead code report...");
-            let generator = ReportGenerator::new()
-                .with_package_filter(cli.report_package.clone());
+            let generator = ReportGenerator::new().with_package_filter(cli.report_package.clone());
 
             match generator.generate(proguard, report_path) {
                 Ok(stats) => {
@@ -641,7 +673,8 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
                             report_path.display(),
                             stats.classes,
                             stats.filtered_generated
-                        ).green()
+                        )
+                        .green()
                     );
                 }
                 Err(e) => {
@@ -671,7 +704,10 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     if cli.include_runtime_dead {
         let runtime_dead = hybrid.find_runtime_dead_code(&graph, &reachable);
         if !runtime_dead.is_empty() {
-            info!("Found {} additional runtime-dead code items", runtime_dead.len());
+            info!(
+                "Found {} additional runtime-dead code items",
+                runtime_dead.len()
+            );
             dead_code.extend(runtime_dead);
         }
     }
@@ -724,7 +760,11 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
             info!(
                 "Found {} unused resources ({} total defined, {} referenced)",
                 resource_analysis.unused.len(),
-                resource_analysis.defined.values().map(|m| m.len()).sum::<usize>(),
+                resource_analysis
+                    .defined
+                    .values()
+                    .map(|m| m.len())
+                    .sum::<usize>(),
                 resource_analysis.referenced.len()
             );
             // Print unused resources directly (they're not part of the code graph)
@@ -733,7 +773,8 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
                 println!();
                 println!("{}", "📦 Unused Android Resources:".yellow().bold());
                 for resource in &resource_analysis.unused {
-                    let rel_path = resource.file
+                    let rel_path = resource
+                        .file
                         .strip_prefix(&cli.path)
                         .unwrap_or(&resource.file);
                     println!(
@@ -767,9 +808,7 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
                 println!();
                 println!("{}", "🔑 Unused Intent Extras:".yellow().bold());
                 for extra in &intent_analysis.unused_extras {
-                    let rel_path = extra.file
-                        .strip_prefix(&cli.path)
-                        .unwrap_or(&extra.file);
+                    let rel_path = extra.file.strip_prefix(&cli.path).unwrap_or(&extra.file);
                     println!(
                         "  {} {}:{} - putExtra(\"{}\") never retrieved",
                         "○".dimmed(),
@@ -800,14 +839,10 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
 
         if cycle_stats.has_cycles() {
             println!();
-            println!(
-                "{}",
-                format!("🧟 Zombie Code Detected:").yellow().bold()
-            );
+            println!("{}", "🧟 Zombie Code Detected:".to_string().yellow().bold());
             println!(
                 "  {} dead cycles found ({} declarations)",
-                cycle_stats.num_dead_cycles,
-                cycle_stats.total_declarations_in_cycles
+                cycle_stats.num_dead_cycles, cycle_stats.total_declarations_in_cycles
             );
             if cycle_stats.largest_cycle_size > 2 {
                 println!(
@@ -857,7 +892,8 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
                         "📋 Baseline generated: {} ({} issues)",
                         baseline_path.display(),
                         dead_code.len()
-                    ).green()
+                    )
+                    .green()
                 );
             }
             Err(e) => {
@@ -871,13 +907,11 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         match baseline::Baseline::load(baseline_path) {
             Ok(baseline) => {
                 let stats = baseline.stats(&dead_code, &cli.path);
-                println!(
-                    "{}",
-                    format!("📋 Baseline: {}", stats).cyan()
-                );
+                println!("{}", format!("📋 Baseline: {}", stats).cyan());
 
                 // Only report new issues not in baseline
-                let new_issues: Vec<_> = baseline.filter_new(&dead_code, &cli.path)
+                let new_issues: Vec<_> = baseline
+                    .filter_new(&dead_code, &cli.path)
                     .into_iter()
                     .cloned()
                     .collect();
@@ -907,11 +941,8 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
 
     // Step 15: Safe delete if requested
     if cli.delete && !dead_code.is_empty() {
-        let deleter = refactor::SafeDeleter::new(
-            cli.interactive,
-            cli.dry_run,
-            cli.undo_script.clone(),
-        );
+        let deleter =
+            refactor::SafeDeleter::new(cli.interactive, cli.dry_run, cli.undo_script.clone());
         deleter.delete(&dead_code)?;
     }
 

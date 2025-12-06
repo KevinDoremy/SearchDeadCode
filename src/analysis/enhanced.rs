@@ -102,7 +102,7 @@ impl EnhancedAnalyzer {
         // Mark ancestors as reachable
         let mut ancestors = HashSet::new();
         for id in &reachable {
-            self.collect_ancestors(graph, id, &mut ancestors);
+            Self::collect_ancestors(graph, id, &mut ancestors);
         }
         reachable.extend(ancestors);
 
@@ -127,7 +127,6 @@ impl EnhancedAnalyzer {
 
     /// Collect all ancestor declarations
     fn collect_ancestors(
-        &self,
         graph: &Graph,
         id: &DeclarationId,
         ancestors: &mut HashSet<DeclarationId>,
@@ -135,7 +134,7 @@ impl EnhancedAnalyzer {
         if let Some(decl) = graph.get_declaration(id) {
             if let Some(parent_id) = &decl.parent {
                 if ancestors.insert(parent_id.clone()) {
-                    self.collect_ancestors(graph, parent_id, ancestors);
+                    Self::collect_ancestors(graph, parent_id, ancestors);
                 }
             }
         }

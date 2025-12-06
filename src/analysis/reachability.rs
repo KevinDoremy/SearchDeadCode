@@ -54,11 +54,18 @@ impl ReachabilityAnalyzer {
 
         // Sort by file and location for consistent output
         dead_code.sort_by(|a, b| {
-            let file_cmp = a.declaration.location.file.cmp(&b.declaration.location.file);
+            let file_cmp = a
+                .declaration
+                .location
+                .file
+                .cmp(&b.declaration.location.file);
             if file_cmp != std::cmp::Ordering::Equal {
                 return file_cmp;
             }
-            a.declaration.location.line.cmp(&b.declaration.location.line)
+            a.declaration
+                .location
+                .line
+                .cmp(&b.declaration.location.line)
         });
 
         (dead_code, reachable)
@@ -100,7 +107,7 @@ impl ReachabilityAnalyzer {
         // Step 2: Mark all ancestors of reachable nodes as reachable
         let mut ancestors = HashSet::new();
         for id in &reachable {
-            self.collect_ancestors(graph, id, &mut ancestors);
+            Self::collect_ancestors(graph, id, &mut ancestors);
         }
         reachable.extend(ancestors);
 
@@ -152,7 +159,6 @@ impl ReachabilityAnalyzer {
 
     /// Collect all ancestor declarations (parent classes, etc.)
     fn collect_ancestors(
-        &self,
         graph: &Graph,
         id: &DeclarationId,
         ancestors: &mut HashSet<DeclarationId>,
@@ -160,18 +166,14 @@ impl ReachabilityAnalyzer {
         if let Some(decl) = graph.get_declaration(id) {
             if let Some(parent_id) = &decl.parent {
                 if ancestors.insert(parent_id.clone()) {
-                    self.collect_ancestors(graph, parent_id, ancestors);
+                    Self::collect_ancestors(graph, parent_id, ancestors);
                 }
             }
         }
     }
 
     /// Check if a declaration should be skipped from dead code reporting
-    fn should_skip_declaration(
-        &self,
-        decl: &crate::graph::Declaration,
-        graph: &Graph,
-    ) -> bool {
+    fn should_skip_declaration(&self, decl: &crate::graph::Declaration, graph: &Graph) -> bool {
         // Skip file-level declarations
         if decl.kind == DeclarationKind::File || decl.kind == DeclarationKind::Package {
             return true;

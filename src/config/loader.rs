@@ -209,9 +209,9 @@ impl Config {
     /// Check if a pattern matches for exclusion
     pub fn should_exclude(&self, path: &Path) -> bool {
         let path_str = path.to_string_lossy();
-        self.exclude.iter().any(|pattern| {
-            glob_match(pattern, &path_str)
-        })
+        self.exclude
+            .iter()
+            .any(|pattern| glob_match(pattern, &path_str))
     }
 
     /// Check if a declaration should be retained
@@ -222,10 +222,14 @@ impl Config {
         }
 
         // Check Android component patterns if enabled
-        if self.android.auto_retain_components {
-            if self.android.component_patterns.iter().any(|p| glob_match(p, name)) {
-                return true;
-            }
+        if self.android.auto_retain_components
+            && self
+                .android
+                .component_patterns
+                .iter()
+                .any(|p| glob_match(p, name))
+        {
+            return true;
         }
 
         false

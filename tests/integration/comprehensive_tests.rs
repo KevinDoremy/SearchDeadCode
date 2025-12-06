@@ -8,15 +8,15 @@
 //! - Java language support
 //! - Performance with large files
 
-use searchdeadcode::graph::GraphBuilder;
-use searchdeadcode::analysis::ReachabilityAnalyzer;
 use searchdeadcode::analysis::detectors::{
-    Detector, WriteOnlyDetector, UnusedSealedVariantDetector,
-    UnusedParamDetector, RedundantOverrideDetector,
+    Detector, RedundantOverrideDetector, UnusedParamDetector, UnusedSealedVariantDetector,
+    WriteOnlyDetector,
 };
-use searchdeadcode::discovery::{SourceFile, FileType};
-use std::path::PathBuf;
+use searchdeadcode::analysis::ReachabilityAnalyzer;
+use searchdeadcode::discovery::{FileType, SourceFile};
+use searchdeadcode::graph::GraphBuilder;
 use std::collections::HashSet;
+use std::path::PathBuf;
 use std::time::Instant;
 
 /// Get the path to the test fixtures directory
@@ -32,7 +32,9 @@ fn build_kotlin_graph(filename: &str) -> searchdeadcode::graph::Graph {
     }
     let source = SourceFile::new(path, FileType::Kotlin);
     let mut builder = GraphBuilder::new();
-    builder.process_file(&source).expect("Failed to process file");
+    builder
+        .process_file(&source)
+        .expect("Failed to process file");
     builder.build()
 }
 
@@ -44,7 +46,9 @@ fn build_java_graph(filename: &str) -> searchdeadcode::graph::Graph {
     }
     let source = SourceFile::new(path, FileType::Java);
     let mut builder = GraphBuilder::new();
-    builder.process_file(&source).expect("Failed to process file");
+    builder
+        .process_file(&source)
+        .expect("Failed to process file");
     builder.build()
 }
 
@@ -60,7 +64,9 @@ fn build_multi_file_graph(files: &[(&str, FileType)]) -> searchdeadcode::graph::
         let path = fixtures_path().join(subfolder).join(filename);
         if path.exists() {
             let source = SourceFile::new(path, *file_type);
-            builder.process_file(&source).expect("Failed to process file");
+            builder
+                .process_file(&source)
+                .expect("Failed to process file");
         }
     }
     builder.build()
@@ -86,7 +92,10 @@ mod false_positive_tests {
         let count = graph.declarations().count();
 
         println!("False positives fixture: {} declarations", count);
-        assert!(count > 20, "Should have many declarations in false positives fixture");
+        assert!(
+            count > 20,
+            "Should have many declarations in false positives fixture"
+        );
     }
 
     #[test]
@@ -105,8 +114,7 @@ mod false_positive_tests {
             .iter()
             .filter(|i| {
                 let name = &i.declaration.name;
-                name == "onCreate" || name == "onResume" ||
-                name == "onPause" || name == "onDestroy"
+                name == "onCreate" || name == "onResume" || name == "onPause" || name == "onDestroy"
             })
             .collect();
 
@@ -128,11 +136,15 @@ mod false_positive_tests {
         let graph = build_kotlin_graph("false_positives.kt");
 
         // Check that SerializableData fields exist
-        let serializable_decls: Vec<_> = graph.declarations()
+        let serializable_decls: Vec<_> = graph
+            .declarations()
             .filter(|d| d.name == "SerializableData" || d.name == "hiddenField")
             .collect();
 
-        println!("Serializable declarations found: {}", serializable_decls.len());
+        println!(
+            "Serializable declarations found: {}",
+            serializable_decls.len()
+        );
     }
 
     #[test]
@@ -145,10 +157,14 @@ mod false_positive_tests {
         let graph = build_kotlin_graph("false_positives.kt");
 
         // Operator functions should be found
-        let operators: Vec<_> = graph.declarations()
+        let operators: Vec<_> = graph
+            .declarations()
             .filter(|d| {
-                d.name == "plus" || d.name == "get" || d.name == "invoke" ||
-                d.name == "contains" || d.name.starts_with("component")
+                d.name == "plus"
+                    || d.name == "get"
+                    || d.name == "invoke"
+                    || d.name == "contains"
+                    || d.name.starts_with("component")
             })
             .collect();
 
@@ -166,7 +182,8 @@ mod false_positive_tests {
         let graph = build_kotlin_graph("false_positives.kt");
 
         // Factory methods in companion objects
-        let factories: Vec<_> = graph.declarations()
+        let factories: Vec<_> = graph
+            .declarations()
             .filter(|d| d.name == "create" || d.name == "default")
             .collect();
 
@@ -199,7 +216,8 @@ mod false_positive_tests {
         let graph = build_kotlin_graph("false_positives.kt");
 
         // Coroutine entry points
-        let suspend_fns: Vec<_> = graph.declarations()
+        let suspend_fns: Vec<_> = graph
+            .declarations()
             .filter(|d| d.modifiers.iter().any(|m| m == "suspend"))
             .collect();
 
@@ -239,8 +257,9 @@ mod edge_case_tests {
         let graph = build_kotlin_graph("edge_cases.kt");
 
         // Look for unicode class name
-        let unicode_decls: Vec<_> = graph.declarations()
-            .filter(|d| d.name.chars().any(|c| !c.is_ascii()))
+        let unicode_decls: Vec<_> = graph
+            .declarations()
+            .filter(|d| !d.name.is_ascii())
             .collect();
 
         println!("Unicode declarations found: {}", unicode_decls.len());
@@ -259,9 +278,7 @@ mod edge_case_tests {
         let graph = build_kotlin_graph("edge_cases.kt");
 
         // Look for backtick identifiers (keywords as names)
-        let names: Vec<_> = graph.declarations()
-            .map(|d| d.name.clone())
-            .collect();
+        let names: Vec<_> = graph.declarations().map(|d| d.name.clone()).collect();
 
         println!("All declaration names count: {}", names.len());
 
@@ -284,7 +301,8 @@ mod edge_case_tests {
         let graph = build_kotlin_graph("edge_cases.kt");
 
         // Look for nested level classes
-        let level_classes: Vec<_> = graph.declarations()
+        let level_classes: Vec<_> = graph
+            .declarations()
             .filter(|d| d.name.contains("Level"))
             .collect();
 
@@ -302,8 +320,13 @@ mod edge_case_tests {
         let graph = build_kotlin_graph("edge_cases.kt");
 
         // Look for generic classes
-        let generic_decls: Vec<_> = graph.declarations()
-            .filter(|d| d.name.contains("Generic") || d.name.contains("Covariant") || d.name.contains("Contravariant"))
+        let generic_decls: Vec<_> = graph
+            .declarations()
+            .filter(|d| {
+                d.name.contains("Generic")
+                    || d.name.contains("Covariant")
+                    || d.name.contains("Contravariant")
+            })
             .collect();
 
         println!("Generic declarations found: {}", generic_decls.len());
@@ -319,7 +342,8 @@ mod edge_case_tests {
         let graph = build_kotlin_graph("edge_cases.kt");
 
         // Look for value classes
-        let value_classes: Vec<_> = graph.declarations()
+        let value_classes: Vec<_> = graph
+            .declarations()
             .filter(|d| d.name == "Password" || d.name == "UserId")
             .collect();
 
@@ -336,7 +360,8 @@ mod edge_case_tests {
         let graph = build_kotlin_graph("edge_cases.kt");
 
         // Look for type aliases
-        let type_alias_count = graph.declarations()
+        let type_alias_count = graph
+            .declarations()
             .filter(|d| d.kind == searchdeadcode::graph::DeclarationKind::TypeAlias)
             .count();
 
@@ -353,8 +378,7 @@ mod edge_case_tests {
         let graph = build_kotlin_graph("edge_cases.kt");
 
         // Should find outerFunction
-        let outer_fn = graph.declarations()
-            .find(|d| d.name == "outerFunction");
+        let outer_fn = graph.declarations().find(|d| d.name == "outerFunction");
 
         assert!(outer_fn.is_some(), "Should find outerFunction");
     }
@@ -374,7 +398,11 @@ mod edge_case_tests {
         assert!(result.is_ok(), "Should handle empty file");
 
         let graph = builder.build();
-        assert_eq!(graph.declarations().count(), 0, "Empty file should have no declarations");
+        assert_eq!(
+            graph.declarations().count(),
+            0,
+            "Empty file should have no declarations"
+        );
     }
 
     #[test]
@@ -394,7 +422,9 @@ mod edge_case_tests {
     fn test_comments_only_file() {
         let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
         let comments_file = temp_dir.path().join("comments.kt");
-        std::fs::write(&comments_file, r#"
+        std::fs::write(
+            &comments_file,
+            r#"
 // This is a comment
 /* This is a
    multiline comment */
@@ -402,7 +432,9 @@ mod edge_case_tests {
  * This is a doc comment
  */
 // Another comment
-"#).expect("Failed to write file");
+"#,
+        )
+        .expect("Failed to write file");
 
         let source = SourceFile::new(comments_file, FileType::Kotlin);
         let mut builder = GraphBuilder::new();
@@ -454,14 +486,12 @@ mod cross_file_tests {
         ]);
 
         // SharedService should be referenced
-        let shared_service = graph.declarations()
-            .find(|d| d.name == "SharedService");
+        let shared_service = graph.declarations().find(|d| d.name == "SharedService");
 
         assert!(shared_service.is_some(), "Should find SharedService");
 
         // ServiceConsumer should also exist
-        let consumer = graph.declarations()
-            .find(|d| d.name == "ServiceConsumer");
+        let consumer = graph.declarations().find(|d| d.name == "ServiceConsumer");
 
         assert!(consumer.is_some(), "Should find ServiceConsumer");
     }
@@ -481,15 +511,19 @@ mod cross_file_tests {
         ]);
 
         // DataProvider interface from file A
-        let interface_decl = graph.declarations()
-            .find(|d| d.name == "DataProvider");
+        let interface_decl = graph.declarations().find(|d| d.name == "DataProvider");
 
         // LocalDataProvider implementation from file B
-        let impl_decl = graph.declarations()
-            .find(|d| d.name == "LocalDataProvider");
+        let impl_decl = graph.declarations().find(|d| d.name == "LocalDataProvider");
 
-        assert!(interface_decl.is_some(), "Should find DataProvider interface");
-        assert!(impl_decl.is_some(), "Should find LocalDataProvider implementation");
+        assert!(
+            interface_decl.is_some(),
+            "Should find DataProvider interface"
+        );
+        assert!(
+            impl_decl.is_some(),
+            "Should find LocalDataProvider implementation"
+        );
     }
 
     #[test]
@@ -507,12 +541,10 @@ mod cross_file_tests {
         ]);
 
         // toSlug extension from file A
-        let to_slug = graph.declarations()
-            .find(|d| d.name == "toSlug");
+        let to_slug = graph.declarations().find(|d| d.name == "toSlug");
 
         // SlugGenerator that uses it from file B
-        let generator = graph.declarations()
-            .find(|d| d.name == "SlugGenerator");
+        let generator = graph.declarations().find(|d| d.name == "SlugGenerator");
 
         assert!(to_slug.is_some(), "Should find toSlug extension");
         assert!(generator.is_some(), "Should find SlugGenerator");
@@ -533,13 +565,13 @@ mod cross_file_tests {
         ]);
 
         // OrphanClass should exist but be unreferenced
-        let orphan = graph.declarations()
-            .find(|d| d.name == "OrphanClass");
+        let orphan = graph.declarations().find(|d| d.name == "OrphanClass");
 
         assert!(orphan.is_some(), "Should find OrphanClass");
 
         // Check if it's unreferenced
-        let entry_points: HashSet<_> = graph.declarations()
+        let entry_points: HashSet<_> = graph
+            .declarations()
             .filter(|d| d.name == "main")
             .map(|d| d.id.clone())
             .collect();
@@ -548,7 +580,8 @@ mod cross_file_tests {
             let analyzer = ReachabilityAnalyzer::new();
             let (dead_code, _) = analyzer.find_unreachable_with_reachable(&graph, &entry_points);
 
-            let dead_names: HashSet<_> = dead_code.iter()
+            let dead_names: HashSet<_> = dead_code
+                .iter()
                 .map(|d| d.declaration.name.as_str())
                 .collect();
 
@@ -593,13 +626,17 @@ mod java_tests {
 
         let graph = build_java_graph("DeadCode.java");
 
-        let classes: Vec<_> = graph.declarations()
+        let classes: Vec<_> = graph
+            .declarations()
             .filter(|d| d.kind == searchdeadcode::graph::DeclarationKind::Class)
             .map(|d| d.name.clone())
             .collect();
 
         println!("Java classes found: {:?}", classes);
-        assert!(classes.contains(&"DeadCode".to_string()), "Should find DeadCode class");
+        assert!(
+            classes.contains(&"DeadCode".to_string()),
+            "Should find DeadCode class"
+        );
     }
 
     #[test]
@@ -611,7 +648,8 @@ mod java_tests {
 
         let graph = build_java_graph("DeadCode.java");
 
-        let methods: Vec<_> = graph.declarations()
+        let methods: Vec<_> = graph
+            .declarations()
             .filter(|d| d.kind == searchdeadcode::graph::DeclarationKind::Function)
             .map(|d| d.name.clone())
             .collect();
@@ -628,7 +666,8 @@ mod java_tests {
 
         let graph = build_java_graph("DeadCode.java");
 
-        let fields: Vec<_> = graph.declarations()
+        let fields: Vec<_> = graph
+            .declarations()
             .filter(|d| d.kind == searchdeadcode::graph::DeclarationKind::Property)
             .map(|d| d.name.clone())
             .collect();
@@ -645,9 +684,12 @@ mod java_tests {
 
         let graph = build_java_graph("DeadCode.java");
 
-        let enums: Vec<_> = graph.declarations()
-            .filter(|d| d.kind == searchdeadcode::graph::DeclarationKind::Enum ||
-                       d.kind == searchdeadcode::graph::DeclarationKind::EnumCase)
+        let enums: Vec<_> = graph
+            .declarations()
+            .filter(|d| {
+                d.kind == searchdeadcode::graph::DeclarationKind::Enum
+                    || d.kind == searchdeadcode::graph::DeclarationKind::EnumCase
+            })
             .map(|d| d.name.clone())
             .collect();
 
@@ -723,11 +765,18 @@ mod performance_tests {
         }
 
         let elapsed = start.elapsed();
-        println!("Parsed {} files with {} declarations in {:?}",
-                 all_fixtures.len(), total_decls, elapsed);
+        println!(
+            "Parsed {} files with {} declarations in {:?}",
+            all_fixtures.len(),
+            total_decls,
+            elapsed
+        );
 
         // Should complete in reasonable time
-        assert!(elapsed.as_secs() < 10, "Parsing should complete in < 10 seconds");
+        assert!(
+            elapsed.as_secs() < 10,
+            "Parsing should complete in < 10 seconds"
+        );
     }
 
     #[test]
@@ -756,8 +805,14 @@ mod performance_tests {
         let detectors: Vec<(&str, Box<dyn Detector>)> = vec![
             ("WriteOnly", Box::new(WriteOnlyDetector::new())),
             ("UnusedParam", Box::new(UnusedParamDetector::new())),
-            ("SealedVariant", Box::new(UnusedSealedVariantDetector::new())),
-            ("RedundantOverride", Box::new(RedundantOverrideDetector::new())),
+            (
+                "SealedVariant",
+                Box::new(UnusedSealedVariantDetector::new()),
+            ),
+            (
+                "RedundantOverride",
+                Box::new(RedundantOverrideDetector::new()),
+            ),
         ];
 
         println!("Performance test on {} declarations:", decl_count);
@@ -766,11 +821,19 @@ mod performance_tests {
             let start = Instant::now();
             let issues = detector.detect(&graph);
             let elapsed = start.elapsed();
-            println!("  {} detector: {} issues in {:?}", name, issues.len(), elapsed);
+            println!(
+                "  {} detector: {} issues in {:?}",
+                name,
+                issues.len(),
+                elapsed
+            );
 
             // Each detector should be fast
-            assert!(elapsed.as_millis() < 1000,
-                    "{} detector should complete in < 1 second", name);
+            assert!(
+                elapsed.as_millis() < 1000,
+                "{} detector should complete in < 1 second",
+                name
+            );
         }
     }
 
@@ -784,13 +847,9 @@ mod performance_tests {
 
         // Generate 100 classes with 10 methods each
         for i in 0..100 {
-            content.push_str(&format!(
-                "class Class{} {{\n", i
-            ));
+            content.push_str(&format!("class Class{} {{\n", i));
             for j in 0..10 {
-                content.push_str(&format!(
-                    "    fun method{}(): String = \"value{}\"\n", j, j
-                ));
+                content.push_str(&format!("    fun method{}(): String = \"value{}\"\n", j, j));
             }
             content.push_str("}\n\n");
         }
@@ -800,15 +859,23 @@ mod performance_tests {
         let start = Instant::now();
         let source = SourceFile::new(large_file, FileType::Kotlin);
         let mut builder = GraphBuilder::new();
-        builder.process_file(&source).expect("Failed to process large file");
+        builder
+            .process_file(&source)
+            .expect("Failed to process large file");
         let graph = builder.build();
         let elapsed = start.elapsed();
 
         let decl_count = graph.declarations().count();
-        println!("Large file: {} declarations parsed in {:?}", decl_count, elapsed);
+        println!(
+            "Large file: {} declarations parsed in {:?}",
+            decl_count, elapsed
+        );
 
         assert!(decl_count >= 1000, "Should have many declarations");
-        assert!(elapsed.as_secs() < 30, "Should parse large file in < 30 seconds");
+        assert!(
+            elapsed.as_secs() < 30,
+            "Should parse large file in < 30 seconds"
+        );
     }
 }
 
@@ -848,18 +915,23 @@ mod regression_tests {
         let issues = detector.detect(&graph);
 
         // No issues should have names starting with underscore
-        let underscore_issues: Vec<_> = issues.iter()
+        let underscore_issues: Vec<_> = issues
+            .iter()
             .filter(|i| i.declaration.name.starts_with("_"))
             .collect();
 
-        assert!(underscore_issues.is_empty(),
-                "Should not report backing fields starting with _");
+        assert!(
+            underscore_issues.is_empty(),
+            "Should not report backing fields starting with _"
+        );
     }
 
     #[test]
     fn test_override_with_additional_behavior() {
         // Regression: Override that adds behavior should not be reported as redundant
-        let path = fixtures_path().join("kotlin").join("redundant_overrides.kt");
+        let path = fixtures_path()
+            .join("kotlin")
+            .join("redundant_overrides.kt");
         if !path.exists() {
             return;
         }
@@ -868,9 +940,7 @@ mod regression_tests {
         let detector = RedundantOverrideDetector::new();
         let issues = detector.detect(&graph);
 
-        let issue_names: HashSet<_> = issues.iter()
-            .map(|i| i.declaration.name.as_str())
-            .collect();
+        let issue_names: HashSet<_> = issues.iter().map(|i| i.declaration.name.as_str()).collect();
 
         // onCreate in MainActivity adds behavior, should not be reported
         // (depends on detector implementation)

@@ -84,7 +84,8 @@ impl UnusedParamDetector {
             // Skip common callback/listener patterns
             if parent.name.starts_with("on")
                 || parent.name.ends_with("Listener")
-                || parent.name.ends_with("Callback") {
+                || parent.name.ends_with("Callback")
+            {
                 return true;
             }
         }
