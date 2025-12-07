@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/KevinDoremy/SearchDeadCode/actions/workflows/ci.yml/badge.svg)](https://github.com/KevinDoremy/SearchDeadCode/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/searchdeadcode.svg)](https://crates.io/crates/searchdeadcode)
+[![Homebrew](https://img.shields.io/badge/Homebrew-available-FBB040?logo=homebrew&logoColor=white)](https://github.com/KevinDoremy/homebrew-tap)
 [![GitHub Action](https://img.shields.io/badge/GitHub_Action-available-2088FF?logo=github-actions&logoColor=white)](https://github.com/marketplace/actions/searchdeadcode)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
@@ -81,7 +82,14 @@ Estimated removable lines: ~340
 
 ## Installation
 
-### Via Cargo (Recommended)
+### Via Homebrew (macOS/Linux)
+
+```bash
+brew tap KevinDoremy/tap
+brew install searchdeadcode
+```
+
+### Via Cargo
 
 ```bash
 cargo install searchdeadcode
