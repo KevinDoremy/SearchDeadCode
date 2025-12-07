@@ -43,7 +43,7 @@ regex = "1.10"
 
 # Terminal UI
 colored = "2.1"
-indicatif = "0.17"
+indicatif = "0.18"
 console = "0.15"
 
 # Error handling
