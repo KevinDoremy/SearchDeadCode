@@ -1875,6 +1875,21 @@ Planned features and improvements for future releases:
 - [ ] **GitHub Action** - Pre-built action for easy CI setup
 - [ ] **Pre-commit hook** - Block commits introducing dead code
 
+#### Phase 9: Write-Only Detection ✅ (Mostly Complete)
+- [x] **Write-only variables** - Variables assigned but never read (`--write-only`)
+- [x] **Write-only SharedPreferences** - prefs.putString() without getString() (`--write-only-prefs`)
+- [x] **Write-only database tables** - @Insert without @Query consumers (`--write-only-dao`)
+- [ ] **Write-only cache** - Cache writes that are never read
+
+#### Phase 10: Sealed Class & Override Analysis ✅
+- [x] **Unused sealed variants** - Sealed class cases never instantiated (`--sealed-variants`)
+- [x] **Redundant overrides** - Override methods that only call super (`--redundant-overrides`)
+
+#### Phase 11: Intent & Data Flow ✅ (Partial)
+- [ ] **Ignored return values** - `list.map{}` without capturing result
+- [x] **Unused intent extras** - putExtra() without getExtra() (`--unused-extras`)
+- [ ] **Redundant null checks** - Double null checks after safe calls
+
 ### Upcoming Phases
 
 #### Phase 8: Multi-Platform
@@ -1882,21 +1897,6 @@ Planned features and improvements for future releases:
 - [ ] **React Native** - Analyze both native and JavaScript layers
 - [ ] **Flutter/Dart** - Support Dart language analysis
 - [ ] **KMP (Kotlin Multiplatform)** - Proper shared code analysis
-
-#### Phase 9: Write-Only Detection ⭐⭐⭐⭐⭐ (Next Priority)
-- [ ] **Write-only variables** - Variables assigned but never read
-- [ ] **Write-only SharedPreferences** - prefs.putString() without getString()
-- [ ] **Write-only database tables** - @Insert without @Query consumers
-- [ ] **Write-only cache** - Cache writes that are never read
-
-#### Phase 10: Sealed Class & Override Analysis ⭐⭐⭐⭐
-- [ ] **Unused sealed variants** - Sealed class cases never instantiated
-- [ ] **Redundant overrides** - Override methods that only call super
-
-#### Phase 11: Intent & Data Flow ⭐⭐⭐
-- [ ] **Ignored return values** - `list.map{}` without capturing result
-- [ ] **Unused intent extras** - putExtra() without getExtra()
-- [ ] **Redundant null checks** - Double null checks after safe calls
 
 #### Phase 12: Observable State ⭐⭐
 - [ ] **Dead feature flags** - Flags always true/false
