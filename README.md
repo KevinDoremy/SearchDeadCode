@@ -1977,7 +1977,7 @@ Planned features and improvements for future releases:
 - [ ] **Language Server Protocol (LSP)** - Real-time dead code highlighting in editors
 - [ ] **IntelliJ/Android Studio plugin** - Native IDE integration
 - [x] **GitHub Action** - Pre-built action for easy CI setup (`uses: KevinDoremy/SearchDeadCode@v0`)
-- [ ] **Pre-commit hook** - Block commits introducing dead code
+- [x] **Pre-commit hook** - Block commits introducing dead code (`scripts/pre-commit-hook.sh`)
 
 #### Phase 9: Write-Only Detection ✅ (Mostly Complete)
 - [x] **Write-only variables** - Variables assigned but never read (`--write-only`)

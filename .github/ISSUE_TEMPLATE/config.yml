@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://github.com/KevinDoremy/SearchDeadCode#readme
+    about: Check the README for usage and documentation
+  - name: Discussions
+    url: https://github.com/KevinDoremy/SearchDeadCode/discussions
+    about: Ask questions and discuss ideas
