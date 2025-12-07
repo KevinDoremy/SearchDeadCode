@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <!-- Background circle -->
+  <circle cx="50" cy="50" r="45" fill="#1a1a2e" stroke="#ff6b35" stroke-width="3"/>
+
+  <!-- Magnifying glass handle -->
+  <line x1="65" y1="65" x2="85" y2="85" stroke="#ff6b35" stroke-width="8" stroke-linecap="round"/>
+
+  <!-- Magnifying glass circle -->
+  <circle cx="42" cy="42" r="25" fill="none" stroke="#ff6b35" stroke-width="5"/>
+
+  <!-- Code brackets inside magnifying glass -->
+  <text x="30" y="48" font-family="monospace" font-size="20" font-weight="bold" fill="#ff6b35">{</text>
+  <text x="46" y="48" font-family="monospace" font-size="20" font-weight="bold" fill="#4a4a6a">}</text>
+
+  <!-- X mark (dead code) -->
+  <line x1="35" y1="35" x2="49" y2="49" stroke="#e63946" stroke-width="3" stroke-linecap="round"/>
+  <line x1="49" y1="35" x2="35" y2="49" stroke="#e63946" stroke-width="3" stroke-linecap="round"/>
+</svg>

@@ -1,6 +1,8 @@
 <div align="center">
 
-# 🔍 SearchDeadCode
+<img src="assets/logo.svg" alt="SearchDeadCode Logo" width="120"/>
+
+# SearchDeadCode
 
 **Find and eliminate dead code in Android projects**
 
@@ -138,6 +140,21 @@ chmod +x ~/Downloads/searchdeadcode-macos-*
 git clone https://github.com/KevinDoremy/SearchDeadCode
 cd SearchDeadCode
 cargo install --path .
+```
+
+### Shell Completions
+
+Generate tab completions for your shell:
+
+```bash
+# Bash
+searchdeadcode --completions bash > ~/.local/share/bash-completion/completions/searchdeadcode
+
+# Zsh
+searchdeadcode --completions zsh > ~/.zfunc/_searchdeadcode
+
+# Fish
+searchdeadcode --completions fish > ~/.config/fish/completions/searchdeadcode.fish
 ```
 
 ### GitHub Action

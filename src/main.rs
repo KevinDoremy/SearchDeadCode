@@ -1,4 +1,5 @@
-use clap::Parser;
+use clap::{CommandFactory, Parser};
+use clap_complete::{generate, Shell};
 use colored::Colorize;
 use miette::Result;
 use std::path::PathBuf;
@@ -209,6 +210,10 @@ struct Cli {
     /// Quiet mode - only output results
     #[arg(short, long)]
     quiet: bool,
+
+    /// Generate shell completions
+    #[arg(long, value_name = "SHELL")]
+    completions: Option<Shell>,
 }
 
 #[derive(clap::ValueEnum, Clone, Debug, Default)]
@@ -231,6 +236,14 @@ impl From<OutputFormat> for report::ReportFormat {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+
+    // Handle shell completions
+    if let Some(shell) = cli.completions {
+        let mut cmd = Cli::command();
+        let name = cmd.get_name().to_string();
+        generate(shell, &mut cmd, name, &mut std::io::stdout());
+        return Ok(());
+    }
 
     // Initialize logging
     init_logging(cli.verbose, cli.quiet);
