@@ -32,16 +32,51 @@ Inspired by [Periphery](https://github.com/peripheryapp/periphery) for Swift.
 ## Quick Start
 
 ```bash
-# Build from source
-git clone https://github.com/KevinDoremy/SearchDeadCode
-cd searchdeadcode
-cargo build --release
+# Install via cargo
+cargo install searchdeadcode
 
 # Analyze an Android project
-./target/release/searchdeadcode /path/to/android/project
+searchdeadcode /path/to/android/project
 
 # Dry-run deletion preview
-./target/release/searchdeadcode /path/to/project --delete --dry-run
+searchdeadcode /path/to/project --delete --dry-run
+```
+
+### Example Output
+
+```
+$ searchdeadcode ./my-app --min-confidence high
+
+SearchDeadCode v0.4.0
+Discovering files...
+Found 247 files to analyze
+Parsing files...
+Detecting entry points...
+Found 89 entry points
+Running reachability analysis...
+Reachability: 1,847 reachable, 2,103 total
+
+Found 12 dead code issues:
+
+Confidence Legend:
+  ● Confirmed (runtime) ◉ High ○ Medium ◌ Low
+
+app/src/main/java/com/example/data/OldApiClient.kt
+  ◉ 15:1 warning [DC001] class 'LegacyApiClient' is never used
+    → class 'LegacyApiClient'
+
+app/src/main/java/com/example/utils/StringUtils.kt
+  ◉ 42:5 warning [DC001] function 'formatLegacyDate' is never used
+    → function 'formatLegacyDate'
+  ◉ 67:5 warning [DC001] function 'parseOldFormat' is never used
+    → function 'parseOldFormat'
+
+app/src/main/java/com/example/models/User.kt
+  ◉ 23:5 warning [DC004] property 'middleName' is never used
+    → property 'middleName'
+
+Summary: 12 issues in 4 files (3 classes, 5 functions, 4 properties)
+Estimated removable lines: ~340
 ```
 
 ## Installation
