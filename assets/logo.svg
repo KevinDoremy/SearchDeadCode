@@ -8,11 +8,11 @@
   <!-- Magnifying glass circle -->
   <circle cx="42" cy="42" r="25" fill="none" stroke="#ff6b35" stroke-width="5"/>
 
-  <!-- Code brackets inside magnifying glass -->
-  <text x="30" y="48" font-family="monospace" font-size="20" font-weight="bold" fill="#ff6b35">{</text>
-  <text x="46" y="48" font-family="monospace" font-size="20" font-weight="bold" fill="#4a4a6a">}</text>
+  <!-- Code brackets inside magnifying glass - same color, equal spacing -->
+  <text x="22" y="48" font-family="monospace" font-size="20" font-weight="bold" fill="#ff6b35">{</text>
+  <text x="47" y="48" font-family="monospace" font-size="20" font-weight="bold" fill="#ff6b35">}</text>
 
-  <!-- X mark (dead code) -->
-  <line x1="35" y1="35" x2="49" y2="49" stroke="#e63946" stroke-width="3" stroke-linecap="round"/>
-  <line x1="49" y1="35" x2="35" y2="49" stroke="#e63946" stroke-width="3" stroke-linecap="round"/>
+  <!-- X mark (dead code) - centered between brackets -->
+  <line x1="35" y1="36" x2="47" y2="48" stroke="#e63946" stroke-width="3" stroke-linecap="round"/>
+  <line x1="47" y1="36" x2="35" y2="48" stroke="#e63946" stroke-width="3" stroke-linecap="round"/>
 </svg>
