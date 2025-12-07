@@ -1,17 +1,27 @@
-# SearchDeadCode
+<div align="center">
+
+# 🔍 SearchDeadCode
+
+**Find and eliminate dead code in Android projects**
 
 [![CI](https://github.com/KevinDoremy/SearchDeadCode/actions/workflows/ci.yml/badge.svg)](https://github.com/KevinDoremy/SearchDeadCode/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/searchdeadcode.svg)](https://crates.io/crates/searchdeadcode)
 [![Homebrew](https://img.shields.io/badge/Homebrew-available-FBB040?logo=homebrew&logoColor=white)](https://github.com/KevinDoremy/homebrew-tap)
 [![GitHub Action](https://img.shields.io/badge/GitHub_Action-available-2088FF?logo=github-actions&logoColor=white)](https://github.com/marketplace/actions/searchdeadcode)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
 
 A blazingly fast CLI tool written in Rust to detect and safely remove dead/unused code in Android projects (Kotlin & Java).
 
 Inspired by [Periphery](https://github.com/peripheryapp/periphery) for Swift.
 
-## Features
+```bash
+brew install KevinDoremy/tap/searchdeadcode  # macOS/Linux
+cargo install searchdeadcode                  # via Cargo
+```
+
+</div>
+
+## ✨ Features
 
 ### Detection Capabilities
 
@@ -30,17 +40,14 @@ Inspired by [Periphery](https://github.com/peripheryapp/periphery) for Swift.
 - **Dry-run**: Preview what would be deleted
 - **Undo support**: Generate restore scripts
 
-## Quick Start
+## 🚀 Quick Start
 
 ```bash
-# Install via cargo
-cargo install searchdeadcode
+# Analyze your Android project
+searchdeadcode ./my-android-app
 
-# Analyze an Android project
-searchdeadcode /path/to/android/project
-
-# Dry-run deletion preview
-searchdeadcode /path/to/project --delete --dry-run
+# Preview what would be deleted
+searchdeadcode ./my-android-app --delete --dry-run
 ```
 
 ### Example Output
@@ -80,7 +87,7 @@ Summary: 12 issues in 4 files (3 classes, 5 functions, 4 properties)
 Estimated removable lines: ~340
 ```
 
-## Installation
+## 📦 Installation
 
 ### Via Homebrew (macOS/Linux)
 
@@ -193,7 +200,7 @@ jobs:
     args: '--deep --unused-params --write-only --sealed-variants'
 ```
 
-## Usage
+## 🔧 Usage
 
 ### Basic Analysis
 
@@ -608,7 +615,7 @@ Dry run - would delete:
 Total: 3 items would be deleted
 ```
 
-## Configuration
+## ⚙️ Configuration
 
 ### Configuration File
 
@@ -742,7 +749,7 @@ component_patterns = [
 ]
 ```
 
-## CLI Reference
+## 📖 CLI Reference
 
 ```
 searchdeadcode [OPTIONS] [PATH]
@@ -849,7 +856,7 @@ searchdeadcode ./app \
   --min-confidence confirmed
 ```
 
-## Detection Types
+## 🎯 Detection Types
 
 ### 1. Unused Classes/Interfaces
 
@@ -969,7 +976,7 @@ fun process(value: Int) {
 }
 ```
 
-## Android-Specific Handling
+## 🤖 Android-Specific Handling
 
 ### Auto-Retained Entry Points
 
@@ -1008,7 +1015,7 @@ The tool parses Android XML files to detect additional entry points:
 - Context references: `tools:context=".MyActivity"`
 - Data binding: `app:viewModel="@{viewModel}"`
 
-## Test Code Handling
+## 🧪 Test Code Handling
 
 Code that is **only** used in tests is considered dead code. This is intentional because:
 
@@ -1025,7 +1032,7 @@ exclude:
   - "**/*Spec.kt"
 ```
 
-## Architecture
+## 🏗️ Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -1258,7 +1265,7 @@ All major features are implemented and tested:
 
 6. **R.* Resource References**: Android resource references (`R.drawable.*`, `R.string.*`, etc.) are compile-time constants and don't create trackable references in the code graph.
 
-## Troubleshooting
+## 🔧 Troubleshooting
 
 ### "No Kotlin or Java files found"
 
@@ -1397,7 +1404,7 @@ Patterns like `**/test/**` now only match complete directory names, not substrin
 - Improved method call detection via navigation_suffix nodes
 - All CLI options working and tested
 
-## Performance
+## ⚡ Performance
 
 Target performance goals (achieved):
 
@@ -1407,7 +1414,7 @@ Target performance goals (achieved):
 | 10,000 files  | < 5s       | < 2s          |
 | 100,000 files | < 30s      | < 10s         |
 
-## CI/CD Integration
+## 🔄 CI/CD Integration
 
 ### GitHub Actions
 
@@ -1447,7 +1454,7 @@ deadcode:
       - deadcode.json
 ```
 
-## Contributing
+## 🤝 Contributing
 
 Contributions are welcome! Please:
 
@@ -1952,7 +1959,7 @@ The Empty Override detector must:
 3. **Exclude**: Abstract implementations where empty is intentional (e.g., `LifecycleObserver`)
 4. **Report with confidence level** based on interface type
 
-## What's Next
+## 🗺️ What's Next
 
 Planned features and improvements for future releases:
 
@@ -2039,6 +2046,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
 - [Dead Code Elimination - Wikipedia](https://en.wikipedia.org/wiki/Dead-code_elimination)
 - [Dead Code Removal at Meta - ACM](https://dl.acm.org/doi/10.1145/3611643.3613871)
 
-## License
+## 📄 License
 
 MIT
