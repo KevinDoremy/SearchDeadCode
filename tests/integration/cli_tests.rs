@@ -10,12 +10,21 @@ fn fixtures_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
 }
 
+/// Get the binary name (with .exe on Windows)
+fn binary_name() -> &'static str {
+    if cfg!(windows) {
+        "searchdeadcode.exe"
+    } else {
+        "searchdeadcode"
+    }
+}
+
 /// Get the path to the searchdeadcode binary
 fn binary_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("target")
         .join("debug")
-        .join("searchdeadcode")
+        .join(binary_name())
 }
 
 /// Run searchdeadcode with arguments and return (stdout, stderr, success)
@@ -26,7 +35,7 @@ fn run_cli(args: &[&str]) -> (String, String, bool) {
         let release_binary = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("target")
             .join("release")
-            .join("searchdeadcode");
+            .join(binary_name());
 
         if !release_binary.exists() {
             panic!("Binary not found. Run 'cargo build' first.");
