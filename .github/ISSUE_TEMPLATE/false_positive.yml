@@ -1,0 +1,74 @@
+name: False Positive Report
+description: Report code incorrectly flagged as dead
+title: "[False Positive]: "
+labels: ["false-positive"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Help us improve detection accuracy by reporting false positives!
+
+  - type: textarea
+    id: code
+    attributes:
+      label: Code Flagged as Dead
+      description: The code that was incorrectly reported as dead
+      render: kotlin
+    validations:
+      required: true
+
+  - type: textarea
+    id: why-not-dead
+    attributes:
+      label: Why This Isn't Dead Code
+      description: Explain why this code is actually used
+      placeholder: |
+        This code is used by:
+        - Called via reflection
+        - Android framework callback
+        - etc.
+    validations:
+      required: true
+
+  - type: input
+    id: issue-code
+    attributes:
+      label: Issue Code
+      description: The issue code from the output (e.g., DC001)
+      placeholder: "DC001"
+    validations:
+      required: true
+
+  - type: textarea
+    id: command
+    attributes:
+      label: Command Used
+      description: The exact command you ran
+      placeholder: "searchdeadcode ./app --min-confidence high"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: pattern
+    attributes:
+      label: Pattern Type
+      description: What pattern is causing the false positive?
+      options:
+        - Reflection / Dynamic dispatch
+        - Android lifecycle callback
+        - Serialization (Gson, Moshi, etc.)
+        - Dependency Injection (Dagger, Hilt)
+        - Test code
+        - Library public API
+        - XML referenced
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: SearchDeadCode Version
+      placeholder: "0.4.0"
+    validations:
+      required: true
