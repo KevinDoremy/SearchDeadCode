@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/KevinDoremy/SearchDeadCode/actions/workflows/ci.yml/badge.svg)](https://github.com/KevinDoremy/SearchDeadCode/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/searchdeadcode.svg)](https://crates.io/crates/searchdeadcode)
+[![GitHub Action](https://img.shields.io/badge/GitHub_Action-available-2088FF?logo=github-actions&logoColor=white)](https://github.com/marketplace/actions/searchdeadcode)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
 
@@ -87,6 +88,66 @@ chmod +x ~/Downloads/searchdeadcode-macos-*
 git clone https://github.com/KevinDoremy/SearchDeadCode
 cd SearchDeadCode
 cargo install --path .
+```
+
+### GitHub Action
+
+Add dead code detection to your CI pipeline:
+
+```yaml
+# .github/workflows/dead-code.yml
+name: Dead Code Detection
+
+on: [push, pull_request]
+
+jobs:
+  dead-code:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detect Dead Code
+        uses: KevinDoremy/SearchDeadCode@v0
+        with:
+          path: '.'
+          min-confidence: 'medium'
+```
+
+#### Action Inputs
+
+| Input | Description | Default |
+|-------|-------------|---------|
+| `path` | Path to analyze | `.` |
+| `version` | SearchDeadCode version | `latest` |
+| `format` | Output format: `terminal`, `json`, `sarif` | `terminal` |
+| `output` | Output file path | - |
+| `args` | Additional CLI arguments | - |
+| `fail-on-findings` | Fail if dead code found | `false` |
+| `min-confidence` | Minimum confidence: `low`, `medium`, `high`, `confirmed` | `medium` |
+
+#### Advanced Examples
+
+**Fail CI on dead code:**
+```yaml
+- uses: KevinDoremy/SearchDeadCode@v0
+  with:
+    fail-on-findings: 'true'
+    min-confidence: 'high'
+```
+
+**SARIF output for GitHub Security:**
+```yaml
+- uses: KevinDoremy/SearchDeadCode@v0
+  with:
+    format: 'sarif'
+    output: 'dead-code.sarif'
+```
+
+**Deep analysis with all detectors:**
+```yaml
+- uses: KevinDoremy/SearchDeadCode@v0
+  with:
+    args: '--deep --unused-params --write-only --sealed-variants'
 ```
 
 ## Usage
@@ -1872,7 +1933,7 @@ Planned features and improvements for future releases:
 - [x] **Baseline support** - Ignore existing dead code, only flag new issues (`--baseline`)
 - [ ] **Language Server Protocol (LSP)** - Real-time dead code highlighting in editors
 - [ ] **IntelliJ/Android Studio plugin** - Native IDE integration
-- [ ] **GitHub Action** - Pre-built action for easy CI setup
+- [x] **GitHub Action** - Pre-built action for easy CI setup (`uses: KevinDoremy/SearchDeadCode@v0`)
 - [ ] **Pre-commit hook** - Block commits introducing dead code
 
 #### Phase 9: Write-Only Detection ✅ (Mostly Complete)

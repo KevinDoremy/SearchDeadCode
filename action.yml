@@ -1,0 +1,202 @@
+name: 'SearchDeadCode'
+author: 'Kevin Doremy'
+description: 'Detect dead/unused code in Android projects (Kotlin & Java). Fast static analysis powered by tree-sitter.'
+
+branding:
+  icon: 'search'
+  color: 'orange'
+
+inputs:
+  path:
+    description: 'Path to the project directory to analyze'
+    required: false
+    default: '.'
+  version:
+    description: 'Version of SearchDeadCode to use (e.g., "0.4.0" or "latest")'
+    required: false
+    default: 'latest'
+  format:
+    description: 'Output format: terminal, json, or sarif'
+    required: false
+    default: 'terminal'
+  output:
+    description: 'Output file path (for json/sarif formats)'
+    required: false
+    default: ''
+  args:
+    description: 'Additional arguments to pass to searchdeadcode'
+    required: false
+    default: ''
+  fail-on-findings:
+    description: 'Fail the workflow if dead code is found'
+    required: false
+    default: 'false'
+  min-confidence:
+    description: 'Minimum confidence level: low, medium, high, confirmed'
+    required: false
+    default: 'medium'
+
+outputs:
+  findings-count:
+    description: 'Number of dead code findings'
+    value: ${{ steps.analyze.outputs.findings_count }}
+  sarif-file:
+    description: 'Path to SARIF output file (if format is sarif)'
+    value: ${{ steps.analyze.outputs.sarif_file }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Detect runner OS and architecture
+      id: detect
+      shell: bash
+      run: |
+        OS="${RUNNER_OS}"
+        ARCH="${RUNNER_ARCH}"
+
+        case "$OS" in
+          Linux)
+            case "$ARCH" in
+              X64) TARGET="x86_64-unknown-linux-gnu" ;;
+              ARM64) TARGET="aarch64-unknown-linux-gnu" ;;
+              *) echo "::error::Unsupported architecture: $ARCH"; exit 1 ;;
+            esac
+            ;;
+          macOS)
+            case "$ARCH" in
+              X64) TARGET="x86_64-apple-darwin" ;;
+              ARM64) TARGET="aarch64-apple-darwin" ;;
+              *) echo "::error::Unsupported architecture: $ARCH"; exit 1 ;;
+            esac
+            ;;
+          Windows)
+            case "$ARCH" in
+              X64) TARGET="x86_64-pc-windows-msvc" ;;
+              *) echo "::error::Unsupported architecture: $ARCH"; exit 1 ;;
+            esac
+            ;;
+          *)
+            echo "::error::Unsupported OS: $OS"
+            exit 1
+            ;;
+        esac
+
+        echo "target=$TARGET" >> $GITHUB_OUTPUT
+        echo "os=$OS" >> $GITHUB_OUTPUT
+
+    - name: Get latest version
+      id: version
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        VERSION="${{ inputs.version }}"
+        if [ "$VERSION" = "latest" ]; then
+          VERSION=$(gh api repos/KevinDoremy/SearchDeadCode/releases/latest --jq '.tag_name' 2>/dev/null | sed 's/^v//' || echo "0.4.0")
+        fi
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+    - name: Cache SearchDeadCode binary
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.searchdeadcode/bin
+        key: searchdeadcode-${{ steps.version.outputs.version }}-${{ steps.detect.outputs.target }}
+
+    - name: Download SearchDeadCode
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        VERSION="${{ steps.version.outputs.version }}"
+        TARGET="${{ steps.detect.outputs.target }}"
+        OS="${{ steps.detect.outputs.os }}"
+
+        mkdir -p ~/.searchdeadcode/bin
+
+        if [ "$OS" = "Windows" ]; then
+          BINARY_NAME="searchdeadcode-${TARGET}.exe"
+        else
+          BINARY_NAME="searchdeadcode-${TARGET}"
+        fi
+
+        DOWNLOAD_URL="https://github.com/KevinDoremy/SearchDeadCode/releases/download/v${VERSION}/${BINARY_NAME}"
+
+        echo "Downloading SearchDeadCode v${VERSION} for ${TARGET}..."
+        echo "URL: ${DOWNLOAD_URL}"
+
+        curl -fsSL "$DOWNLOAD_URL" -o ~/.searchdeadcode/bin/searchdeadcode
+        chmod +x ~/.searchdeadcode/bin/searchdeadcode
+
+        echo "Downloaded successfully!"
+
+    - name: Add to PATH
+      shell: bash
+      run: echo "$HOME/.searchdeadcode/bin" >> $GITHUB_PATH
+
+    - name: Run SearchDeadCode analysis
+      id: analyze
+      shell: bash
+      run: |
+        # Build command
+        CMD="searchdeadcode"
+        CMD="$CMD --min-confidence ${{ inputs.min-confidence }}"
+
+        # Add format
+        FORMAT="${{ inputs.format }}"
+        CMD="$CMD --format $FORMAT"
+
+        # Add output file if specified
+        OUTPUT="${{ inputs.output }}"
+        if [ -n "$OUTPUT" ]; then
+          CMD="$CMD --output $OUTPUT"
+          if [ "$FORMAT" = "sarif" ]; then
+            echo "sarif_file=$OUTPUT" >> $GITHUB_OUTPUT
+          fi
+        elif [ "$FORMAT" = "sarif" ]; then
+          CMD="$CMD --output searchdeadcode-results.sarif"
+          echo "sarif_file=searchdeadcode-results.sarif" >> $GITHUB_OUTPUT
+        fi
+
+        # Add additional args
+        ARGS="${{ inputs.args }}"
+        if [ -n "$ARGS" ]; then
+          CMD="$CMD $ARGS"
+        fi
+
+        # Add path
+        CMD="$CMD ${{ inputs.path }}"
+
+        echo "Running: $CMD"
+        echo "---"
+
+        # Run analysis and capture output
+        set +e
+        OUTPUT_TEXT=$($CMD 2>&1)
+        EXIT_CODE=$?
+        set -e
+
+        echo "$OUTPUT_TEXT"
+
+        # Count findings (look for "Found X dead code" or count JSON entries)
+        if [ "$FORMAT" = "json" ] && [ -n "${{ inputs.output }}" ]; then
+          FINDINGS=$(jq 'length' "${{ inputs.output }}" 2>/dev/null || echo "0")
+        else
+          FINDINGS=$(echo "$OUTPUT_TEXT" | grep -oE 'Found [0-9]+ dead code' | grep -oE '[0-9]+' || echo "0")
+        fi
+
+        echo "findings_count=$FINDINGS" >> $GITHUB_OUTPUT
+
+        # Check if we should fail
+        if [ "${{ inputs.fail-on-findings }}" = "true" ] && [ "$FINDINGS" -gt 0 ]; then
+          echo "::error::Found $FINDINGS dead code issue(s)"
+          exit 1
+        fi
+
+        exit 0
+
+    - name: Upload SARIF to GitHub Security
+      if: inputs.format == 'sarif' && always()
+      uses: github/codeql-action/upload-sarif@v3
+      continue-on-error: true
+      with:
+        sarif_file: ${{ steps.analyze.outputs.sarif_file }}
