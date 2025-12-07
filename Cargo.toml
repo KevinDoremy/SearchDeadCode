@@ -56,7 +56,7 @@ dialoguer = "0.11"
 
 # File watching
 notify = "6.1"
-notify-debouncer-mini = "0.4"
+notify-debouncer-mini = "0.7"
 
 # Logging
 tracing = "0.1"
