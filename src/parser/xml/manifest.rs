@@ -17,7 +17,7 @@ impl ManifestParser {
     pub fn parse(&self, path: &Path, contents: &str) -> Result<XmlParseResult> {
         let mut result = XmlParseResult::new();
         let mut reader = Reader::from_str(contents);
-        reader.trim_text(true);
+        reader.config_mut().trim_text(true);
 
         let mut buf = Vec::new();
 

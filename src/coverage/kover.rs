@@ -33,7 +33,7 @@ impl KoverParser {
     /// Parse the Kover XML report
     fn parse_xml(&self, content: &str) -> Result<CoverageData> {
         let mut reader = Reader::from_str(content);
-        reader.trim_text(true);
+        reader.config_mut().trim_text(true);
 
         let mut coverage_data = CoverageData::new();
         let mut current_package = String::new();

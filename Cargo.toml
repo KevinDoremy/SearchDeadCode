@@ -36,7 +36,7 @@ serde_yaml = "0.9"
 toml = "0.8"
 
 # XML parsing
-quick-xml = "0.31"
+quick-xml = "0.38"
 
 # Regex for resource detection
 regex = "1.10"
