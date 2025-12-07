@@ -166,6 +166,16 @@ struct Cli {
     #[arg(long)]
     unused_extras: bool,
 
+    /// Enable write-only SharedPreferences detection
+    /// Finds SharedPreferences keys that are written but never read (Phase 9)
+    #[arg(long)]
+    write_only_prefs: bool,
+
+    /// Enable write-only Room DAO detection
+    /// Finds Room DAOs that have @Insert but no @Query methods (Phase 9)
+    #[arg(long)]
+    write_only_dao: bool,
+
     /// Enable incremental analysis with caching
     /// Skips re-parsing unchanged files for faster subsequent runs
     #[arg(long)]
@@ -816,6 +826,114 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
                         extra.line,
                         extra.key
                     );
+                }
+                println!();
+            }
+        }
+    }
+
+    // Step 9h: Detect write-only SharedPreferences (Phase 9)
+    if cli.write_only_prefs {
+        use analysis::detectors::WriteOnlyPrefsDetector;
+        use discovery::FileType;
+        let prefs_detector = WriteOnlyPrefsDetector::new();
+
+        // Analyze all Kotlin files for SharedPreferences usage
+        let mut prefs_analysis = analysis::detectors::SharedPrefsAnalysis::new();
+        for file in &files {
+            if file.file_type == FileType::Kotlin {
+                if let Ok(content) = std::fs::read_to_string(&file.path) {
+                    let file_analysis = prefs_detector.analyze_source(&content, &file.path);
+                    // Merge results
+                    for (key, locs) in file_analysis.writes {
+                        for loc in locs {
+                            prefs_analysis.add_write(key.clone(), loc.file, loc.line);
+                        }
+                    }
+                    for (key, locs) in file_analysis.reads {
+                        for loc in locs {
+                            prefs_analysis.add_read(key.clone(), loc.file, loc.line);
+                        }
+                    }
+                }
+            }
+        }
+
+        let write_only_keys = prefs_analysis.get_write_only_keys();
+        if !write_only_keys.is_empty() {
+            info!(
+                "Found {} write-only SharedPreferences keys",
+                write_only_keys.len()
+            );
+            if !cli.quiet {
+                use colored::Colorize;
+                println!();
+                println!("{}", "🔐 Write-Only SharedPreferences:".yellow().bold());
+                for key in write_only_keys {
+                    if let Some(locs) = prefs_analysis.writes.get(key) {
+                        for loc in locs {
+                            let rel_path = loc.file.strip_prefix(&cli.path).unwrap_or(&loc.file);
+                            println!(
+                                "  {} {}:{} - key \"{}\" written but never read",
+                                "○".dimmed(),
+                                rel_path.display(),
+                                loc.line,
+                                key
+                            );
+                        }
+                    }
+                }
+                println!();
+            }
+        }
+    }
+
+    // Step 9i: Detect write-only Room DAOs (Phase 9)
+    if cli.write_only_dao {
+        use analysis::detectors::WriteOnlyDaoDetector;
+        use discovery::FileType;
+        let dao_detector = WriteOnlyDaoDetector::new();
+
+        // Analyze all Kotlin files for DAO definitions
+        let mut dao_analysis = analysis::detectors::DaoCollectionAnalysis::new();
+        for file in &files {
+            if file.file_type == FileType::Kotlin {
+                if let Ok(content) = std::fs::read_to_string(&file.path) {
+                    let file_analysis = dao_detector.analyze_source(&content, &file.path);
+                    dao_analysis.daos.extend(file_analysis.daos);
+                }
+            }
+        }
+
+        let write_only_daos = dao_analysis.get_write_only_daos();
+        if !write_only_daos.is_empty() {
+            info!("Found {} write-only Room DAOs", write_only_daos.len());
+            if !cli.quiet {
+                use colored::Colorize;
+                println!();
+                println!("{}", "🗄️ Write-Only Room DAOs:".yellow().bold());
+                for dao in write_only_daos {
+                    let rel_path = dao.file.strip_prefix(&cli.path).unwrap_or(&dao.file);
+                    println!(
+                        "  {} {}:{} - DAO '{}' has @Insert but no @Query",
+                        "○".dimmed(),
+                        rel_path.display(),
+                        dao.line,
+                        dao.name
+                    );
+                    for method in dao.write_methods() {
+                        let entity_info = method
+                            .entity_type
+                            .as_ref()
+                            .map(|e| format!(" ({})", e))
+                            .unwrap_or_default();
+                        println!(
+                            "    {} {}{}",
+                            "└".dimmed(),
+                            method.name,
+                            entity_info.dimmed()
+                        );
+                    }
                 }
                 println!();
             }

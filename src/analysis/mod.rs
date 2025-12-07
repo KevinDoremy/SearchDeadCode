@@ -153,6 +153,12 @@ pub enum DeadCodeIssue {
 
     /// Override only calls super (no additional behavior)
     RedundantOverride,
+
+    /// SharedPreferences key is written but never read
+    WriteOnlyPreference,
+
+    /// Room DAO method writes data but the DAO has no read queries
+    WriteOnlyDao,
 }
 
 impl DeadCodeIssue {
@@ -167,6 +173,8 @@ impl DeadCodeIssue {
             DeadCodeIssue::DeadBranch => Severity::Warning,
             DeadCodeIssue::UnusedSealedVariant => Severity::Warning,
             DeadCodeIssue::RedundantOverride => Severity::Info,
+            DeadCodeIssue::WriteOnlyPreference => Severity::Warning,
+            DeadCodeIssue::WriteOnlyDao => Severity::Warning,
         }
     }
 
@@ -208,6 +216,18 @@ impl DeadCodeIssue {
                     decl.name
                 )
             }
+            DeadCodeIssue::WriteOnlyPreference => {
+                format!(
+                    "SharedPreferences key '{}' is written but never read",
+                    decl.name
+                )
+            }
+            DeadCodeIssue::WriteOnlyDao => {
+                format!(
+                    "DAO method '{}' writes data but the DAO has no read queries",
+                    decl.name
+                )
+            }
         }
     }
 
@@ -222,6 +242,8 @@ impl DeadCodeIssue {
             DeadCodeIssue::DeadBranch => "DC007",
             DeadCodeIssue::UnusedSealedVariant => "DC008",
             DeadCodeIssue::RedundantOverride => "DC009",
+            DeadCodeIssue::WriteOnlyPreference => "DC010",
+            DeadCodeIssue::WriteOnlyDao => "DC011",
         }
     }
 }

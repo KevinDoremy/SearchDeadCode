@@ -17,6 +17,8 @@ mod unused_method;
 mod unused_param;
 mod unused_property;
 mod write_only;
+mod write_only_dao;
+mod write_only_prefs;
 
 // These detectors are reserved for future advanced analysis modes
 pub use assign_only::AssignOnlyDetector;
@@ -33,6 +35,8 @@ pub use unused_method::UnusedMethodDetector;
 pub use unused_param::UnusedParamDetector;
 pub use unused_property::UnusedPropertyDetector;
 pub use write_only::WriteOnlyDetector;
+pub use write_only_dao::{DaoAnalysis, DaoCollectionAnalysis, WriteOnlyDaoDetector};
+pub use write_only_prefs::{SharedPrefsAnalysis, WriteOnlyPrefsDetector};
 
 use crate::analysis::DeadCode;
 use crate::graph::Graph;
