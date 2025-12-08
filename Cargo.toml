@@ -20,7 +20,7 @@ tree-sitter-kotlin = "0.3.6"
 tree-sitter-java = "0.21"
 
 # Graph
-petgraph = "0.6"
+petgraph = "0.8"
 
 # File discovery
 ignore = "0.4"
@@ -46,17 +46,17 @@ quick-xml = "0.38"
 regex = "1.10"
 
 # Terminal UI
-colored = "2.1"
+colored = "3.0"
 indicatif = "0.18"
 console = "0.16"
 
 # Error handling
-miette = { version = "5.10", features = ["fancy"] }
-thiserror = "1.0"
+miette = { version = "7.6", features = ["fancy"] }
+thiserror = "2.0"
 anyhow = "1.0"
 
 # Interactive prompts
-dialoguer = "0.11"
+dialoguer = "0.12"
 
 # File watching
 notify = "8.0"
