@@ -1,0 +1,42 @@
+<svg width="600" height="350" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1b26;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#24283b;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="600" height="350" fill="url(#bg)" rx="10"/>
+
+  <!-- Terminal window chrome -->
+  <rect x="10" y="10" width="580" height="30" fill="#3b4261" rx="5"/>
+  <circle cx="30" cy="25" r="6" fill="#f7768e"/>
+  <circle cx="50" cy="25" r="6" fill="#e0af68"/>
+  <circle cx="70" cy="25" r="6" fill="#9ece6a"/>
+  <text x="300" y="29" font-family="monospace" font-size="12" fill="#a9b1d6" text-anchor="middle">Terminal — searchdeadcode</text>
+
+  <!-- Terminal content -->
+  <text x="20" y="65" font-family="monospace" font-size="13" fill="#7dcfff">$</text>
+  <text x="35" y="65" font-family="monospace" font-size="13" fill="#c0caf5">searchdeadcode ./my-android-app</text>
+
+  <text x="20" y="95" font-family="monospace" font-size="12" fill="#9ece6a">SearchDeadCode v0.4.0</text>
+  <text x="20" y="115" font-family="monospace" font-size="12" fill="#a9b1d6">Discovering files...</text>
+  <text x="20" y="135" font-family="monospace" font-size="12" fill="#a9b1d6">Found 247 files to analyze</text>
+  <text x="20" y="155" font-family="monospace" font-size="12" fill="#a9b1d6">Running reachability analysis...</text>
+
+  <text x="20" y="185" font-family="monospace" font-size="12" fill="#e0af68">Found 12 dead code issues:</text>
+
+  <!-- Code findings -->
+  <text x="20" y="215" font-family="monospace" font-size="11" fill="#7aa2f7">app/src/main/java/com/example/OldApiClient.kt</text>
+  <text x="30" y="235" font-family="monospace" font-size="11" fill="#9ece6a">◉</text>
+  <text x="45" y="235" font-family="monospace" font-size="11" fill="#a9b1d6">15:1 class 'LegacyApiClient' is never used</text>
+
+  <text x="20" y="260" font-family="monospace" font-size="11" fill="#7aa2f7">app/src/main/java/com/example/StringUtils.kt</text>
+  <text x="30" y="280" font-family="monospace" font-size="11" fill="#9ece6a">◉</text>
+  <text x="45" y="280" font-family="monospace" font-size="11" fill="#a9b1d6">42:5 function 'formatLegacyDate' is never used</text>
+
+  <!-- Summary -->
+  <text x="20" y="320" font-family="monospace" font-size="12" fill="#bb9af7">Summary: 12 issues in 4 files</text>
+  <text x="20" y="340" font-family="monospace" font-size="12" fill="#7dcfff">Estimated removable lines: ~340</text>
+</svg>

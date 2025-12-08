@@ -6,8 +6,12 @@
 
 **Find and eliminate dead code in Android projects**
 
+[English](README.md) | [简体中文](docs/README.zh-CN.md) | [日本語](docs/README.ja.md) | [한국어](docs/README.ko.md)
+
 [![CI](https://github.com/KevinDoremy/SearchDeadCode/actions/workflows/ci.yml/badge.svg)](https://github.com/KevinDoremy/SearchDeadCode/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/searchdeadcode.svg)](https://crates.io/crates/searchdeadcode)
+[![Downloads](https://img.shields.io/crates/d/searchdeadcode.svg)](https://crates.io/crates/searchdeadcode)
+[![MSRV](https://img.shields.io/badge/MSRV-1.70-blue.svg)](https://blog.rust-lang.org/2023/06/01/Rust-1.70.0.html)
 [![Homebrew](https://img.shields.io/badge/Homebrew-available-FBB040?logo=homebrew&logoColor=white)](https://github.com/KevinDoremy/homebrew-tap)
 [![GitHub Action](https://img.shields.io/badge/GitHub_Action-available-2088FF?logo=github-actions&logoColor=white)](https://github.com/marketplace/actions/searchdeadcode)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -21,7 +25,28 @@ brew install KevinDoremy/tap/searchdeadcode  # macOS/Linux
 cargo install searchdeadcode                  # via Cargo
 ```
 
+<img src="assets/demo.svg" alt="SearchDeadCode Demo" width="600"/>
+
+*See it in action: analyze an Android project in seconds*
+
+<!-- To generate an animated GIF demo: vhs demo.tape -->
+
 </div>
+
+## 📋 Table of Contents
+
+- [Features](#-features)
+- [Quick Start](#-quick-start)
+- [Installation](#-installation)
+- [Usage](#-usage)
+- [Comparison with Alternatives](#-comparison-with-alternatives)
+- [Configuration](#%EF%B8%8F-configuration)
+- [CLI Reference](#-cli-reference)
+- [Detection Types](#-detection-types)
+- [When NOT to Use SearchDeadCode](#-when-not-to-use-searchdeadcode)
+- [Architecture](#-architecture)
+- [Changelog](#changelog)
+- [Contributing](#-contributing)
 
 ## ✨ Features
 
@@ -41,6 +66,36 @@ cargo install searchdeadcode                  # via Cargo
 - **Batch mode**: Review all candidates, confirm once
 - **Dry-run**: Preview what would be deleted
 - **Undo support**: Generate restore scripts
+
+## 📊 Comparison with Alternatives
+
+How does SearchDeadCode compare to other tools?
+
+| Feature | SearchDeadCode | Android Lint | R8/ProGuard | Detekt | IntelliJ |
+|---------|:-------------:|:------------:|:-----------:|:------:|:--------:|
+| **Speed** | ⚡ <1s/1k files | 🐢 Slow | 🔨 Build-time | 🐢 Medium | 🐢 Medium |
+| **Kotlin-first** | ✅ Native | ⚠️ Partial | ✅ Yes | ✅ Yes | ✅ Yes |
+| **Java support** | ✅ Yes | ✅ Yes | ✅ Yes | ❌ No | ✅ Yes |
+| **Safe delete** | ✅ Interactive | ❌ No | ❌ No | ❌ No | ✅ IDE only |
+| **CI/CD ready** | ✅ SARIF, JSON | ✅ XML | ❌ No | ✅ SARIF | ❌ No |
+| **Coverage integration** | ✅ JaCoCo, Kover | ❌ No | ❌ No | ❌ No | ❌ No |
+| **Cycle detection** | ✅ Zombie code | ❌ No | ❌ No | ❌ No | ❌ No |
+| **Resource detection** | ✅ Yes | ✅ Yes | ❌ No | ❌ No | ✅ Yes |
+| **Config file** | ✅ YAML/TOML | ✅ XML | ✅ ProGuard | ✅ YAML | ❌ No |
+| **Standalone** | ✅ No build needed | ❌ Gradle | ❌ Build | ❌ Gradle | ❌ IDE |
+| **Open source** | ✅ MIT | ✅ Apache | ❌ Proprietary | ✅ Apache | ❌ Proprietary |
+
+### When to Use Each Tool
+
+| Tool | Best For |
+|------|----------|
+| **SearchDeadCode** | Fast CI checks, pre-commit hooks, quick project audits, Kotlin-first projects |
+| **Android Lint** | Comprehensive Android-specific checks beyond dead code |
+| **R8/ProGuard** | Production builds with 100% accuracy (but no interactive deletion) |
+| **Detekt** | Kotlin code style and complexity analysis |
+| **IntelliJ** | Interactive development with refactoring support |
+
+**Pro tip**: Use SearchDeadCode for fast feedback during development, then validate with R8's `usage.txt` before major cleanups.
 
 ## 🚀 Quick Start
 
@@ -1268,6 +1323,51 @@ All major features are implemented and tested:
 - [x] Dry-run mode
 - [x] Undo script generation
 
+## 🚫 When NOT to Use SearchDeadCode
+
+Being honest about limitations helps you choose the right tool. **Don't use SearchDeadCode if:**
+
+### ❌ You Need 100% Accuracy
+
+Static analysis cannot catch everything. If you need guaranteed accuracy:
+- Use R8/ProGuard's `usage.txt` output (generated during release builds)
+- SearchDeadCode can validate against `usage.txt` with `--proguard-usage`
+
+### ❌ Heavy Reflection Usage
+
+If your codebase relies heavily on reflection:
+```kotlin
+// We can't detect this as "used"
+Class.forName("com.example.MyClass").newInstance()
+```
+**Workaround**: Add reflection targets to `retain_patterns` in your config.
+
+### ❌ Pure Java Projects
+
+SearchDeadCode is Kotlin-first. While Java is supported, it shines on:
+- Kotlin projects
+- Mixed Kotlin/Java Android projects
+
+For pure Java, consider [UCDetector](https://ucdetector.org/) or IntelliJ's built-in inspections.
+
+### ❌ You Want IDE Integration
+
+SearchDeadCode is a CLI tool. If you prefer IDE integration:
+- Use IntelliJ/Android Studio's built-in "Unused declaration" inspection
+- Or run SearchDeadCode in watch mode alongside your IDE
+
+### ❌ Dynamic Languages / KMP JS Target
+
+We analyze JVM bytecode patterns. JavaScript or other dynamic targets aren't supported.
+
+### ✅ But DO Use SearchDeadCode If You Want:
+
+- **Speed**: Analyze 10k files in seconds, not minutes
+- **CI Integration**: Block PRs that add dead code
+- **Safe Deletion**: Interactive mode with undo scripts
+- **Coverage Integration**: Combine static + dynamic analysis
+- **No Build Required**: Analyze without compiling
+
 ## Known Limitations
 
 1. **Reflection**: Code accessed via reflection (e.g., `Class.forName()`) cannot be detected as used. Use `retain_patterns` for such cases.
@@ -1322,6 +1422,8 @@ Generic type references like `Foo<Bar>` now correctly match declarations `Foo`. 
 Patterns like `**/test/**` now only match complete directory names, not substrings. `/test/` matches, but `/testproject/` does not.
 
 ## Changelog
+
+> **Note**: See [CHANGELOG.md](CHANGELOG.md) for the full changelog with all versions.
 
 ### v0.4.0 (Current)
 
