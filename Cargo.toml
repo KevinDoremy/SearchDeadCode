@@ -56,7 +56,7 @@ thiserror = "1.0"
 anyhow = "1.0"
 
 # Interactive prompts
-dialoguer = "0.11"
+dialoguer = "0.12"
 
 # File watching
 notify = "8.0"
