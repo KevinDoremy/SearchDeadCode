@@ -11,6 +11,7 @@
 [![Homebrew](https://img.shields.io/badge/Homebrew-available-FBB040?logo=homebrew&logoColor=white)](https://github.com/KevinDoremy/homebrew-tap)
 [![GitHub Action](https://img.shields.io/badge/GitHub_Action-available-2088FF?logo=github-actions&logoColor=white)](https://github.com/marketplace/actions/searchdeadcode)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/KevinDoremy/SearchDeadCode/badge)](https://securityscorecards.dev/viewer/?uri=github.com/KevinDoremy/SearchDeadCode)
 
 A blazingly fast CLI tool written in Rust to detect and safely remove dead/unused code in Android projects (Kotlin & Java).
 
