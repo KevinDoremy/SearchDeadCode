@@ -51,7 +51,7 @@ indicatif = "0.18"
 console = "0.16"
 
 # Error handling
-miette = { version = "5.10", features = ["fancy"] }
+miette = { version = "7.6", features = ["fancy"] }
 thiserror = "1.0"
 anyhow = "1.0"
 
