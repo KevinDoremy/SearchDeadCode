@@ -73,9 +73,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write  # For cosign keyless signing
 
     steps:
       - uses: actions/checkout@v6
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
 
       - name: Download all artifacts
         uses: actions/download-artifact@v6
@@ -92,6 +96,17 @@ jobs:
               chmod +x "$f"
             fi
             sha256sum "$f" > "$f.sha256"
+          done
+          ls -la
+
+      - name: Sign release artifacts with cosign
+        run: |
+          cd release
+          for f in searchdeadcode-*; do
+            if [[ "$f" != *.sha256 && "$f" != *.sig && "$f" != *.pem ]]; then
+              echo "Signing $f..."
+              cosign sign-blob --yes --output-signature "$f.sig" --output-certificate "$f.pem" "$f"
+            fi
           done
           ls -la
 
