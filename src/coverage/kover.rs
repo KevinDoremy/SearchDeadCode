@@ -282,7 +282,7 @@ impl CoverageParser for KoverParser {
     }
 
     fn can_parse(&self, path: &Path) -> bool {
-        if path.extension().is_none_or(|e| e != "xml") {
+        if path.extension().map_or(true, |e| e != "xml") {
             return false;
         }
 

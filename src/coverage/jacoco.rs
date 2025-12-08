@@ -310,7 +310,7 @@ impl CoverageParser for JacocoParser {
 
     fn can_parse(&self, path: &Path) -> bool {
         // Check file extension
-        if path.extension().is_none_or(|e| e != "xml") {
+        if path.extension().map_or(true, |e| e != "xml") {
             return false;
         }
 
