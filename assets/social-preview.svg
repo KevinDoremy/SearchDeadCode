@@ -1,0 +1,100 @@
+<svg width="1280" height="640" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1a2e"/>
+      <stop offset="100%" style="stop-color:#16213e"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#e94560"/>
+      <stop offset="100%" style="stop-color:#ff6b6b"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1280" height="640" fill="url(#bg)"/>
+
+  <!-- Decorative elements -->
+  <rect x="0" y="0" width="8" height="640" fill="url(#accent)"/>
+  <rect x="0" y="632" width="1280" height="8" fill="url(#accent)" opacity="0.5"/>
+
+  <!-- Code lines decoration (left side) -->
+  <g opacity="0.15" fill="#fff">
+    <rect x="40" y="80" width="120" height="4" rx="2"/>
+    <rect x="40" y="100" width="180" height="4" rx="2"/>
+    <rect x="40" y="120" width="90" height="4" rx="2"/>
+    <rect x="60" y="140" width="140" height="4" rx="2"/>
+    <rect x="60" y="160" width="100" height="4" rx="2"/>
+    <rect x="40" y="180" width="70" height="4" rx="2"/>
+    <rect x="40" y="220" width="150" height="4" rx="2"/>
+    <rect x="40" y="240" width="110" height="4" rx="2"/>
+  </g>
+
+  <!-- Code lines decoration (right side) -->
+  <g opacity="0.15" fill="#fff">
+    <rect x="1040" y="400" width="120" height="4" rx="2"/>
+    <rect x="1060" y="420" width="180" height="4" rx="2"/>
+    <rect x="1040" y="440" width="90" height="4" rx="2"/>
+    <rect x="1080" y="460" width="140" height="4" rx="2"/>
+    <rect x="1040" y="480" width="100" height="4" rx="2"/>
+    <rect x="1060" y="500" width="160" height="4" rx="2"/>
+  </g>
+
+  <!-- Strikethrough effect on "dead code" decoration -->
+  <g opacity="0.1">
+    <text x="900" y="150" font-family="monospace" font-size="24" fill="#e94560">class UnusedHelper {</text>
+    <line x1="880" y1="150" x2="1120" y2="150" stroke="#e94560" stroke-width="3"/>
+    <text x="920" y="180" font-family="monospace" font-size="24" fill="#e94560">fun deadMethod()</text>
+    <line x1="900" y1="180" x2="1100" y2="180" stroke="#e94560" stroke-width="3"/>
+  </g>
+
+  <!-- Main icon - magnifying glass with code -->
+  <g transform="translate(180, 240)">
+    <!-- Magnifying glass circle -->
+    <circle cx="70" cy="70" r="60" fill="none" stroke="url(#accent)" stroke-width="8"/>
+    <!-- Magnifying glass handle -->
+    <line x1="115" y1="115" x2="155" y2="155" stroke="url(#accent)" stroke-width="10" stroke-linecap="round"/>
+    <!-- Code brackets inside -->
+    <text x="35" y="85" font-family="monospace" font-size="50" font-weight="bold" fill="#fff">{}</text>
+  </g>
+
+  <!-- Main title -->
+  <text x="400" y="290" font-family="system-ui, -apple-system, sans-serif" font-size="72" font-weight="bold" fill="#fff">SearchDeadCode</text>
+
+  <!-- Tagline -->
+  <text x="400" y="350" font-family="system-ui, -apple-system, sans-serif" font-size="28" fill="#a0a0a0">Find and eliminate dead code in Android projects</text>
+
+  <!-- Features -->
+  <g transform="translate(400, 400)">
+    <!-- Kotlin -->
+    <rect x="0" y="0" width="120" height="40" rx="8" fill="#7F52FF" opacity="0.9"/>
+    <text x="60" y="27" font-family="system-ui, sans-serif" font-size="18" font-weight="600" fill="#fff" text-anchor="middle">Kotlin</text>
+
+    <!-- Java -->
+    <rect x="140" y="0" width="100" height="40" rx="8" fill="#f89820" opacity="0.9"/>
+    <text x="190" y="27" font-family="system-ui, sans-serif" font-size="18" font-weight="600" fill="#fff" text-anchor="middle">Java</text>
+
+    <!-- Fast -->
+    <rect x="260" y="0" width="100" height="40" rx="8" fill="#10b981" opacity="0.9"/>
+    <text x="310" y="27" font-family="system-ui, sans-serif" font-size="18" font-weight="600" fill="#fff" text-anchor="middle">Fast</text>
+
+    <!-- Rust -->
+    <rect x="380" y="0" width="140" height="40" rx="8" fill="#dea584" opacity="0.9"/>
+    <text x="450" y="27" font-family="system-ui, sans-serif" font-size="18" font-weight="600" fill="#333" text-anchor="middle">Built in Rust</text>
+  </g>
+
+  <!-- Terminal preview -->
+  <g transform="translate(400, 480)">
+    <rect x="0" y="0" width="500" height="100" rx="8" fill="#0d1117" stroke="#30363d" stroke-width="2"/>
+    <!-- Terminal dots -->
+    <circle cx="20" cy="16" r="6" fill="#ff5f56"/>
+    <circle cx="40" cy="16" r="6" fill="#ffbd2e"/>
+    <circle cx="60" cy="16" r="6" fill="#27ca40"/>
+    <!-- Terminal content -->
+    <text x="20" y="55" font-family="monospace" font-size="16" fill="#8b949e">$</text>
+    <text x="40" y="55" font-family="monospace" font-size="16" fill="#58a6ff">searchdeadcode</text>
+    <text x="190" y="55" font-family="monospace" font-size="16" fill="#a0a0a0">./my-app</text>
+    <text x="20" y="80" font-family="monospace" font-size="14" fill="#3fb950">Found 12 unused items</text>
+    <text x="200" y="80" font-family="monospace" font-size="14" fill="#8b949e">in 0.8s</text>
+  </g>
+
+</svg>

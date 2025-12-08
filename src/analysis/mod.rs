@@ -159,6 +159,55 @@ pub enum DeadCodeIssue {
 
     /// Room DAO method writes data but the DAO has no read queries
     WriteOnlyDao,
+
+    /// Import statement appears multiple times
+    DuplicateImport,
+
+    /// Nullable variable explicitly initialized to null (redundant)
+    RedundantNullInit,
+
+    /// Unnecessary 'this.' reference where not needed for disambiguation
+    RedundantThis,
+
+    /// Unnecessary parentheses around expression
+    RedundantParentheses,
+
+    /// Using size == 0 instead of isEmpty()
+    PreferIsEmpty,
+
+    // ==========================================================================
+    // Anti-Pattern Detectors (inspired by common Android code smells)
+    // ==========================================================================
+
+    /// Kotlin object with mutable public properties (global mutable state)
+    GlobalMutableState,
+
+    /// Deep inheritance chain (e.g., 3+ levels of Base classes)
+    DeepInheritance,
+
+    /// Interface with only one implementation (unnecessary abstraction)
+    SingleImplInterface,
+
+    /// EventBus or similar global event pattern detected
+    EventBusPattern,
+
+    /// Legacy/deprecated dependency detected
+    LegacyDependency,
+
+    /// Excessive feature toggles (code smell)
+    ExcessiveFeatureToggles,
+
+    /// ViewModel with too many dependencies (God ViewModel)
+    HeavyViewModel,
+
+    /// GlobalScope usage in coroutines (memory leak risk)
+    GlobalScopeUsage,
+
+    /// Excessive lateinit properties (initialization smell)
+    LateinitAbuse,
+
+    /// Excessive scope function chaining (readability issue)
+    ScopeFunctionChaining,
 }
 
 impl DeadCodeIssue {
@@ -175,6 +224,21 @@ impl DeadCodeIssue {
             DeadCodeIssue::RedundantOverride => Severity::Info,
             DeadCodeIssue::WriteOnlyPreference => Severity::Warning,
             DeadCodeIssue::WriteOnlyDao => Severity::Warning,
+            DeadCodeIssue::DuplicateImport => Severity::Warning,
+            DeadCodeIssue::RedundantNullInit => Severity::Info,
+            DeadCodeIssue::RedundantThis => Severity::Info,
+            DeadCodeIssue::RedundantParentheses => Severity::Info,
+            DeadCodeIssue::PreferIsEmpty => Severity::Info,
+            DeadCodeIssue::GlobalMutableState => Severity::Warning,
+            DeadCodeIssue::DeepInheritance => Severity::Warning,
+            DeadCodeIssue::SingleImplInterface => Severity::Info,
+            DeadCodeIssue::EventBusPattern => Severity::Warning,
+            DeadCodeIssue::LegacyDependency => Severity::Warning,
+            DeadCodeIssue::ExcessiveFeatureToggles => Severity::Warning,
+            DeadCodeIssue::HeavyViewModel => Severity::Warning,
+            DeadCodeIssue::GlobalScopeUsage => Severity::Warning,
+            DeadCodeIssue::LateinitAbuse => Severity::Info,
+            DeadCodeIssue::ScopeFunctionChaining => Severity::Info,
         }
     }
 
@@ -228,6 +292,91 @@ impl DeadCodeIssue {
                     decl.name
                 )
             }
+            DeadCodeIssue::DuplicateImport => {
+                format!("Import '{}' is duplicated", decl.name)
+            }
+            DeadCodeIssue::RedundantNullInit => {
+                format!(
+                    "Nullable {} '{}' is explicitly initialized to null (default value)",
+                    decl.kind.display_name(),
+                    decl.name
+                )
+            }
+            DeadCodeIssue::RedundantThis => {
+                format!(
+                    "Unnecessary 'this.' reference for '{}' (no disambiguation needed)",
+                    decl.name
+                )
+            }
+            DeadCodeIssue::RedundantParentheses => {
+                "Redundant parentheses around expression".to_string()
+            }
+            DeadCodeIssue::PreferIsEmpty => {
+                format!(
+                    "Prefer isEmpty()/isNotEmpty() instead of size/length comparison for '{}'",
+                    decl.name
+                )
+            }
+            DeadCodeIssue::GlobalMutableState => {
+                format!(
+                    "Object '{}' has mutable public properties (global mutable state is an anti-pattern)",
+                    decl.name
+                )
+            }
+            DeadCodeIssue::DeepInheritance => {
+                format!(
+                    "Class '{}' has deep inheritance chain (prefer composition over inheritance)",
+                    decl.name
+                )
+            }
+            DeadCodeIssue::SingleImplInterface => {
+                format!(
+                    "Interface '{}' has only one implementation (consider removing the interface)",
+                    decl.name
+                )
+            }
+            DeadCodeIssue::EventBusPattern => {
+                format!(
+                    "'{}' uses EventBus pattern (consider more structured communication)",
+                    decl.name
+                )
+            }
+            DeadCodeIssue::LegacyDependency => {
+                format!(
+                    "'{}' is a legacy/deprecated dependency (consider migrating)",
+                    decl.name
+                )
+            }
+            DeadCodeIssue::ExcessiveFeatureToggles => {
+                format!(
+                    "'{}' has excessive feature toggles (simplify branching logic)",
+                    decl.name
+                )
+            }
+            DeadCodeIssue::HeavyViewModel => {
+                format!(
+                    "ViewModel '{}' has too many dependencies (consider splitting responsibilities)",
+                    decl.name
+                )
+            }
+            DeadCodeIssue::GlobalScopeUsage => {
+                format!(
+                    "'{}' uses GlobalScope (use viewModelScope or lifecycleScope instead)",
+                    decl.name
+                )
+            }
+            DeadCodeIssue::LateinitAbuse => {
+                format!(
+                    "'{}' has excessive lateinit properties (consider constructor injection or lazy)",
+                    decl.name
+                )
+            }
+            DeadCodeIssue::ScopeFunctionChaining => {
+                format!(
+                    "'{}' has excessive scope function chaining (simplify for readability)",
+                    decl.name
+                )
+            }
         }
     }
 
@@ -244,6 +393,21 @@ impl DeadCodeIssue {
             DeadCodeIssue::RedundantOverride => "DC009",
             DeadCodeIssue::WriteOnlyPreference => "DC010",
             DeadCodeIssue::WriteOnlyDao => "DC011",
+            DeadCodeIssue::DuplicateImport => "DC012",
+            DeadCodeIssue::RedundantNullInit => "DC013",
+            DeadCodeIssue::RedundantThis => "DC014",
+            DeadCodeIssue::RedundantParentheses => "DC015",
+            DeadCodeIssue::PreferIsEmpty => "DC016",
+            DeadCodeIssue::GlobalMutableState => "AP001",
+            DeadCodeIssue::DeepInheritance => "AP002",
+            DeadCodeIssue::SingleImplInterface => "AP003",
+            DeadCodeIssue::EventBusPattern => "AP004",
+            DeadCodeIssue::LegacyDependency => "AP005",
+            DeadCodeIssue::ExcessiveFeatureToggles => "AP006",
+            DeadCodeIssue::HeavyViewModel => "AP007",
+            DeadCodeIssue::GlobalScopeUsage => "AP008",
+            DeadCodeIssue::LateinitAbuse => "AP009",
+            DeadCodeIssue::ScopeFunctionChaining => "AP010",
         }
     }
 }

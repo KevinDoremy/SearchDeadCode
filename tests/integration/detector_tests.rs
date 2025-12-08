@@ -3,7 +3,10 @@
 //! These tests verify that each detector correctly identifies dead code patterns.
 
 use searchdeadcode::analysis::detectors::{
-    Detector, RedundantOverrideDetector, UnusedParamDetector, UnusedSealedVariantDetector,
+    DeepInheritanceDetector, Detector, DuplicateImportDetector, EventBusPatternDetector,
+    GlobalMutableStateDetector, PreferIsEmptyDetector, RedundantNullInitDetector,
+    RedundantOverrideDetector, RedundantParenthesesDetector, RedundantThisDetector,
+    SingleImplInterfaceDetector, UnusedParamDetector, UnusedSealedVariantDetector,
     WriteOnlyDetector,
 };
 use searchdeadcode::analysis::ReachabilityAnalyzer;
@@ -417,6 +420,18 @@ mod multi_file_tests {
             "sealed_classes.kt",
             "redundant_overrides.kt",
             "unreferenced.kt",
+            "duplicate_imports.kt",
+            "redundant_null_init.kt",
+            "redundant_this.kt",
+            "redundant_parens.kt",
+            "prefer_isempty.kt",
+            // Anti-pattern fixtures
+            "global_mutable_state.kt",
+            "deep_inheritance.kt",
+            "single_impl_interface.kt",
+            "eventbus_pattern.kt",
+            "feature_toggles.kt",
+            "legacy_dependencies.kt",
         ];
 
         for filename in kotlin_files {
@@ -458,5 +473,291 @@ mod multi_file_tests {
             total_decls > 50,
             "Should have many declarations from combined files"
         );
+    }
+}
+
+// ============================================================================
+// Duplicate Import Detection Tests
+// ============================================================================
+
+mod duplicate_import_tests {
+    use super::*;
+
+    #[test]
+    fn test_duplicate_imports_fixture_parses() {
+        let graph = build_kotlin_graph("duplicate_imports.kt");
+        let names = get_declaration_names(&graph);
+
+        assert!(names.contains(&"DuplicateImportsTest".to_string()));
+    }
+
+    #[test]
+    fn test_duplicate_import_detector_runs() {
+        let graph = build_kotlin_graph("duplicate_imports.kt");
+        let detector = DuplicateImportDetector::new();
+        let issues = detector.detect(&graph);
+
+        println!("Duplicate import issues found: {}", issues.len());
+        for issue in &issues {
+            println!("  - {}: {}", issue.declaration.name, issue.message);
+        }
+
+        // Should find duplicate imports
+        // Note: Detection depends on import parsing
+    }
+}
+
+// ============================================================================
+// Redundant Null Init Detection Tests
+// ============================================================================
+
+mod redundant_null_init_tests {
+    use super::*;
+
+    #[test]
+    fn test_redundant_null_init_fixture_parses() {
+        let graph = build_kotlin_graph("redundant_null_init.kt");
+        let names = get_declaration_names(&graph);
+
+        assert!(names.contains(&"RedundantNullInit".to_string()));
+        assert!(names.contains(&"NonRedundantInit".to_string()));
+        assert!(names.contains(&"NullableWithValue".to_string()));
+    }
+
+    #[test]
+    fn test_redundant_null_init_detector_runs() {
+        let graph = build_kotlin_graph("redundant_null_init.kt");
+        let detector = RedundantNullInitDetector::new();
+        let issues = detector.detect(&graph);
+
+        println!("Redundant null init issues found: {}", issues.len());
+        for issue in &issues {
+            println!("  - {}: {}", issue.declaration.name, issue.message);
+        }
+    }
+}
+
+// ============================================================================
+// Redundant This Detection Tests
+// ============================================================================
+
+mod redundant_this_tests {
+    use super::*;
+
+    #[test]
+    fn test_redundant_this_fixture_parses() {
+        let graph = build_kotlin_graph("redundant_this.kt");
+        let names = get_declaration_names(&graph);
+
+        assert!(names.contains(&"RedundantThis".to_string()));
+        assert!(names.contains(&"RequiredThis".to_string()));
+        assert!(names.contains(&"BuilderPattern".to_string()));
+    }
+
+    #[test]
+    fn test_redundant_this_detector_runs() {
+        let graph = build_kotlin_graph("redundant_this.kt");
+        let detector = RedundantThisDetector::new();
+        let issues = detector.detect(&graph);
+
+        println!("Redundant this issues found: {}", issues.len());
+        for issue in &issues {
+            println!("  - {}: {}", issue.declaration.name, issue.message);
+        }
+    }
+}
+
+// ============================================================================
+// Redundant Parentheses Detection Tests
+// ============================================================================
+
+mod redundant_parens_tests {
+    use super::*;
+
+    #[test]
+    fn test_redundant_parens_fixture_parses() {
+        let graph = build_kotlin_graph("redundant_parens.kt");
+        let names = get_declaration_names(&graph);
+
+        assert!(names.contains(&"RedundantParens".to_string()));
+        assert!(names.contains(&"SimpleExpressions".to_string()));
+        assert!(names.contains(&"OperatorPrecedence".to_string()));
+    }
+
+    #[test]
+    fn test_redundant_parens_detector_runs() {
+        let graph = build_kotlin_graph("redundant_parens.kt");
+        let detector = RedundantParenthesesDetector::new();
+        let issues = detector.detect(&graph);
+
+        println!("Redundant parentheses issues found: {}", issues.len());
+        for issue in &issues {
+            println!("  - {}: {}", issue.declaration.name, issue.message);
+        }
+    }
+}
+
+// ============================================================================
+// Prefer isEmpty Detection Tests
+// ============================================================================
+
+mod prefer_isempty_tests {
+    use super::*;
+
+    #[test]
+    fn test_prefer_isempty_fixture_parses() {
+        let graph = build_kotlin_graph("prefer_isempty.kt");
+        let names = get_declaration_names(&graph);
+
+        assert!(names.contains(&"ShouldUseIsEmpty".to_string()));
+        assert!(names.contains(&"ShouldUseIsNotEmpty".to_string()));
+        assert!(names.contains(&"AlreadyCorrect".to_string()));
+        assert!(names.contains(&"NotApplicable".to_string()));
+    }
+
+    #[test]
+    fn test_prefer_isempty_detector_runs() {
+        let graph = build_kotlin_graph("prefer_isempty.kt");
+        let detector = PreferIsEmptyDetector::new();
+        let issues = detector.detect(&graph);
+
+        println!("Prefer isEmpty issues found: {}", issues.len());
+        for issue in &issues {
+            println!("  - {}: {}", issue.declaration.name, issue.message);
+        }
+    }
+}
+
+// ============================================================================
+// Anti-Pattern Detection Tests
+// (Inspired by "8 anti-patterns in Android codebase")
+// ============================================================================
+
+mod global_mutable_state_tests {
+    use super::*;
+
+    #[test]
+    fn test_global_mutable_state_fixture_parses() {
+        let graph = build_kotlin_graph("global_mutable_state.kt");
+        let names = get_declaration_names(&graph);
+
+        assert!(names.contains(&"GlobalState".to_string()));
+        assert!(names.contains(&"AppConfig".to_string()));
+        assert!(names.contains(&"Constants".to_string()));
+    }
+
+    #[test]
+    fn test_global_mutable_state_detector_runs() {
+        let graph = build_kotlin_graph("global_mutable_state.kt");
+        let detector = GlobalMutableStateDetector::new();
+        let issues = detector.detect(&graph);
+
+        println!("Global mutable state issues found: {}", issues.len());
+        for issue in &issues {
+            println!("  - {}: {}", issue.declaration.name, issue.message);
+        }
+    }
+}
+
+mod deep_inheritance_tests {
+    use super::*;
+
+    #[test]
+    fn test_deep_inheritance_fixture_parses() {
+        let graph = build_kotlin_graph("deep_inheritance.kt");
+        let names = get_declaration_names(&graph);
+
+        assert!(names.contains(&"BaseActivity".to_string()));
+        assert!(names.contains(&"BaseViewModelActivity".to_string()));
+        assert!(names.contains(&"UserListActivity".to_string()));
+    }
+
+    #[test]
+    fn test_deep_inheritance_detector_runs() {
+        let graph = build_kotlin_graph("deep_inheritance.kt");
+        let detector = DeepInheritanceDetector::new();
+        let issues = detector.detect(&graph);
+
+        println!("Deep inheritance issues found: {}", issues.len());
+        for issue in &issues {
+            println!("  - {}: {}", issue.declaration.name, issue.message);
+        }
+    }
+}
+
+mod single_impl_interface_tests {
+    use super::*;
+
+    #[test]
+    fn test_single_impl_interface_fixture_parses() {
+        let graph = build_kotlin_graph("single_impl_interface.kt");
+        let names = get_declaration_names(&graph);
+
+        assert!(names.contains(&"UserRepository".to_string()));
+        assert!(names.contains(&"UserRepositoryImpl".to_string()));
+        assert!(names.contains(&"PaymentProcessor".to_string()));
+    }
+
+    #[test]
+    fn test_single_impl_interface_detector_runs() {
+        let graph = build_kotlin_graph("single_impl_interface.kt");
+        let detector = SingleImplInterfaceDetector::new();
+        let issues = detector.detect(&graph);
+
+        println!("Single implementation interface issues found: {}", issues.len());
+        for issue in &issues {
+            println!("  - {}: {}", issue.declaration.name, issue.message);
+        }
+    }
+}
+
+mod eventbus_pattern_tests {
+    use super::*;
+
+    #[test]
+    fn test_eventbus_pattern_fixture_parses() {
+        let graph = build_kotlin_graph("eventbus_pattern.kt");
+        let names = get_declaration_names(&graph);
+
+        assert!(names.contains(&"UserUpdatedEvent".to_string()));
+        assert!(names.contains(&"EventBusActivity".to_string()));
+    }
+
+    #[test]
+    fn test_eventbus_pattern_detector_runs() {
+        let graph = build_kotlin_graph("eventbus_pattern.kt");
+        let detector = EventBusPatternDetector::new();
+        let issues = detector.detect(&graph);
+
+        println!("EventBus pattern issues found: {}", issues.len());
+        for issue in &issues {
+            println!("  - {}: {}", issue.declaration.name, issue.message);
+        }
+    }
+}
+
+mod feature_toggle_tests {
+    use super::*;
+
+    #[test]
+    fn test_feature_toggles_fixture_parses() {
+        let graph = build_kotlin_graph("feature_toggles.kt");
+        let names = get_declaration_names(&graph);
+
+        assert!(names.contains(&"FeatureFlags".to_string()));
+        assert!(names.contains(&"NestedToggleActivity".to_string()));
+    }
+}
+
+mod legacy_dependencies_tests {
+    use super::*;
+
+    #[test]
+    fn test_legacy_dependencies_fixture_parses() {
+        let graph = build_kotlin_graph("legacy_dependencies.kt");
+        let names = get_declaration_names(&graph);
+
+        assert!(names.contains(&"ButterKnifeActivity".to_string()));
+        assert!(names.contains(&"ViewBindingActivity".to_string()));
     }
 }
