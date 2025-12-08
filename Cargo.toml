@@ -20,7 +20,7 @@ tree-sitter-kotlin = "0.3.6"
 tree-sitter-java = "0.21"
 
 # Graph
-petgraph = "0.6"
+petgraph = "0.8"
 
 # File discovery
 ignore = "0.4"
