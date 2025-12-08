@@ -52,7 +52,7 @@ console = "0.16"
 
 # Error handling
 miette = { version = "5.10", features = ["fancy"] }
-thiserror = "1.0"
+thiserror = "2.0"
 anyhow = "1.0"
 
 # Interactive prompts
