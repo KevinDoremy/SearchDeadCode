@@ -98,7 +98,7 @@ jobs:
           cargo sbom --output-format cyclonedx_json_1_4 > sbom.cdx.json
 
       - name: Generate SBOM attestation
-        uses: actions/attest-sbom@v2
+        uses: actions/attest-sbom@v3
         with:
           subject-name: searchdeadcode
           subject-digest: sha256:${{ github.sha }}
