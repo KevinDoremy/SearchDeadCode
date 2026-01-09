@@ -58,6 +58,13 @@ mod nullability_overload;
 mod reflection_overuse;
 mod string_literal_duplication;
 
+// Phase 5: Android-Specific Code Smells
+mod asynctask_usage;
+mod init_ondraw;
+mod main_thread_database;
+mod unclosed_resource;
+mod wakelock_abuse;
+
 // These detectors are reserved for future advanced analysis modes
 pub use assign_only::AssignOnlyDetector;
 pub use dead_branch::DeadBranchDetector;
@@ -113,6 +120,13 @@ pub use long_parameter_list::LongParameterListDetector;
 pub use nullability_overload::NullabilityOverloadDetector;
 pub use reflection_overuse::ReflectionOveruseDetector;
 pub use string_literal_duplication::StringLiteralDuplicationDetector;
+
+// Phase 5: Android-Specific Code Smells
+pub use asynctask_usage::AsyncTaskUsageDetector;
+pub use init_ondraw::InitOnDrawDetector;
+pub use main_thread_database::MainThreadDatabaseDetector;
+pub use unclosed_resource::UnclosedResourceDetector;
+pub use wakelock_abuse::WakeLockAbuseDetector;
 
 use crate::analysis::DeadCode;
 use crate::graph::Graph;

@@ -265,6 +265,25 @@ pub enum DeadCodeIssue {
 
     /// Repeated string literals (magic strings)
     StringLiteralDuplication,
+
+    // ==========================================================================
+    // Phase 5: Android-Specific Code Smells
+    // ==========================================================================
+
+    /// Resource (Cursor, Stream) not properly closed
+    UnclosedResource,
+
+    /// Database operation on main thread (ANR risk)
+    MainThreadDatabase,
+
+    /// WakeLock not properly released (battery drain)
+    WakeLockAbuse,
+
+    /// Using deprecated AsyncTask
+    AsyncTaskUsage,
+
+    /// Object allocation in onDraw() (performance)
+    InitOnDraw,
 }
 
 impl DeadCodeIssue {
@@ -311,6 +330,11 @@ impl DeadCodeIssue {
             DeadCodeIssue::LongParameterList => Severity::Warning,
             DeadCodeIssue::ComplexCondition => Severity::Info,
             DeadCodeIssue::StringLiteralDuplication => Severity::Info,
+            DeadCodeIssue::UnclosedResource => Severity::Warning,
+            DeadCodeIssue::MainThreadDatabase => Severity::Warning,
+            DeadCodeIssue::WakeLockAbuse => Severity::Warning,
+            DeadCodeIssue::AsyncTaskUsage => Severity::Warning,
+            DeadCodeIssue::InitOnDraw => Severity::Warning,
         }
     }
 
@@ -539,6 +563,36 @@ impl DeadCodeIssue {
                     decl.name
                 )
             }
+            DeadCodeIssue::UnclosedResource => {
+                format!(
+                    "'{}' may have unclosed resource (Cursor/Stream). Use .use {{}} block or try-finally.",
+                    decl.name
+                )
+            }
+            DeadCodeIssue::MainThreadDatabase => {
+                format!(
+                    "'{}' performs database operation on main thread (ANR risk). Use suspend or background thread.",
+                    decl.name
+                )
+            }
+            DeadCodeIssue::WakeLockAbuse => {
+                format!(
+                    "'{}' may not properly release WakeLock. Use timeout and release in finally block.",
+                    decl.name
+                )
+            }
+            DeadCodeIssue::AsyncTaskUsage => {
+                format!(
+                    "'{}' uses deprecated AsyncTask. Use coroutines or java.util.concurrent instead.",
+                    decl.name
+                )
+            }
+            DeadCodeIssue::InitOnDraw => {
+                format!(
+                    "'{}' may allocate objects in onDraw(). Pre-allocate as instance fields.",
+                    decl.name
+                )
+            }
         }
     }
 
@@ -585,6 +639,11 @@ impl DeadCodeIssue {
             DeadCodeIssue::LongParameterList => "AP023",
             DeadCodeIssue::ComplexCondition => "AP024",
             DeadCodeIssue::StringLiteralDuplication => "AP025",
+            DeadCodeIssue::UnclosedResource => "AP026",
+            DeadCodeIssue::MainThreadDatabase => "AP027",
+            DeadCodeIssue::WakeLockAbuse => "AP028",
+            DeadCodeIssue::AsyncTaskUsage => "AP029",
+            DeadCodeIssue::InitOnDraw => "AP030",
         }
     }
 }
