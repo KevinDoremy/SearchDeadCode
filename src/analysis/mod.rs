@@ -208,6 +208,25 @@ pub enum DeadCodeIssue {
 
     /// Excessive scope function chaining (readability issue)
     ScopeFunctionChaining,
+
+    // ==========================================================================
+    // Phase 2: Performance & Memory Detectors
+    // ==========================================================================
+
+    /// Memory leak risk (static Context/Activity references)
+    MemoryLeakRisk,
+
+    /// Method exceeds line/complexity threshold
+    LongMethod,
+
+    /// Class has too many methods/properties (God class)
+    LargeClass,
+
+    /// Chained collection operations without asSequence() (performance)
+    CollectionWithoutSequence,
+
+    /// Object allocation inside loop (performance)
+    ObjectAllocationInLoop,
 }
 
 impl DeadCodeIssue {
@@ -239,6 +258,11 @@ impl DeadCodeIssue {
             DeadCodeIssue::GlobalScopeUsage => Severity::Warning,
             DeadCodeIssue::LateinitAbuse => Severity::Info,
             DeadCodeIssue::ScopeFunctionChaining => Severity::Info,
+            DeadCodeIssue::MemoryLeakRisk => Severity::Warning,
+            DeadCodeIssue::LongMethod => Severity::Warning,
+            DeadCodeIssue::LargeClass => Severity::Warning,
+            DeadCodeIssue::CollectionWithoutSequence => Severity::Info,
+            DeadCodeIssue::ObjectAllocationInLoop => Severity::Warning,
         }
     }
 
@@ -377,6 +401,36 @@ impl DeadCodeIssue {
                     decl.name
                 )
             }
+            DeadCodeIssue::MemoryLeakRisk => {
+                format!(
+                    "'{}' may cause memory leak (static reference to Context/Activity/View)",
+                    decl.name
+                )
+            }
+            DeadCodeIssue::LongMethod => {
+                format!(
+                    "Method '{}' is too long (consider breaking into smaller methods)",
+                    decl.name
+                )
+            }
+            DeadCodeIssue::LargeClass => {
+                format!(
+                    "Class '{}' is too large (consider splitting responsibilities)",
+                    decl.name
+                )
+            }
+            DeadCodeIssue::CollectionWithoutSequence => {
+                format!(
+                    "Method '{}' has chained collection operations without asSequence() (performance impact on large collections)",
+                    decl.name
+                )
+            }
+            DeadCodeIssue::ObjectAllocationInLoop => {
+                format!(
+                    "Object allocation in loop/onDraw '{}' (consider moving allocation outside loop)",
+                    decl.name
+                )
+            }
         }
     }
 
@@ -408,6 +462,11 @@ impl DeadCodeIssue {
             DeadCodeIssue::GlobalScopeUsage => "AP008",
             DeadCodeIssue::LateinitAbuse => "AP009",
             DeadCodeIssue::ScopeFunctionChaining => "AP010",
+            DeadCodeIssue::MemoryLeakRisk => "AP011",
+            DeadCodeIssue::LongMethod => "AP012",
+            DeadCodeIssue::LargeClass => "AP013",
+            DeadCodeIssue::CollectionWithoutSequence => "AP014",
+            DeadCodeIssue::ObjectAllocationInLoop => "AP015",
         }
     }
 }

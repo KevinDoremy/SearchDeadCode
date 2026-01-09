@@ -31,11 +31,18 @@ mod eventbus_pattern;
 mod global_mutable_state;
 mod single_impl_interface;
 
-// Phase 2 anti-pattern detectors (from Kotlin/Android research)
+// Phase 1 anti-pattern detectors (from Kotlin/Android research)
 mod globalscope_usage;
 mod heavy_viewmodel;
 mod lateinit_abuse;
 mod scope_function_chaining;
+
+// Phase 2: Performance & Memory detectors
+mod collection_without_sequence;
+mod large_class;
+mod long_method;
+mod memory_leak_risk;
+mod object_allocation_loop;
 
 // These detectors are reserved for future advanced analysis modes
 pub use assign_only::AssignOnlyDetector;
@@ -66,11 +73,18 @@ pub use eventbus_pattern::EventBusPatternDetector;
 pub use global_mutable_state::GlobalMutableStateDetector;
 pub use single_impl_interface::SingleImplInterfaceDetector;
 
-// Phase 2 anti-pattern detectors
+// Phase 1 anti-pattern detectors
 pub use globalscope_usage::GlobalScopeUsageDetector;
 pub use heavy_viewmodel::HeavyViewModelDetector;
 pub use lateinit_abuse::LateinitAbuseDetector;
 pub use scope_function_chaining::ScopeFunctionChainingDetector;
+
+// Phase 2: Performance & Memory detectors
+pub use collection_without_sequence::CollectionWithoutSequenceDetector;
+pub use large_class::LargeClassDetector;
+pub use long_method::LongMethodDetector;
+pub use memory_leak_risk::MemoryLeakRiskDetector;
+pub use object_allocation_loop::ObjectAllocationInLoopDetector;
 
 use crate::analysis::DeadCode;
 use crate::graph::Graph;
