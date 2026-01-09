@@ -21,8 +21,30 @@ mod watch;
 use proguard::{ProguardUsage, ReportGenerator};
 
 use analysis::detectors::{
+    // Core detectors
     Detector, RedundantOverrideDetector, UnusedIntentExtraDetector, UnusedParamDetector,
     UnusedSealedVariantDetector, WriteOnlyDetector,
+    // Anti-pattern detectors (AP001-AP006)
+    DeepInheritanceDetector, EventBusPatternDetector, GlobalMutableStateDetector,
+    SingleImplInterfaceDetector,
+    // Phase 1: Kotlin patterns (AP007-AP010)
+    GlobalScopeUsageDetector, HeavyViewModelDetector, LateinitAbuseDetector,
+    ScopeFunctionChainingDetector,
+    // Phase 2: Performance & Memory (AP011-AP015)
+    CollectionWithoutSequenceDetector, LargeClassDetector, LongMethodDetector,
+    MemoryLeakRiskDetector, ObjectAllocationInLoopDetector,
+    // Phase 3: Architecture & Design (AP016-AP020)
+    HardcodedDispatcherDetector, MissingUseCaseDetector, MutableStateExposedDetector,
+    NestedCallbackDetector, ViewLogicInViewModelDetector,
+    // Phase 4: Kotlin-Specific (AP021-AP025)
+    ComplexConditionDetector, LongParameterListDetector, NullabilityOverloadDetector,
+    ReflectionOveruseDetector, StringLiteralDuplicationDetector,
+    // Phase 5: Android-Specific (AP026-AP030)
+    AsyncTaskUsageDetector, InitOnDrawDetector, MainThreadDatabaseDetector,
+    UnclosedResourceDetector, WakeLockAbuseDetector,
+    // Phase 6: Compose-Specific (AP031-AP034)
+    BusinessLogicInComposableDetector, LaunchedEffectWithoutKeyDetector,
+    NavControllerPassingDetector, StateWithoutRememberDetector,
 };
 use analysis::{
     Confidence, CycleDetector, DeepAnalyzer, EnhancedAnalyzer, EntryPointDetector, HybridAnalyzer,
@@ -176,6 +198,40 @@ struct Cli {
     /// Finds Room DAOs that have @Insert but no @Query methods (Phase 9)
     #[arg(long)]
     write_only_dao: bool,
+
+    /// Enable all anti-pattern detectors (AP001-AP034)
+    /// Includes: architecture, performance, Kotlin, Android, and Compose patterns
+    #[arg(long)]
+    anti_patterns: bool,
+
+    /// Enable architecture anti-pattern detectors (AP001-AP006)
+    /// Detects: deep inheritance, EventBus, global mutable state, single-impl interfaces
+    #[arg(long)]
+    architecture_patterns: bool,
+
+    /// Enable Kotlin anti-pattern detectors (AP007-AP010, AP021-AP025)
+    /// Detects: GlobalScope, heavy ViewModel, lateinit abuse, scope function chaining,
+    /// nullability overload, reflection overuse, long parameter lists, complex conditions
+    #[arg(long)]
+    kotlin_patterns: bool,
+
+    /// Enable performance anti-pattern detectors (AP011-AP015)
+    /// Detects: memory leaks, long methods, large classes, collection inefficiencies, loop allocations
+    #[arg(long)]
+    performance_patterns: bool,
+
+    /// Enable Android-specific anti-pattern detectors (AP016-AP020, AP026-AP030)
+    /// Detects: mutable state exposure, view logic in ViewModel, missing UseCase,
+    /// nested callbacks, hardcoded dispatchers, unclosed resources, main thread DB,
+    /// WakeLock abuse, AsyncTask usage, onDraw allocations
+    #[arg(long)]
+    android_patterns: bool,
+
+    /// Enable Compose-specific anti-pattern detectors (AP031-AP034)
+    /// Detects: state without remember, LaunchedEffect without key, business logic in composables,
+    /// NavController passing to children
+    #[arg(long)]
+    compose_patterns: bool,
 
     /// Enable incremental analysis with caching
     /// Skips re-parsing unchanged files for faster subsequent runs
@@ -951,6 +1007,114 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
                 println!();
             }
         }
+    }
+
+    // Step 9j: Anti-pattern detectors
+    let run_architecture = cli.anti_patterns || cli.architecture_patterns;
+    let run_kotlin = cli.anti_patterns || cli.kotlin_patterns;
+    let run_performance = cli.anti_patterns || cli.performance_patterns;
+    let run_android = cli.anti_patterns || cli.android_patterns;
+    let run_compose = cli.anti_patterns || cli.compose_patterns;
+
+    // Architecture patterns (AP001-AP006)
+    if run_architecture {
+        let detectors: Vec<Box<dyn Detector>> = vec![
+            Box::new(DeepInheritanceDetector::new()),
+            Box::new(EventBusPatternDetector::new()),
+            Box::new(GlobalMutableStateDetector::new()),
+            Box::new(SingleImplInterfaceDetector::new()),
+        ];
+        for detector in detectors {
+            let issues = detector.detect(&graph);
+            if !issues.is_empty() {
+                dead_code.extend(issues);
+            }
+        }
+        info!("Architecture pattern analysis complete");
+    }
+
+    // Kotlin patterns (AP007-AP010, AP021-AP025)
+    if run_kotlin {
+        let detectors: Vec<Box<dyn Detector>> = vec![
+            // Phase 1
+            Box::new(GlobalScopeUsageDetector::new()),
+            Box::new(HeavyViewModelDetector::new()),
+            Box::new(LateinitAbuseDetector::new()),
+            Box::new(ScopeFunctionChainingDetector::new()),
+            // Phase 4
+            Box::new(ComplexConditionDetector::new()),
+            Box::new(LongParameterListDetector::new()),
+            Box::new(NullabilityOverloadDetector::new()),
+            Box::new(ReflectionOveruseDetector::new()),
+            Box::new(StringLiteralDuplicationDetector::new()),
+        ];
+        for detector in detectors {
+            let issues = detector.detect(&graph);
+            if !issues.is_empty() {
+                dead_code.extend(issues);
+            }
+        }
+        info!("Kotlin pattern analysis complete");
+    }
+
+    // Performance patterns (AP011-AP015)
+    if run_performance {
+        let detectors: Vec<Box<dyn Detector>> = vec![
+            Box::new(MemoryLeakRiskDetector::new()),
+            Box::new(LongMethodDetector::new()),
+            Box::new(LargeClassDetector::new()),
+            Box::new(CollectionWithoutSequenceDetector::new()),
+            Box::new(ObjectAllocationInLoopDetector::new()),
+        ];
+        for detector in detectors {
+            let issues = detector.detect(&graph);
+            if !issues.is_empty() {
+                dead_code.extend(issues);
+            }
+        }
+        info!("Performance pattern analysis complete");
+    }
+
+    // Android patterns (AP016-AP020, AP026-AP030)
+    if run_android {
+        let detectors: Vec<Box<dyn Detector>> = vec![
+            // Phase 3
+            Box::new(MutableStateExposedDetector::new()),
+            Box::new(ViewLogicInViewModelDetector::new()),
+            Box::new(MissingUseCaseDetector::new()),
+            Box::new(NestedCallbackDetector::new()),
+            Box::new(HardcodedDispatcherDetector::new()),
+            // Phase 5
+            Box::new(UnclosedResourceDetector::new()),
+            Box::new(MainThreadDatabaseDetector::new()),
+            Box::new(WakeLockAbuseDetector::new()),
+            Box::new(AsyncTaskUsageDetector::new()),
+            Box::new(InitOnDrawDetector::new()),
+        ];
+        for detector in detectors {
+            let issues = detector.detect(&graph);
+            if !issues.is_empty() {
+                dead_code.extend(issues);
+            }
+        }
+        info!("Android pattern analysis complete");
+    }
+
+    // Compose patterns (AP031-AP034)
+    if run_compose {
+        let detectors: Vec<Box<dyn Detector>> = vec![
+            Box::new(StateWithoutRememberDetector::new()),
+            Box::new(LaunchedEffectWithoutKeyDetector::new()),
+            Box::new(BusinessLogicInComposableDetector::new()),
+            Box::new(NavControllerPassingDetector::new()),
+        ];
+        for detector in detectors {
+            let issues = detector.detect(&graph);
+            if !issues.is_empty() {
+                dead_code.extend(issues);
+            }
+        }
+        info!("Compose pattern analysis complete");
     }
 
     // Step 10: Filter by confidence level

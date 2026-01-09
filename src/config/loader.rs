@@ -73,6 +73,41 @@ pub struct DetectionConfig {
 
     /// Enable redundant public modifier detection
     pub redundant_public: bool,
+
+    /// Anti-pattern detector groups
+    pub anti_patterns: AntiPatternConfig,
+}
+
+/// Configuration for anti-pattern detectors
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AntiPatternConfig {
+    /// Enable all anti-pattern detectors
+    pub enabled: bool,
+
+    /// Enable architecture patterns (AP001-AP006)
+    /// Deep inheritance, EventBus, global mutable state, single-impl interfaces
+    pub architecture: bool,
+
+    /// Enable Kotlin patterns (AP007-AP010, AP021-AP025)
+    /// GlobalScope, heavy ViewModel, lateinit abuse, scope function chaining,
+    /// nullability, reflection, long params, complex conditions, string duplication
+    pub kotlin: bool,
+
+    /// Enable performance patterns (AP011-AP015)
+    /// Memory leaks, long methods, large classes, collection inefficiencies, loop allocations
+    pub performance: bool,
+
+    /// Enable Android patterns (AP016-AP020, AP026-AP030)
+    /// Mutable state exposure, view logic in ViewModel, missing UseCase,
+    /// nested callbacks, hardcoded dispatchers, unclosed resources,
+    /// main thread DB, WakeLock abuse, AsyncTask, onDraw allocations
+    pub android: bool,
+
+    /// Enable Compose patterns (AP031-AP034)
+    /// State without remember, LaunchedEffect without key, business logic in composables,
+    /// NavController passing
+    pub compose: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -132,6 +167,20 @@ impl Default for DetectionConfig {
             assign_only: true,
             dead_branch: true,
             redundant_public: true,
+            anti_patterns: AntiPatternConfig::default(),
+        }
+    }
+}
+
+impl Default for AntiPatternConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            architecture: false,
+            kotlin: false,
+            performance: false,
+            android: false,
+            compose: false,
         }
     }
 }
