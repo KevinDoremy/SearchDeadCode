@@ -284,6 +284,22 @@ pub enum DeadCodeIssue {
 
     /// Object allocation in onDraw() (performance)
     InitOnDraw,
+
+    // ==========================================================================
+    // Phase 6: Compose-Specific Detectors
+    // ==========================================================================
+
+    /// State without remember {} wrapper (resets on recomposition)
+    StateWithoutRemember,
+
+    /// LaunchedEffect/DisposableEffect without proper keys
+    LaunchedEffectWithoutKey,
+
+    /// Business logic in @Composable function (violates separation)
+    BusinessLogicInComposable,
+
+    /// NavController passed to child composables (tight coupling)
+    NavControllerPassing,
 }
 
 impl DeadCodeIssue {
@@ -335,6 +351,10 @@ impl DeadCodeIssue {
             DeadCodeIssue::WakeLockAbuse => Severity::Warning,
             DeadCodeIssue::AsyncTaskUsage => Severity::Warning,
             DeadCodeIssue::InitOnDraw => Severity::Warning,
+            DeadCodeIssue::StateWithoutRemember => Severity::Warning,
+            DeadCodeIssue::LaunchedEffectWithoutKey => Severity::Warning,
+            DeadCodeIssue::BusinessLogicInComposable => Severity::Warning,
+            DeadCodeIssue::NavControllerPassing => Severity::Info,
         }
     }
 
@@ -593,6 +613,30 @@ impl DeadCodeIssue {
                     decl.name
                 )
             }
+            DeadCodeIssue::StateWithoutRemember => {
+                format!(
+                    "'{}' creates state without remember {{}}. State will reset on recomposition.",
+                    decl.name
+                )
+            }
+            DeadCodeIssue::LaunchedEffectWithoutKey => {
+                format!(
+                    "'{}' uses LaunchedEffect/DisposableEffect with Unit key. Add proper keys for parameter changes.",
+                    decl.name
+                )
+            }
+            DeadCodeIssue::BusinessLogicInComposable => {
+                format!(
+                    "@Composable '{}' contains business logic. Move to ViewModel/UseCase.",
+                    decl.name
+                )
+            }
+            DeadCodeIssue::NavControllerPassing => {
+                format!(
+                    "'{}' passes NavController to children. Use navigation callbacks instead.",
+                    decl.name
+                )
+            }
         }
     }
 
@@ -644,6 +688,10 @@ impl DeadCodeIssue {
             DeadCodeIssue::WakeLockAbuse => "AP028",
             DeadCodeIssue::AsyncTaskUsage => "AP029",
             DeadCodeIssue::InitOnDraw => "AP030",
+            DeadCodeIssue::StateWithoutRemember => "AP031",
+            DeadCodeIssue::LaunchedEffectWithoutKey => "AP032",
+            DeadCodeIssue::BusinessLogicInComposable => "AP033",
+            DeadCodeIssue::NavControllerPassing => "AP034",
         }
     }
 }

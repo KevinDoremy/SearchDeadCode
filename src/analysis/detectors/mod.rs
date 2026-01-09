@@ -65,6 +65,12 @@ mod main_thread_database;
 mod unclosed_resource;
 mod wakelock_abuse;
 
+// Phase 6: Compose-Specific Detectors
+mod business_logic_composable;
+mod launchedeffect_without_key;
+mod navcontroller_passing;
+mod state_without_remember;
+
 // These detectors are reserved for future advanced analysis modes
 pub use assign_only::AssignOnlyDetector;
 pub use dead_branch::DeadBranchDetector;
@@ -127,6 +133,12 @@ pub use init_ondraw::InitOnDrawDetector;
 pub use main_thread_database::MainThreadDatabaseDetector;
 pub use unclosed_resource::UnclosedResourceDetector;
 pub use wakelock_abuse::WakeLockAbuseDetector;
+
+// Phase 6: Compose-Specific Detectors
+pub use business_logic_composable::BusinessLogicInComposableDetector;
+pub use launchedeffect_without_key::LaunchedEffectWithoutKeyDetector;
+pub use navcontroller_passing::NavControllerPassingDetector;
+pub use state_without_remember::StateWithoutRememberDetector;
 
 use crate::analysis::DeadCode;
 use crate::graph::Graph;
