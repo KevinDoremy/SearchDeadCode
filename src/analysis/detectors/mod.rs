@@ -44,6 +44,20 @@ mod long_method;
 mod memory_leak_risk;
 mod object_allocation_loop;
 
+// Phase 3: Architecture & Design detectors
+mod hardcoded_dispatcher;
+mod missing_usecase;
+mod mutable_state_exposed;
+mod nested_callback;
+mod view_logic_viewmodel;
+
+// Phase 4: Kotlin-Specific Anti-Patterns
+mod complex_condition;
+mod long_parameter_list;
+mod nullability_overload;
+mod reflection_overuse;
+mod string_literal_duplication;
+
 // These detectors are reserved for future advanced analysis modes
 pub use assign_only::AssignOnlyDetector;
 pub use dead_branch::DeadBranchDetector;
@@ -85,6 +99,20 @@ pub use large_class::LargeClassDetector;
 pub use long_method::LongMethodDetector;
 pub use memory_leak_risk::MemoryLeakRiskDetector;
 pub use object_allocation_loop::ObjectAllocationInLoopDetector;
+
+// Phase 3: Architecture & Design detectors
+pub use hardcoded_dispatcher::HardcodedDispatcherDetector;
+pub use missing_usecase::MissingUseCaseDetector;
+pub use mutable_state_exposed::MutableStateExposedDetector;
+pub use nested_callback::NestedCallbackDetector;
+pub use view_logic_viewmodel::ViewLogicInViewModelDetector;
+
+// Phase 4: Kotlin-Specific Anti-Patterns
+pub use complex_condition::ComplexConditionDetector;
+pub use long_parameter_list::LongParameterListDetector;
+pub use nullability_overload::NullabilityOverloadDetector;
+pub use reflection_overuse::ReflectionOveruseDetector;
+pub use string_literal_duplication::StringLiteralDuplicationDetector;
 
 use crate::analysis::DeadCode;
 use crate::graph::Graph;

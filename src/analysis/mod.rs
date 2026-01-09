@@ -227,6 +227,44 @@ pub enum DeadCodeIssue {
 
     /// Object allocation inside loop (performance)
     ObjectAllocationInLoop,
+
+    // ==========================================================================
+    // Phase 3: Architecture & Design Detectors
+    // ==========================================================================
+
+    /// Public MutableLiveData/MutableStateFlow (encapsulation violation)
+    MutableStateExposed,
+
+    /// View/Context references in ViewModel (memory leak, architecture violation)
+    ViewLogicInViewModel,
+
+    /// Repository used directly in ViewModel without UseCase (missing domain layer)
+    MissingUseCase,
+
+    /// Deeply nested callbacks (callback hell)
+    NestedCallback,
+
+    /// Hardcoded Dispatchers.IO/Main/Default (testability issue)
+    HardcodedDispatcher,
+
+    // ==========================================================================
+    // Phase 4: Kotlin-Specific Anti-Patterns
+    // ==========================================================================
+
+    /// Excessive force unwrap (!!) or redundant null checks
+    NullabilityOverload,
+
+    /// Excessive Kotlin reflection usage in hot paths
+    ReflectionOveruse,
+
+    /// Function with too many parameters (>6)
+    LongParameterList,
+
+    /// Condition with too many boolean operators
+    ComplexCondition,
+
+    /// Repeated string literals (magic strings)
+    StringLiteralDuplication,
 }
 
 impl DeadCodeIssue {
@@ -263,6 +301,16 @@ impl DeadCodeIssue {
             DeadCodeIssue::LargeClass => Severity::Warning,
             DeadCodeIssue::CollectionWithoutSequence => Severity::Info,
             DeadCodeIssue::ObjectAllocationInLoop => Severity::Warning,
+            DeadCodeIssue::MutableStateExposed => Severity::Warning,
+            DeadCodeIssue::ViewLogicInViewModel => Severity::Warning,
+            DeadCodeIssue::MissingUseCase => Severity::Info,
+            DeadCodeIssue::NestedCallback => Severity::Warning,
+            DeadCodeIssue::HardcodedDispatcher => Severity::Info,
+            DeadCodeIssue::NullabilityOverload => Severity::Warning,
+            DeadCodeIssue::ReflectionOveruse => Severity::Info,
+            DeadCodeIssue::LongParameterList => Severity::Warning,
+            DeadCodeIssue::ComplexCondition => Severity::Info,
+            DeadCodeIssue::StringLiteralDuplication => Severity::Info,
         }
     }
 
@@ -431,6 +479,66 @@ impl DeadCodeIssue {
                     decl.name
                 )
             }
+            DeadCodeIssue::MutableStateExposed => {
+                format!(
+                    "Property '{}' exposes MutableLiveData/MutableStateFlow publicly (use private backing property with read-only exposure)",
+                    decl.name
+                )
+            }
+            DeadCodeIssue::ViewLogicInViewModel => {
+                format!(
+                    "ViewModel '{}' contains View/Context references (causes memory leaks, violates MVVM)",
+                    decl.name
+                )
+            }
+            DeadCodeIssue::MissingUseCase => {
+                format!(
+                    "ViewModel '{}' directly uses Repository (consider adding UseCase/Interactor for business logic)",
+                    decl.name
+                )
+            }
+            DeadCodeIssue::NestedCallback => {
+                format!(
+                    "Method '{}' has deeply nested callbacks (consider using coroutines or reactive streams)",
+                    decl.name
+                )
+            }
+            DeadCodeIssue::HardcodedDispatcher => {
+                format!(
+                    "'{}' uses hardcoded Dispatcher (inject dispatchers for testability)",
+                    decl.name
+                )
+            }
+            DeadCodeIssue::NullabilityOverload => {
+                format!(
+                    "'{}' has excessive force unwrap (!!) or redundant null checks",
+                    decl.name
+                )
+            }
+            DeadCodeIssue::ReflectionOveruse => {
+                format!(
+                    "'{}' uses excessive reflection (consider direct access or compile-time alternatives)",
+                    decl.name
+                )
+            }
+            DeadCodeIssue::LongParameterList => {
+                format!(
+                    "Function '{}' has too many parameters (consider using a data class or builder)",
+                    decl.name
+                )
+            }
+            DeadCodeIssue::ComplexCondition => {
+                format!(
+                    "'{}' has complex condition with many operators (extract to named booleans)",
+                    decl.name
+                )
+            }
+            DeadCodeIssue::StringLiteralDuplication => {
+                format!(
+                    "'{}' contains duplicated string literals (extract to constants)",
+                    decl.name
+                )
+            }
         }
     }
 
@@ -467,6 +575,16 @@ impl DeadCodeIssue {
             DeadCodeIssue::LargeClass => "AP013",
             DeadCodeIssue::CollectionWithoutSequence => "AP014",
             DeadCodeIssue::ObjectAllocationInLoop => "AP015",
+            DeadCodeIssue::MutableStateExposed => "AP016",
+            DeadCodeIssue::ViewLogicInViewModel => "AP017",
+            DeadCodeIssue::MissingUseCase => "AP018",
+            DeadCodeIssue::NestedCallback => "AP019",
+            DeadCodeIssue::HardcodedDispatcher => "AP020",
+            DeadCodeIssue::NullabilityOverload => "AP021",
+            DeadCodeIssue::ReflectionOveruse => "AP022",
+            DeadCodeIssue::LongParameterList => "AP023",
+            DeadCodeIssue::ComplexCondition => "AP024",
+            DeadCodeIssue::StringLiteralDuplication => "AP025",
         }
     }
 }
