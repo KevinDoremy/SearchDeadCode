@@ -43,8 +43,6 @@ pub struct AggregatedResults {
     pub by_rule: Vec<IssueGroup>,
     /// Issues grouped by category
     pub by_category: HashMap<String, Vec<IssueGroup>>,
-    /// Total count
-    pub total: usize,
 }
 
 /// Aggregator for grouping and deduplicating issues
@@ -57,8 +55,6 @@ impl Aggregator {
 
     /// Aggregate issues into groups
     pub fn aggregate(&self, dead_code: Vec<DeadCode>) -> AggregatedResults {
-        let total = dead_code.len();
-
         // Group by rule
         let mut rule_map: HashMap<String, Vec<DeadCode>> = HashMap::new();
         for item in dead_code.clone() {
@@ -91,7 +87,6 @@ impl Aggregator {
         AggregatedResults {
             by_rule,
             by_category,
-            total,
         }
     }
 

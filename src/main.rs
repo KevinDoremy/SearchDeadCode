@@ -153,50 +153,50 @@ struct Cli {
     #[arg(long)]
     enhanced: bool,
 
-    /// Enable deep analysis mode - more aggressive detection
+    /// Enable deep analysis mode - more aggressive detection (enabled by default)
     /// Does not auto-mark class members as reachable
     /// Detects unused members even in reachable classes
-    #[arg(long)]
+    #[arg(long, default_value = "true", action = clap::ArgAction::Set)]
     deep: bool,
 
-    /// Enable unused parameter detection
+    /// Enable unused parameter detection (enabled by default)
     /// Finds function parameters that are declared but never used
-    #[arg(long)]
+    #[arg(long, default_value = "true", action = clap::ArgAction::Set)]
     unused_params: bool,
 
-    /// Enable unused resource detection
+    /// Enable unused resource detection (off by default - slower)
     /// Finds Android resources (strings, colors, etc.) that are never referenced
     #[arg(long)]
     unused_resources: bool,
 
-    /// Enable write-only variable detection
-    /// Finds variables that are assigned but never read (Phase 9)
-    #[arg(long)]
+    /// Enable write-only variable detection (enabled by default)
+    /// Finds variables that are assigned but never read
+    #[arg(long, default_value = "true", action = clap::ArgAction::Set)]
     write_only: bool,
 
-    /// Enable unused sealed variant detection
-    /// Finds sealed class variants that are never instantiated (Phase 10)
-    #[arg(long)]
+    /// Enable unused sealed variant detection (enabled by default)
+    /// Finds sealed class variants that are never instantiated
+    #[arg(long, default_value = "true", action = clap::ArgAction::Set)]
     sealed_variants: bool,
 
-    /// Enable redundant override detection
-    /// Finds method overrides that only call super (Phase 10)
+    /// Enable redundant override detection (off by default - can be intentional)
+    /// Finds method overrides that only call super
     #[arg(long)]
     redundant_overrides: bool,
 
-    /// Enable unused Intent extra detection
-    /// Finds putExtra() keys that are never retrieved via getXxxExtra() (Phase 11)
-    #[arg(long)]
+    /// Enable unused Intent extra detection (enabled by default)
+    /// Finds putExtra() keys that are never retrieved via getXxxExtra()
+    #[arg(long, default_value = "true", action = clap::ArgAction::Set)]
     unused_extras: bool,
 
-    /// Enable write-only SharedPreferences detection
-    /// Finds SharedPreferences keys that are written but never read (Phase 9)
-    #[arg(long)]
+    /// Enable write-only SharedPreferences detection (enabled by default)
+    /// Finds SharedPreferences keys that are written but never read
+    #[arg(long, default_value = "true", action = clap::ArgAction::Set)]
     write_only_prefs: bool,
 
-    /// Enable write-only Room DAO detection
-    /// Finds Room DAOs that have @Insert but no @Query methods (Phase 9)
-    #[arg(long)]
+    /// Enable write-only Room DAO detection (enabled by default)
+    /// Finds Room DAOs that have @Insert but no @Query methods
+    #[arg(long, default_value = "true", action = clap::ArgAction::Set)]
     write_only_dao: bool,
 
     /// Enable all anti-pattern detectors (AP001-AP034)
@@ -639,10 +639,12 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     // Step 2: Parse files and build graph
     let graph = if cli.parallel {
         // Parallel parsing mode
-        println!(
-            "{}",
-            format!("⚡ Parallel mode: parsing {} files...", files.len()).cyan()
-        );
+        if !cli.quiet {
+            println!(
+                "{}",
+                format!("⚡ Parallel mode: parsing {} files...", files.len()).cyan()
+            );
+        }
         let parallel_builder = ParallelGraphBuilder::new();
         parallel_builder.build_from_files(&files)?
     } else {
@@ -670,7 +672,7 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     };
 
     let parse_time = start_time.elapsed();
-    if cli.parallel {
+    if cli.parallel && !cli.quiet {
         println!(
             "{}",
             format!(

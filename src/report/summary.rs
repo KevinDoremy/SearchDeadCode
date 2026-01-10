@@ -17,6 +17,8 @@ pub struct SummaryReporter {
     show_files_count: Option<usize>,
     /// Show declarations count
     show_declarations_count: Option<usize>,
+    /// Whether this is a final summary appended to another report
+    is_final_summary: bool,
 }
 
 impl SummaryReporter {
@@ -26,6 +28,7 @@ impl SummaryReporter {
             top_n: 10,
             show_files_count: None,
             show_declarations_count: None,
+            is_final_summary: false,
         }
     }
 
@@ -41,6 +44,12 @@ impl SummaryReporter {
 
     pub fn with_declarations_count(mut self, count: usize) -> Self {
         self.show_declarations_count = Some(count);
+        self
+    }
+
+    /// Mark this as a final summary appended to another report (different footer)
+    pub fn as_final_summary(mut self) -> Self {
+        self.is_final_summary = true;
         self
     }
 
@@ -300,18 +309,31 @@ impl SummaryReporter {
 
     fn print_footer(&self) {
         println!("{}", BoxChars::light_line(50).dimmed());
-        println!(
-            "{}",
-            "Run without --summary for full details".dimmed()
-        );
-        println!(
-            "{}",
-            "Use --group-by rule to see issues grouped by detector".dimmed()
-        );
-        println!(
-            "{}",
-            "Use --min-confidence high to filter low confidence".dimmed()
-        );
+        if self.is_final_summary {
+            // Tips for final summary appended to other reports
+            println!(
+                "{}",
+                "Tip: Run with --delete to safely remove dead code".dimmed()
+            );
+            println!(
+                "{}",
+                "Tip: Use --min-confidence high to filter low confidence".dimmed()
+            );
+        } else {
+            // Tips for standalone summary mode
+            println!(
+                "{}",
+                "Run without --summary for full details".dimmed()
+            );
+            println!(
+                "{}",
+                "Use --group-by rule to see issues grouped by detector".dimmed()
+            );
+            println!(
+                "{}",
+                "Use --min-confidence high to filter low confidence".dimmed()
+            );
+        }
     }
 
     fn rule_short_description(&self, rule: &str) -> &'static str {

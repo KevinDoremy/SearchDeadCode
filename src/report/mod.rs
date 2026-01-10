@@ -103,7 +103,10 @@ impl Reporter {
             ReportFormat::Terminal => {
                 let reporter = TerminalReporter::new()
                     .with_confidence(self.options.show_confidence);
-                reporter.report(dead_code)
+                reporter.report(dead_code)?;
+                // Always show full summary at the end
+                self.print_final_summary(dead_code);
+                Ok(())
             }
             ReportFormat::Compact => {
                 let mut reporter = CompactReporter::new()
@@ -112,6 +115,8 @@ impl Reporter {
                     reporter = reporter.with_base_path(base.clone());
                 }
                 reporter.report(dead_code);
+                // Always show full summary at the end
+                self.print_final_summary(dead_code);
                 Ok(())
             }
             ReportFormat::Grouped(group_by) => {
@@ -127,6 +132,8 @@ impl Reporter {
                     reporter = reporter.expand_rule(rule.clone());
                 }
                 reporter.report(dead_code.to_vec());
+                // Always show full summary at the end
+                self.print_final_summary(dead_code);
                 Ok(())
             }
             ReportFormat::Summary => {
@@ -149,5 +156,19 @@ impl Reporter {
                 reporter.report(dead_code)
             }
         }
+    }
+
+    /// Print the full summary at the end of any report
+    fn print_final_summary(&self, dead_code: &[DeadCode]) {
+        let mut reporter = SummaryReporter::new()
+            .with_top_n(self.options.top_n)
+            .as_final_summary();
+        if let Some(files) = self.options.files_count {
+            reporter = reporter.with_files_count(files);
+        }
+        if let Some(decls) = self.options.declarations_count {
+            reporter = reporter.with_declarations_count(decls);
+        }
+        reporter.report(dead_code);
     }
 }

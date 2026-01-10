@@ -3,7 +3,7 @@
 //! One line per issue, optimized for scanning large result sets
 
 use crate::analysis::DeadCode;
-use crate::report::colors::{BoxChars, ConfidenceIndicator, SeveritySymbol, StructureColors};
+use crate::report::colors::{ConfidenceIndicator, SeveritySymbol, StructureColors};
 use colored::Colorize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -91,8 +91,7 @@ impl CompactReporter {
             println!();
         }
 
-        // Print compact summary
-        self.print_summary(dead_code);
+        // Summary is now printed by Reporter (full summary at the end)
     }
 
     fn print_item(&self, item: &DeadCode) {
@@ -162,33 +161,6 @@ impl CompactReporter {
         }
     }
 
-    fn print_summary(&self, dead_code: &[DeadCode]) {
-        use crate::analysis::Severity;
-
-        let errors = dead_code.iter().filter(|d| matches!(d.severity, Severity::Error)).count();
-        let warnings = dead_code.iter().filter(|d| matches!(d.severity, Severity::Warning)).count();
-        let infos = dead_code.iter().filter(|d| matches!(d.severity, Severity::Info)).count();
-
-        println!("{}", BoxChars::heavy_line(50).dimmed());
-
-        let mut parts = Vec::new();
-        if errors > 0 {
-            parts.push(format!("{} {}", errors, "errors".red()));
-        }
-        if warnings > 0 {
-            parts.push(format!("{} {}", warnings, "warnings".yellow()));
-        }
-        if infos > 0 {
-            parts.push(format!("{} {}", infos, "info".blue()));
-        }
-
-        println!(
-            "  {} {} ({})",
-            StructureColors::count(&dead_code.len().to_string()),
-            "issues".bold(),
-            parts.join(", ")
-        );
-    }
 }
 
 impl Default for CompactReporter {

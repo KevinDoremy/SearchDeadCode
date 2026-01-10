@@ -11,7 +11,6 @@ use crate::graph::{Declaration, DeclarationId, DeclarationKind, Graph, Language,
 use petgraph::visit::Dfs;
 use rayon::prelude::*;
 use std::collections::HashSet;
-use std::sync::Mutex;
 use tracing::info;
 
 /// Deep analyzer for more aggressive dead code detection
@@ -107,49 +106,44 @@ impl DeepAnalyzer {
     ) -> HashSet<DeclarationId> {
         let inner_graph = graph.inner();
 
-        // Start with entry points
-        let reachable = if self.parallel {
-            let reachable = Mutex::new(HashSet::new());
+        // Use a shared visited set for efficient DFS
+        // Instead of running separate DFS from each entry point, we use a single traversal
+        let mut reachable = HashSet::new();
 
-            let entry_vec: Vec<_> = entry_points.iter().collect();
-            entry_vec.par_iter().for_each(|entry_id| {
-                let mut local_reachable = HashSet::new();
-                local_reachable.insert((*entry_id).clone());
+        // Collect all starting node indices
+        let start_indices: Vec<_> = entry_points
+            .iter()
+            .filter_map(|id| {
+                reachable.insert(id.clone());
+                graph.node_index(id)
+            })
+            .collect();
 
-                if let Some(start_idx) = graph.node_index(entry_id) {
-                    let mut dfs = Dfs::new(inner_graph, start_idx);
-                    while let Some(node_idx) = dfs.next(inner_graph) {
-                        if let Some(node_id) = inner_graph.node_weight(node_idx) {
-                            local_reachable.insert(node_id.clone());
-                        }
-                    }
-                }
+        // Single DFS traversal using a worklist (more efficient than per-entry DFS)
+        let mut visited_indices = HashSet::new();
+        let mut stack: Vec<_> = start_indices;
 
-                let mut global = reachable.lock().unwrap();
-                global.extend(local_reachable);
-            });
+        while let Some(node_idx) = stack.pop() {
+            if !visited_indices.insert(node_idx) {
+                continue;
+            }
 
-            reachable.into_inner().unwrap()
-        } else {
-            let mut reachable = HashSet::new();
-            for entry_id in entry_points {
-                reachable.insert(entry_id.clone());
-                if let Some(start_idx) = graph.node_index(entry_id) {
-                    let mut dfs = Dfs::new(inner_graph, start_idx);
-                    while let Some(node_idx) = dfs.next(inner_graph) {
-                        if let Some(node_id) = inner_graph.node_weight(node_idx) {
-                            reachable.insert(node_id.clone());
-                        }
-                    }
+            if let Some(node_id) = inner_graph.node_weight(node_idx) {
+                reachable.insert(node_id.clone());
+            }
+
+            // Add all neighbors to stack
+            for neighbor in inner_graph.neighbors(node_idx) {
+                if !visited_indices.contains(&neighbor) {
+                    stack.push(neighbor);
                 }
             }
-            reachable
-        };
+        }
 
-        // Mark ancestors as reachable
-        let mut all_reachable = reachable.clone();
-        for id in &reachable {
-            Self::collect_ancestors(graph, id, &mut all_reachable);
+        // Mark ancestors as reachable (batch collect to avoid repeated lookups)
+        let ancestor_ids: Vec<_> = reachable.iter().cloned().collect();
+        for id in ancestor_ids {
+            Self::collect_ancestors(graph, &id, &mut reachable);
         }
 
         // IMPORTANT: Only mark certain members as reachable:
@@ -158,100 +152,170 @@ impl DeepAnalyzer {
         // 3. Serialization-related members
         // 4. Companion object members that are accessed
 
-        let mut additional = HashSet::new();
-        for decl in graph.declarations() {
-            if all_reachable.contains(&decl.id) {
-                continue;
-            }
+        // Pre-compute which classes are instantiated (avoid repeated lookups)
+        let instantiated_classes: HashSet<_> = reachable
+            .iter()
+            .filter(|id| {
+                graph
+                    .get_references_to(id)
+                    .iter()
+                    .any(|(_, r)| r.kind == ReferenceKind::Call)
+            })
+            .cloned()
+            .collect();
 
-            // Check if this is an override method in a reachable class
-            if let Some(parent_id) = &decl.parent {
-                if all_reachable.contains(parent_id) {
+        // Single pass over declarations to find additional reachable items
+        let additional: Vec<_> = if self.parallel {
+            let declarations: Vec<_> = graph.declarations().collect();
+            declarations
+                .par_iter()
+                .filter_map(|decl| {
+                    if reachable.contains(&decl.id) {
+                        return None;
+                    }
+
+                    let parent_id = decl.parent.as_ref()?;
+                    if !reachable.contains(parent_id) {
+                        return None;
+                    }
+
                     // Override methods are reachable via polymorphism
                     if decl.modifiers.iter().any(|m| m == "override")
                         || decl.annotations.iter().any(|a| a.contains("Override"))
                     {
-                        additional.insert(decl.id.clone());
-                        continue;
+                        return Some(decl.id.clone());
                     }
 
                     // Primary constructor is reachable if class is instantiated
-                    if decl.kind == DeclarationKind::Constructor && decl.name == "constructor" {
-                        // Check if class has any Call references (instantiation)
-                        if self.is_class_instantiated(graph, parent_id) {
-                            additional.insert(decl.id.clone());
-                            continue;
-                        }
+                    if decl.kind == DeclarationKind::Constructor
+                        && decl.name == "constructor"
+                        && instantiated_classes.contains(parent_id)
+                    {
+                        return Some(decl.id.clone());
                     }
 
                     // Serialization members
                     if self.is_serialization_member(decl) {
-                        additional.insert(decl.id.clone());
-                        continue;
+                        return Some(decl.id.clone());
                     }
 
-                    // Companion object (named or default "Companion")
+                    // Companion object
                     if decl.kind == DeclarationKind::Object
                         && decl.modifiers.iter().any(|m| m == "companion")
                     {
-                        additional.insert(decl.id.clone());
-                        continue;
+                        return Some(decl.id.clone());
                     }
 
-                    // Lazy/delegated properties - the delegate is used
+                    // Lazy/delegated properties
                     if decl.kind == DeclarationKind::Property
                         && decl.modifiers.iter().any(|m| m == "delegated")
                     {
-                        additional.insert(decl.id.clone());
-                        continue;
+                        return Some(decl.id.clone());
                     }
 
-                    // Suspend functions in reachable classes - may be called from coroutines
+                    // Suspend functions in reachable classes
                     if self.is_suspend_function(decl) {
-                        additional.insert(decl.id.clone());
-                        continue;
+                        return Some(decl.id.clone());
                     }
 
-                    // Flow-related declarations - used in reactive patterns
+                    // Flow-related declarations
                     if self.is_flow_pattern(decl) {
-                        additional.insert(decl.id.clone());
+                        return Some(decl.id.clone());
+                    }
+
+                    None
+                })
+                .collect()
+        } else {
+            graph
+                .declarations()
+                .filter_map(|decl| {
+                    if reachable.contains(&decl.id) {
+                        return None;
+                    }
+
+                    let parent_id = decl.parent.as_ref()?;
+                    if !reachable.contains(parent_id) {
+                        return None;
+                    }
+
+                    if decl.modifiers.iter().any(|m| m == "override")
+                        || decl.annotations.iter().any(|a| a.contains("Override"))
+                    {
+                        return Some(decl.id.clone());
+                    }
+
+                    if decl.kind == DeclarationKind::Constructor
+                        && decl.name == "constructor"
+                        && instantiated_classes.contains(parent_id)
+                    {
+                        return Some(decl.id.clone());
+                    }
+
+                    if self.is_serialization_member(decl) {
+                        return Some(decl.id.clone());
+                    }
+
+                    if decl.kind == DeclarationKind::Object
+                        && decl.modifiers.iter().any(|m| m == "companion")
+                    {
+                        return Some(decl.id.clone());
+                    }
+
+                    if decl.kind == DeclarationKind::Property
+                        && decl.modifiers.iter().any(|m| m == "delegated")
+                    {
+                        return Some(decl.id.clone());
+                    }
+
+                    if self.is_suspend_function(decl) {
+                        return Some(decl.id.clone());
+                    }
+
+                    if self.is_flow_pattern(decl) {
+                        return Some(decl.id.clone());
+                    }
+
+                    None
+                })
+                .collect()
+        };
+
+        reachable.extend(additional);
+
+        // Collect sealed class subtypes and interface implementations
+        let sealed_subtypes = self.collect_sealed_subtypes(graph, &reachable);
+        let interface_impls = self.collect_interface_implementations(graph, &reachable);
+
+        // Only do incremental DFS from NEWLY added items (not all reachable)
+        let new_items: Vec<_> = sealed_subtypes
+            .iter()
+            .chain(interface_impls.iter())
+            .filter(|id| !reachable.contains(*id))
+            .cloned()
+            .collect();
+
+        reachable.extend(sealed_subtypes);
+        reachable.extend(interface_impls);
+
+        // Incremental DFS only from new items
+        if !new_items.is_empty() {
+            for id in &new_items {
+                if let Some(start_idx) = graph.node_index(id) {
+                    if visited_indices.contains(&start_idx) {
                         continue;
                     }
-                }
-            }
-        }
-
-        all_reachable.extend(additional);
-
-        // Collect sealed class subtypes - all subtypes of reachable sealed classes are reachable
-        let sealed_subtypes = self.collect_sealed_subtypes(graph, &all_reachable);
-        all_reachable.extend(sealed_subtypes);
-
-        // Collect interface implementations - classes implementing reachable interfaces are reachable
-        let interface_impls = self.collect_interface_implementations(graph, &all_reachable);
-        all_reachable.extend(interface_impls);
-
-        // Do another DFS pass from newly reachable items
-        let mut more_reachable = HashSet::new();
-        for id in &all_reachable {
-            if let Some(start_idx) = graph.node_index(id) {
-                let mut dfs = Dfs::new(inner_graph, start_idx);
-                while let Some(node_idx) = dfs.next(inner_graph) {
-                    if let Some(node_id) = inner_graph.node_weight(node_idx) {
-                        more_reachable.insert(node_id.clone());
+                    let mut dfs = Dfs::new(inner_graph, start_idx);
+                    while let Some(node_idx) = dfs.next(inner_graph) {
+                        if let Some(node_id) = inner_graph.node_weight(node_idx) {
+                            reachable.insert(node_id.clone());
+                        }
                     }
                 }
             }
         }
-        all_reachable.extend(more_reachable);
 
-        all_reachable
-    }
-
-    /// Check if a class is actually instantiated (has Call references)
-    fn is_class_instantiated(&self, graph: &Graph, class_id: &DeclarationId) -> bool {
-        let refs = graph.get_references_to(class_id);
-        refs.iter().any(|(_, r)| r.kind == ReferenceKind::Call)
+        reachable
     }
 
     /// Check if a member is serialization-related
@@ -740,43 +804,68 @@ impl DeepAnalyzer {
         graph: &Graph,
         reachable: &HashSet<DeclarationId>,
     ) -> HashSet<DeclarationId> {
-        let mut additional = HashSet::new();
-
-        // First, find all sealed classes that are reachable
-        let sealed_classes: Vec<_> = graph
+        // First, find all sealed classes that are reachable - build a HashSet for O(1) lookup
+        let sealed_names: HashSet<String> = graph
             .declarations()
             .filter(|d| reachable.contains(&d.id) && self.is_sealed_class(d))
-            .map(|d| {
-                d.fully_qualified_name
+            .flat_map(|d| {
+                let fqn = d
+                    .fully_qualified_name
                     .clone()
-                    .unwrap_or_else(|| d.name.clone())
+                    .unwrap_or_else(|| d.name.clone());
+                let simple = fqn.split('.').next_back().unwrap_or(&fqn).to_string();
+                vec![fqn, simple]
             })
             .collect();
 
-        if sealed_classes.is_empty() {
-            return additional;
+        if sealed_names.is_empty() {
+            return HashSet::new();
         }
 
-        // Find all classes that extend these sealed classes
-        for decl in graph.declarations() {
-            if reachable.contains(&decl.id) {
-                continue; // Already reachable
-            }
+        // Find all classes that extend these sealed classes - single pass with HashSet lookups
+        let declarations: Vec<_> = graph.declarations().collect();
 
-            // Check if this class extends a sealed class
-            for super_type in &decl.super_types {
-                let simple_super = super_type.split('.').next_back().unwrap_or(super_type);
-                for sealed in &sealed_classes {
-                    let simple_sealed = sealed.split('.').next_back().unwrap_or(sealed);
-                    if simple_super == simple_sealed || super_type == sealed {
-                        additional.insert(decl.id.clone());
-                        break;
+        if self.parallel {
+            declarations
+                .par_iter()
+                .filter_map(|decl| {
+                    if reachable.contains(&decl.id) {
+                        return None;
                     }
-                }
-            }
-        }
 
-        additional
+                    for super_type in &decl.super_types {
+                        if sealed_names.contains(super_type) {
+                            return Some(decl.id.clone());
+                        }
+                        let simple = super_type.split('.').next_back().unwrap_or(super_type);
+                        if sealed_names.contains(simple) {
+                            return Some(decl.id.clone());
+                        }
+                    }
+                    None
+                })
+                .collect()
+        } else {
+            declarations
+                .iter()
+                .filter_map(|decl| {
+                    if reachable.contains(&decl.id) {
+                        return None;
+                    }
+
+                    for super_type in &decl.super_types {
+                        if sealed_names.contains(super_type) {
+                            return Some(decl.id.clone());
+                        }
+                        let simple = super_type.split('.').next_back().unwrap_or(super_type);
+                        if sealed_names.contains(simple) {
+                            return Some(decl.id.clone());
+                        }
+                    }
+                    None
+                })
+                .collect()
+        }
     }
 
     /// Find all interface implementations and mark them as reachable when the interface is reachable
@@ -785,43 +874,68 @@ impl DeepAnalyzer {
         graph: &Graph,
         reachable: &HashSet<DeclarationId>,
     ) -> HashSet<DeclarationId> {
-        let mut additional = HashSet::new();
-
-        // Find all reachable interfaces
-        let reachable_interfaces: Vec<_> = graph
+        // Build a HashSet of interface names for O(1) lookup
+        let interface_names: HashSet<String> = graph
             .declarations()
             .filter(|d| reachable.contains(&d.id) && d.kind == DeclarationKind::Interface)
-            .map(|d| {
-                d.fully_qualified_name
+            .flat_map(|d| {
+                let fqn = d
+                    .fully_qualified_name
                     .clone()
-                    .unwrap_or_else(|| d.name.clone())
+                    .unwrap_or_else(|| d.name.clone());
+                let simple = fqn.split('.').next_back().unwrap_or(&fqn).to_string();
+                vec![fqn, simple]
             })
             .collect();
 
-        if reachable_interfaces.is_empty() {
-            return additional;
+        if interface_names.is_empty() {
+            return HashSet::new();
         }
 
-        // Find all classes that implement these interfaces
-        for decl in graph.declarations() {
-            if reachable.contains(&decl.id) {
-                continue;
-            }
+        // Find all classes that implement these interfaces - single pass with HashSet lookups
+        let declarations: Vec<_> = graph.declarations().collect();
 
-            // Check if this class implements a reachable interface
-            for super_type in &decl.super_types {
-                let simple_super = super_type.split('.').next_back().unwrap_or(super_type);
-                for interface in &reachable_interfaces {
-                    let simple_interface = interface.split('.').next_back().unwrap_or(interface);
-                    if simple_super == simple_interface || super_type == interface {
-                        additional.insert(decl.id.clone());
-                        break;
+        if self.parallel {
+            declarations
+                .par_iter()
+                .filter_map(|decl| {
+                    if reachable.contains(&decl.id) {
+                        return None;
                     }
-                }
-            }
-        }
 
-        additional
+                    for super_type in &decl.super_types {
+                        if interface_names.contains(super_type) {
+                            return Some(decl.id.clone());
+                        }
+                        let simple = super_type.split('.').next_back().unwrap_or(super_type);
+                        if interface_names.contains(simple) {
+                            return Some(decl.id.clone());
+                        }
+                    }
+                    None
+                })
+                .collect()
+        } else {
+            declarations
+                .iter()
+                .filter_map(|decl| {
+                    if reachable.contains(&decl.id) {
+                        return None;
+                    }
+
+                    for super_type in &decl.super_types {
+                        if interface_names.contains(super_type) {
+                            return Some(decl.id.clone());
+                        }
+                        let simple = super_type.split('.').next_back().unwrap_or(super_type);
+                        if interface_names.contains(simple) {
+                            return Some(decl.id.clone());
+                        }
+                    }
+                    None
+                })
+                .collect()
+        }
     }
 
     /// Check if a function is a suspend function (used in coroutines)

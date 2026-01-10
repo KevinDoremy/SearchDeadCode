@@ -107,14 +107,7 @@ impl GroupedReporter {
             GroupBy::Severity => self.report_by_severity(&results.by_rule),
             GroupBy::File => self.report_by_file_grouped(&results.by_rule),
         }
-
-        // Print total
-        println!();
-        println!(
-            "{} {} total issues",
-            BoxChars::heavy_line(40).dimmed(),
-            StructureColors::count(&results.total.to_string())
-        );
+        // Summary is printed by Reporter (full summary at the end)
     }
 
     fn report_by_rule(&self, groups: &[IssueGroup]) {
