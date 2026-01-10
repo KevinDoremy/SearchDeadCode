@@ -65,49 +65,56 @@ impl EnhancedAnalyzer {
         (dead_code, reachable)
     }
 
-    /// Find all reachable declarations using parallel BFS
+    /// Find all reachable declarations using single BFS from all entry points
     fn find_reachable_parallel(
         &self,
         graph: &Graph,
         entry_points: &HashSet<DeclarationId>,
     ) -> HashSet<DeclarationId> {
-        use petgraph::visit::Dfs;
-        use std::sync::Mutex;
+        use std::collections::VecDeque;
+
+        info!("  → Starting BFS from {} entry points...", entry_points.len());
 
         let inner_graph = graph.inner();
-        let reachable = Mutex::new(HashSet::new());
+        let mut reachable: HashSet<DeclarationId> = entry_points.clone();
+        let mut queue: VecDeque<_> = entry_points.iter().cloned().collect();
 
-        // Process entry points in parallel
-        let entry_vec: Vec<_> = entry_points.iter().collect();
-        entry_vec.par_iter().for_each(|entry_id| {
-            let mut local_reachable = HashSet::new();
-            local_reachable.insert((*entry_id).clone());
+        // Single BFS from all entry points at once - each node visited only once
+        let mut visited_count = 0;
+        while let Some(current_id) = queue.pop_front() {
+            visited_count += 1;
+            if visited_count % 10000 == 0 {
+                info!("    Visited {} nodes, queue size: {}", visited_count, queue.len());
+            }
 
-            if let Some(start_idx) = graph.node_index(entry_id) {
-                let mut dfs = Dfs::new(inner_graph, start_idx);
-                while let Some(node_idx) = dfs.next(inner_graph) {
-                    if let Some(node_id) = inner_graph.node_weight(node_idx) {
-                        local_reachable.insert(node_id.clone());
+            if let Some(node_idx) = graph.node_index(&current_id) {
+                // Visit all neighbors
+                for neighbor_idx in inner_graph.neighbors(node_idx) {
+                    if let Some(neighbor_id) = inner_graph.node_weight(neighbor_idx) {
+                        if reachable.insert(neighbor_id.clone()) {
+                            queue.push_back(neighbor_id.clone());
+                        }
                     }
                 }
             }
+        }
 
-            // Merge into global set
-            let mut global = reachable.lock().unwrap();
-            global.extend(local_reachable);
-        });
-
-        let mut reachable = reachable.into_inner().unwrap();
+        info!("  → Found {} directly reachable declarations", reachable.len());
 
         // Mark ancestors as reachable
+        info!("  → Marking ancestors...");
         let mut ancestors = HashSet::new();
         for id in &reachable {
             Self::collect_ancestors(graph, id, &mut ancestors);
         }
         reachable.extend(ancestors);
+        info!("  → Total with ancestors: {}", reachable.len());
 
         // Mark members of reachable classes - multi-pass for nested
+        info!("  → Expanding class members...");
+        let mut pass = 0;
         loop {
+            pass += 1;
             let mut class_members = HashSet::new();
             for decl in graph.declarations() {
                 if let Some(parent_id) = &decl.parent {
@@ -119,8 +126,10 @@ impl EnhancedAnalyzer {
             if class_members.is_empty() {
                 break;
             }
+            info!("    Pass {}: added {} members", pass, class_members.len());
             reachable.extend(class_members);
         }
+        info!("  → Final reachable count: {}", reachable.len());
 
         reachable
     }
@@ -146,6 +155,7 @@ impl EnhancedAnalyzer {
         graph: &Graph,
         reachable: &HashSet<DeclarationId>,
     ) -> Vec<DeadCode> {
+        info!("  → Scanning {} declarations for dead code...", graph.declarations().count());
         let declarations: Vec<_> = graph.declarations().collect();
 
         declarations

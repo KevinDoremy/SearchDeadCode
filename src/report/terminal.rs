@@ -1,4 +1,9 @@
+//! Terminal reporter with improved colored output
+//!
+//! Based on Rust compiler diagnostic design (RFC 1644)
+
 use crate::analysis::{Confidence, DeadCode, Severity};
+use crate::report::colors::{BoxChars, ChartChars, ConfidenceIndicator, SeveritySymbol, StructureColors};
 use colored::Colorize;
 use miette::Result;
 use std::collections::HashMap;
@@ -17,7 +22,6 @@ impl TerminalReporter {
         }
     }
 
-    #[allow(dead_code)] // Builder pattern method for future use
     pub fn with_confidence(mut self, show: bool) -> Self {
         self.show_confidence = show;
         self
@@ -41,10 +45,8 @@ impl TerminalReporter {
         // Print header
         println!();
         println!(
-            "{}",
-            format!("Found {} dead code issues:", dead_code.len())
-                .yellow()
-                .bold()
+            "Found {} dead code issues:",
+            StructureColors::count(&dead_code.len().to_string())
         );
         println!();
 
@@ -61,9 +63,13 @@ impl TerminalReporter {
             let items = &by_file[file];
 
             // File header
-            println!("{}", file.display().to_string().cyan().bold());
+            println!("{}", StructureColors::file_path(&file.display().to_string()));
 
-            for item in items {
+            // Sort items by line number
+            let mut sorted_items: Vec<_> = items.iter().collect();
+            sorted_items.sort_by_key(|i| i.declaration.location.line);
+
+            for item in sorted_items {
                 self.print_item(item);
             }
 
@@ -80,49 +86,35 @@ impl TerminalReporter {
         println!("{}", "Confidence Legend:".dimmed());
         println!(
             "  {} {} {} {}",
-            "●".green().bold(),
+            "✓".green().bold(),
             "Confirmed (runtime)".dimmed(),
-            "◉".bright_green(),
+            "!".yellow().bold(),
             "High".dimmed()
         );
         println!(
             "  {} {} {} {}",
-            "○".yellow(),
+            "?".dimmed(),
             "Medium".dimmed(),
-            "◌".red(),
+            "~".dimmed().italic(),
             "Low".dimmed()
         );
         println!();
     }
 
-    fn confidence_indicator(&self, item: &DeadCode) -> colored::ColoredString {
-        if item.runtime_confirmed {
-            "●".green().bold()
-        } else {
-            match item.confidence {
-                Confidence::Confirmed => "●".green().bold(),
-                Confidence::High => "◉".bright_green(),
-                Confidence::Medium => "○".yellow(),
-                Confidence::Low => "◌".red(),
-            }
-        }
-    }
-
     fn print_item(&self, item: &DeadCode) {
-        let severity_str = match item.severity {
-            Severity::Error => "error".red().bold(),
-            Severity::Warning => "warning".yellow().bold(),
-            Severity::Info => "info".blue().bold(),
-        };
+        let severity_symbol = SeveritySymbol::colored(&item.severity);
 
         let location = format!(
-            "{}:{}",
+            "{:>5}:{:<3}",
             item.declaration.location.line, item.declaration.location.column
         );
 
-        // Build confidence badge
-        let confidence_badge = if self.show_confidence {
-            format!("{} ", self.confidence_indicator(item))
+        // Build confidence indicator
+        let confidence_indicator = if self.show_confidence {
+            format!(
+                "{} ",
+                ConfidenceIndicator::for_level(&item.confidence, item.runtime_confirmed)
+            )
         } else {
             String::new()
         };
@@ -134,12 +126,15 @@ impl TerminalReporter {
             String::new()
         };
 
+        // Issue code
+        let issue_code = StructureColors::rule_code(item.issue.code());
+
         println!(
             "  {}{} {} [{}] {}{}",
-            confidence_badge,
-            location.dimmed(),
-            severity_str,
-            item.issue.code().dimmed(),
+            confidence_indicator,
+            StructureColors::location(&location),
+            severity_symbol,
+            issue_code,
             item.message,
             runtime_badge
         );
@@ -149,7 +144,7 @@ impl TerminalReporter {
             "    {} {} '{}'",
             "→".dimmed(),
             item.declaration.kind.display_name().dimmed(),
-            item.declaration.name.white()
+            StructureColors::symbol_name(&item.declaration.name)
         );
     }
 
@@ -183,7 +178,7 @@ impl TerminalReporter {
             }
         }
 
-        println!("{}", "─".repeat(60).dimmed());
+        println!("{}", BoxChars::heavy_line(60).dimmed());
 
         // Severity summary
         let mut severity_parts = Vec::new();
@@ -202,33 +197,52 @@ impl TerminalReporter {
         if self.show_confidence {
             println!();
             println!("{}", "By Confidence:".dimmed());
+
+            let total = dead_code.len() as f64;
+
             if confirmed > 0 || runtime_confirmed_count > 0 {
+                let pct = (confirmed as f64 / total) * 100.0;
+                let bar = ChartChars::bar(pct, 15);
                 println!(
-                    "  {} {} ({} runtime-confirmed)",
-                    "●".green().bold(),
-                    format!("{} confirmed", confirmed).green(),
+                    "  {} {} {:>5} │{}│ ({} runtime)",
+                    "✓".green().bold(),
+                    "confirmed".green(),
+                    confirmed,
+                    bar.green(),
                     runtime_confirmed_count
                 );
             }
             if high > 0 {
+                let pct = (high as f64 / total) * 100.0;
+                let bar = ChartChars::bar(pct, 15);
                 println!(
-                    "  {} {}",
-                    "◉".bright_green(),
-                    format!("{} high confidence", high).bright_green()
+                    "  {} {} {:>5} │{}│",
+                    "!".yellow().bold(),
+                    "high     ".yellow(),
+                    high,
+                    bar.yellow()
                 );
             }
             if medium > 0 {
+                let pct = (medium as f64 / total) * 100.0;
+                let bar = ChartChars::bar(pct, 15);
                 println!(
-                    "  {} {}",
-                    "○".yellow(),
-                    format!("{} medium confidence", medium).yellow()
+                    "  {} {} {:>5} │{}│",
+                    "?".dimmed(),
+                    "medium   ".dimmed(),
+                    medium,
+                    bar.dimmed()
                 );
             }
             if low > 0 {
+                let pct = (low as f64 / total) * 100.0;
+                let bar = ChartChars::bar(pct, 15);
                 println!(
-                    "  {} {}",
-                    "◌".red(),
-                    format!("{} low confidence", low).red()
+                    "  {} {} {:>5} │{}│",
+                    "~".dimmed(),
+                    "low      ".dimmed(),
+                    low,
+                    bar.dimmed()
                 );
             }
         }

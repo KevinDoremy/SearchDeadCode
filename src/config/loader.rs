@@ -135,6 +135,11 @@ impl Default for Config {
                 "**/generated/**".to_string(),
                 "**/.gradle/**".to_string(),
                 "**/.idea/**".to_string(),
+                // Design system files - colors/themes are intentionally defined for availability
+                "**/theme/Color.kt".to_string(),
+                "**/theme/Theme.kt".to_string(),
+                "**/ui/theme/Color.kt".to_string(),
+                "**/ui/theme/Theme.kt".to_string(),
             ],
             retain_patterns: vec![],
             entry_points: vec![],

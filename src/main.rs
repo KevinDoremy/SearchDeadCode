@@ -115,7 +115,7 @@ struct Cli {
     coverage: Vec<PathBuf>,
 
     /// Minimum confidence level to report (low, medium, high, confirmed)
-    #[arg(long, default_value = "low")]
+    #[arg(long, default_value = "medium")]
     min_confidence: String,
 
     /// Only show findings confirmed by runtime coverage
@@ -145,8 +145,8 @@ struct Cli {
     #[arg(long, value_name = "PREFIX")]
     report_package: Option<String>,
 
-    /// Enable parallel processing for faster analysis
-    #[arg(long)]
+    /// Enable parallel processing for faster analysis (enabled by default)
+    #[arg(long, default_value = "true", action = clap::ArgAction::Set)]
     parallel: bool,
 
     /// Enable enhanced detection mode with ProGuard cross-validation
@@ -233,9 +233,9 @@ struct Cli {
     #[arg(long)]
     compose_patterns: bool,
 
-    /// Enable incremental analysis with caching
+    /// Enable incremental analysis with caching (enabled by default)
     /// Skips re-parsing unchanged files for faster subsequent runs
-    #[arg(long)]
+    #[arg(long, default_value = "true", action = clap::ArgAction::Set)]
     incremental: bool,
 
     /// Clear the analysis cache before running
@@ -270,23 +270,63 @@ struct Cli {
     /// Generate shell completions
     #[arg(long, value_name = "SHELL")]
     completions: Option<Shell>,
+
+    /// Summary output - show statistics and top issues only
+    #[arg(long)]
+    summary: bool,
+
+    /// Compact output - one line per issue
+    #[arg(long)]
+    compact: bool,
+
+    /// Group results by: rule, category, severity, file
+    #[arg(long, value_name = "MODE")]
+    group_by: Option<String>,
+
+    /// Expand all collapsed groups (show every issue)
+    #[arg(long)]
+    expand: bool,
+
+    /// Expand a specific rule's issues (e.g., --expand-rule AP017)
+    #[arg(long, value_name = "RULE")]
+    expand_rule: Option<String>,
+
+    /// Number of top issues to show in summary mode
+    #[arg(long, default_value = "10")]
+    top: usize,
 }
 
 #[derive(clap::ValueEnum, Clone, Debug, Default)]
 enum OutputFormat {
     #[default]
     Terminal,
+    Compact,
     Json,
     Sarif,
 }
 
-impl From<OutputFormat> for report::ReportFormat {
-    fn from(format: OutputFormat) -> Self {
-        match format {
-            OutputFormat::Terminal => report::ReportFormat::Terminal,
-            OutputFormat::Json => report::ReportFormat::Json,
-            OutputFormat::Sarif => report::ReportFormat::Sarif,
-        }
+/// Determine the report format from CLI options
+fn determine_report_format(cli: &Cli) -> report::ReportFormat {
+    // Explicit format flags take precedence
+    if cli.summary {
+        return report::ReportFormat::Summary;
+    }
+
+    if cli.compact {
+        return report::ReportFormat::Compact;
+    }
+
+    if let Some(group_by) = &cli.group_by {
+        let mode = group_by.parse::<report::GroupBy>().unwrap_or(report::GroupBy::Rule);
+        return report::ReportFormat::Grouped(mode);
+    }
+
+    // Fall back to --format option
+    match cli.format {
+        OutputFormat::Terminal => report::ReportFormat::Terminal,
+        OutputFormat::Compact => report::ReportFormat::Compact,
+        OutputFormat::Json => report::ReportFormat::Json,
+        OutputFormat::Sarif => report::ReportFormat::Sarif,
     }
 }
 
@@ -515,7 +555,13 @@ fn run_analysis_internal(
     }
 
     // Report results
-    let reporter = Reporter::new(format.into(), output);
+    let report_format = match format {
+        OutputFormat::Terminal => report::ReportFormat::Terminal,
+        OutputFormat::Compact => report::ReportFormat::Compact,
+        OutputFormat::Json => report::ReportFormat::Json,
+        OutputFormat::Sarif => report::ReportFormat::Sarif,
+    };
+    let reporter = Reporter::new(report_format, output);
     reporter.report(&dead_code)?;
 
     // Print timing
@@ -1227,7 +1273,17 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     };
 
     // Step 14: Report results
-    let reporter = Reporter::new(cli.format.clone().into(), cli.output.clone());
+    let report_format = determine_report_format(cli);
+    let mut report_options = report::ReportOptions::new();
+    report_options.output_path = cli.output.clone();
+    report_options.base_path = Some(cli.path.clone());
+    report_options.expand_all = cli.expand;
+    report_options.expand_rule = cli.expand_rule.clone();
+    report_options.top_n = cli.top;
+    report_options.files_count = Some(files.len());
+    report_options.declarations_count = Some(graph.declarations().count());
+
+    let reporter = Reporter::with_options(report_format, report_options);
     reporter.report(&dead_code)?;
 
     // Print timing
