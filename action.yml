@@ -98,7 +98,7 @@ runs:
 
     - name: Cache SearchDeadCode binary
       id: cache
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: ~/.searchdeadcode/bin
         key: searchdeadcode-${{ steps.version.outputs.version }}-${{ steps.detect.outputs.target }}
