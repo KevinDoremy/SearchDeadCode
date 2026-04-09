@@ -404,14 +404,14 @@ impl<'a> EntryPointDetector<'a> {
         if let Some(class) = class_decl {
             // Find the method as a child of this class
             let children = graph.get_children(&class.id);
-            for child in children {
+            for child in &children {
                 if let Some(child_decl) = graph.get_declaration(child) {
                     if child_decl.name == method_name {
                         debug!(
                             "Data binding entry point: {}.{} (method)",
                             class.name, method_name
                         );
-                        entry_points.insert(child.clone());
+                        entry_points.insert((*child).clone());
                         return;
                     }
                 }
