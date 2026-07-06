@@ -247,7 +247,7 @@ Good first issues: add new annotation patterns to `entry_points.rs`, improve XML
 
 ## Companion tools
 
-- [kotlin-jump](https://github.com/elumine-dev/kotlin-jump) — VS Code Kotlin/Java navigation, no JVM (4.6k+ installs).
+- [kotlin-jump](https://github.com/elumine-dev/kotlin-jump) — VS Code Kotlin/Java navigation, no JVM (9,639 installs).
 - [detekt-lsp](https://github.com/elumine-dev/detekt-lsp) — Live Detekt diagnostics for any LSP editor (pre-alpha).
 - SearchDeadCode — this project.
 
