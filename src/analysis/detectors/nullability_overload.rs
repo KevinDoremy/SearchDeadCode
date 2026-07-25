@@ -51,7 +51,10 @@ impl NullabilityOverloadDetector {
 
     /// Check if method is large enough to potentially have null handling issues
     fn is_suspicious_size(decl: &crate::graph::Declaration, min_bytes: usize) -> bool {
-        let byte_size = decl.location.end_byte.saturating_sub(decl.location.start_byte);
+        let byte_size = decl
+            .location
+            .end_byte
+            .saturating_sub(decl.location.start_byte);
         byte_size > min_bytes
     }
 }

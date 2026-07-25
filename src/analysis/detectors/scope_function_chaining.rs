@@ -115,7 +115,10 @@ impl Detector for ScopeFunctionChainingDetector {
 
         // Check methods for scope function chaining patterns in their names
         for decl in graph.declarations() {
-            if !matches!(decl.kind, DeclarationKind::Method | DeclarationKind::Function) {
+            if !matches!(
+                decl.kind,
+                DeclarationKind::Method | DeclarationKind::Function
+            ) {
                 continue;
             }
 

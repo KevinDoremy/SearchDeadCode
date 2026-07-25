@@ -94,7 +94,10 @@ impl Detector for GlobalScopeUsageDetector {
             }
 
             // Check method names for GlobalScope usage patterns
-            if matches!(decl.kind, DeclarationKind::Method | DeclarationKind::Function) {
+            if matches!(
+                decl.kind,
+                DeclarationKind::Method | DeclarationKind::Function
+            ) {
                 if Self::indicates_globalscope(&decl.name) {
                     let mut dead = DeadCode::new(decl.clone(), DeadCodeIssue::GlobalScopeUsage);
                     dead = dead.with_message(format!(
@@ -130,16 +133,18 @@ impl Detector for GlobalScopeUsageDetector {
             }
 
             // Check properties/fields for GlobalScope references
-            if matches!(decl.kind, DeclarationKind::Property | DeclarationKind::Field) {
-                if Self::indicates_globalscope(&decl.name) {
-                    let mut dead = DeadCode::new(decl.clone(), DeadCodeIssue::GlobalScopeUsage);
-                    dead = dead.with_message(format!(
-                        "Property '{}' references GlobalScope. Consider using a lifecycle-aware scope.",
-                        decl.name
-                    ));
-                    dead = dead.with_confidence(Confidence::Medium);
-                    issues.push(dead);
-                }
+            if matches!(
+                decl.kind,
+                DeclarationKind::Property | DeclarationKind::Field
+            ) && Self::indicates_globalscope(&decl.name)
+            {
+                let mut dead = DeadCode::new(decl.clone(), DeadCodeIssue::GlobalScopeUsage);
+                dead = dead.with_message(format!(
+                    "Property '{}' references GlobalScope. Consider using a lifecycle-aware scope.",
+                    decl.name
+                ));
+                dead = dead.with_confidence(Confidence::Medium);
+                issues.push(dead);
             }
         }
 
@@ -222,7 +227,7 @@ mod tests {
             "runBlocking"
         ));
         assert!(GlobalScopeUsageDetector::indicates_runblocking(
-            "userunBlocking"  // lowercase 'r' in runBlocking
+            "userunBlocking" // lowercase 'r' in runBlocking
         ));
         assert!(!GlobalScopeUsageDetector::indicates_runblocking("launch"));
     }
@@ -294,7 +299,12 @@ mod tests {
     fn test_clean_code_no_issues() {
         let mut graph = Graph::new();
         graph.add_declaration(create_method("loadData", "main.kt", 1));
-        graph.add_declaration(create_class("UserViewModel", "main.kt", 5, vec!["ViewModel"]));
+        graph.add_declaration(create_class(
+            "UserViewModel",
+            "main.kt",
+            5,
+            vec!["ViewModel"],
+        ));
 
         let detector = GlobalScopeUsageDetector::new();
         let issues = detector.detect(&graph);

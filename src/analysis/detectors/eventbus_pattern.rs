@@ -43,13 +43,10 @@ pub struct EventBusPatternDetector {
 impl EventBusPatternDetector {
     pub fn new() -> Self {
         Self {
-            eventbus_annotations: vec![
-                "Subscribe".to_string(),
-                "Subscriber".to_string(),
-            ],
+            eventbus_annotations: vec!["Subscribe".to_string(), "Subscriber".to_string()],
             eventbus_patterns: vec![
                 "EventBus".to_string(),
-                "Event".to_string(),  // Classes ending in Event
+                "Event".to_string(), // Classes ending in Event
                 "RxBus".to_string(),
                 "MessageBus".to_string(),
             ],

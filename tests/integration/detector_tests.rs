@@ -704,7 +704,10 @@ mod single_impl_interface_tests {
         let detector = SingleImplInterfaceDetector::new();
         let issues = detector.detect(&graph);
 
-        println!("Single implementation interface issues found: {}", issues.len());
+        println!(
+            "Single implementation interface issues found: {}",
+            issues.len()
+        );
         for issue in &issues {
             println!("  - {}: {}", issue.declaration.name, issue.message);
         }

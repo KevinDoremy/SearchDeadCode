@@ -121,7 +121,10 @@ impl Detector for CollectionWithoutSequenceDetector {
             // This is a heuristic since we don't have access to method bodies
             if name_suggests || has_annotations {
                 // Check method size - larger methods are more likely to have chains
-                let byte_size = decl.location.end_byte.saturating_sub(decl.location.start_byte);
+                let byte_size = decl
+                    .location
+                    .end_byte
+                    .saturating_sub(decl.location.start_byte);
                 let estimated_lines = byte_size / 40;
 
                 // Only flag if method is substantial enough to have multiple operations

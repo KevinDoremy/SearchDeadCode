@@ -59,9 +59,7 @@ impl UnclosedResourceDetector {
     /// Check if method name suggests resource handling
     fn handles_resources(&self, name: &str) -> bool {
         let lower = name.to_lowercase();
-        self.resource_keywords
-            .iter()
-            .any(|&kw| lower.contains(kw))
+        self.resource_keywords.iter().any(|&kw| lower.contains(kw))
             || lower.contains("read")
             || lower.contains("write")
             || lower.contains("open")
@@ -70,7 +68,10 @@ impl UnclosedResourceDetector {
 
     /// Check if method is large enough to potentially have resource issues
     fn is_large_method(decl: &crate::graph::Declaration) -> bool {
-        let byte_size = decl.location.end_byte.saturating_sub(decl.location.start_byte);
+        let byte_size = decl
+            .location
+            .end_byte
+            .saturating_sub(decl.location.start_byte);
         byte_size > 150 // ~4 lines minimum
     }
 }

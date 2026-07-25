@@ -99,7 +99,10 @@ impl Detector for NavControllerPassingDetector {
 
         for decl in graph.declarations() {
             // Only check functions
-            if !matches!(decl.kind, DeclarationKind::Function | DeclarationKind::Method) {
+            if !matches!(
+                decl.kind,
+                DeclarationKind::Function | DeclarationKind::Method
+            ) {
                 continue;
             }
 

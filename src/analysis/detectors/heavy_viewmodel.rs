@@ -104,8 +104,10 @@ impl Detector for HeavyViewModelDetector {
         let mut issues: Vec<DeadCode> = Vec::new();
 
         // Group declarations by parent to count methods per ViewModel
-        let mut viewmodel_children: HashMap<&crate::graph::DeclarationId, Vec<&crate::graph::Declaration>> =
-            HashMap::new();
+        let mut viewmodel_children: HashMap<
+            &crate::graph::DeclarationId,
+            Vec<&crate::graph::Declaration>,
+        > = HashMap::new();
 
         // First pass: identify ViewModels and collect their children
         let viewmodels: Vec<_> = graph
@@ -116,16 +118,16 @@ impl Detector for HeavyViewModelDetector {
         // Second pass: group children by parent
         for decl in graph.declarations() {
             if let Some(ref parent_id) = decl.parent {
-                viewmodel_children
-                    .entry(parent_id)
-                    .or_default()
-                    .push(decl);
+                viewmodel_children.entry(parent_id).or_default().push(decl);
             }
         }
 
         // Analyze each ViewModel
         for vm in &viewmodels {
-            let children = viewmodel_children.get(&vm.id).map(|v| v.as_slice()).unwrap_or(&[]);
+            let children = viewmodel_children
+                .get(&vm.id)
+                .map(|v| v.as_slice())
+                .unwrap_or(&[]);
 
             // Count constructor parameters
             let param_count = children
@@ -143,8 +145,10 @@ impl Detector for HeavyViewModelDetector {
             let direct_data_deps: Vec<_> = children
                 .iter()
                 .filter(|c| {
-                    matches!(c.kind, DeclarationKind::Parameter | DeclarationKind::Property)
-                        && self.is_direct_data_access(&c.name)
+                    matches!(
+                        c.kind,
+                        DeclarationKind::Parameter | DeclarationKind::Property
+                    ) && self.is_direct_data_access(&c.name)
                 })
                 .map(|c| c.name.as_str())
                 .collect();
@@ -359,7 +363,11 @@ mod tests {
         graph.add_declaration(svc);
 
         for i in 0..10 {
-            graph.add_declaration(create_parameter(&format!("dep{}", i), svc_id.clone(), 2 + i));
+            graph.add_declaration(create_parameter(
+                &format!("dep{}", i),
+                svc_id.clone(),
+                2 + i,
+            ));
         }
 
         let detector = HeavyViewModelDetector::new();

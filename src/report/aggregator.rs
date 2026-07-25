@@ -66,12 +66,12 @@ impl Aggregator {
 
         // Convert to IssueGroups
         let mut by_rule: Vec<IssueGroup> = rule_map
-            .into_iter()
-            .map(|(_code, items)| {
+            .into_values()
+            .map(|items| {
                 let first = items.first().unwrap();
                 IssueGroup {
-                    issue: first.issue.clone(),
-                    severity: first.severity.clone(),
+                    issue: first.issue,
+                    severity: first.severity,
                     description: Self::group_description(&first.issue),
                     items,
                 }
@@ -79,7 +79,7 @@ impl Aggregator {
             .collect();
 
         // Sort by count descending
-        by_rule.sort_by(|a, b| b.count().cmp(&a.count()));
+        by_rule.sort_by_key(|rule| std::cmp::Reverse(rule.count()));
 
         // Group by category
         let by_category = self.group_by_category(&by_rule);
@@ -134,7 +134,9 @@ impl Aggregator {
             DeadCodeIssue::MemoryLeakRisk => "Memory leak risks".to_string(),
             DeadCodeIssue::LongMethod => "Long methods".to_string(),
             DeadCodeIssue::LargeClass => "Large classes".to_string(),
-            DeadCodeIssue::CollectionWithoutSequence => "Collections without asSequence()".to_string(),
+            DeadCodeIssue::CollectionWithoutSequence => {
+                "Collections without asSequence()".to_string()
+            }
             DeadCodeIssue::ObjectAllocationInLoop => "Object allocation in loops".to_string(),
 
             // Android patterns
@@ -256,8 +258,10 @@ impl ResultStats {
     pub fn from_dead_code(dead_code: &[DeadCode]) -> Self {
         use crate::analysis::{Confidence, Severity};
 
-        let mut stats = Self::default();
-        stats.total_issues = dead_code.len();
+        let mut stats = Self {
+            total_issues: dead_code.len(),
+            ..Self::default()
+        };
 
         let mut files = std::collections::HashSet::new();
 

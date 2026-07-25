@@ -217,7 +217,10 @@ impl Detector for ViewLogicInViewModelDetector {
 
         // Check properties in ViewModels
         for decl in graph.declarations() {
-            if !matches!(decl.kind, DeclarationKind::Property | DeclarationKind::Field) {
+            if !matches!(
+                decl.kind,
+                DeclarationKind::Property | DeclarationKind::Field
+            ) {
                 continue;
             }
 
@@ -241,8 +244,7 @@ impl Detector for ViewLogicInViewModelDetector {
 
                 // Check if the type is a forbidden View/Context type
                 if self.is_forbidden_type(type_name) {
-                    let mut dead =
-                        DeadCode::new(decl.clone(), DeadCodeIssue::ViewLogicInViewModel);
+                    let mut dead = DeadCode::new(decl.clone(), DeadCodeIssue::ViewLogicInViewModel);
                     dead = dead.with_message(format!(
                         "Property '{}' of type '{}' in ViewModel holds View/Context reference. This causes memory leaks and violates MVVM.",
                         decl.name, type_name
@@ -266,8 +268,7 @@ impl Detector for ViewLogicInViewModelDetector {
                 });
 
                 if is_exact_match {
-                    let mut dead =
-                        DeadCode::new(decl.clone(), DeadCodeIssue::ViewLogicInViewModel);
+                    let mut dead = DeadCode::new(decl.clone(), DeadCodeIssue::ViewLogicInViewModel);
                     dead = dead.with_message(format!(
                         "Property '{}' in ViewModel may hold View/Context reference. This causes memory leaks and violates MVVM.",
                         decl.name
@@ -376,7 +377,12 @@ mod tests {
         let vm = create_viewmodel("UserViewModel", 1);
         let vm_id = vm.id.clone();
         graph.add_declaration(vm);
-        graph.add_declaration(create_property_with_type("myTextView", "TextView", vm_id, 2));
+        graph.add_declaration(create_property_with_type(
+            "myTextView",
+            "TextView",
+            vm_id,
+            2,
+        ));
 
         let detector = ViewLogicInViewModelDetector::new();
         let issues = detector.detect(&graph);

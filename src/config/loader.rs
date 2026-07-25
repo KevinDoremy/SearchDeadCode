@@ -81,6 +81,7 @@ pub struct DetectionConfig {
 /// Configuration for anti-pattern detectors
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[derive(Default)]
 pub struct AntiPatternConfig {
     /// Enable all anti-pattern detectors
     pub enabled: bool,
@@ -173,19 +174,6 @@ impl Default for DetectionConfig {
             dead_branch: true,
             redundant_public: true,
             anti_patterns: AntiPatternConfig::default(),
-        }
-    }
-}
-
-impl Default for AntiPatternConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            architecture: false,
-            kotlin: false,
-            performance: false,
-            android: false,
-            compose: false,
         }
     }
 }

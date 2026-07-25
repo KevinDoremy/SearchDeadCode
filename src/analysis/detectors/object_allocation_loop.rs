@@ -68,12 +68,15 @@ impl ObjectAllocationInLoopDetector {
 
     /// Check if method is a hot path (called frequently)
     fn is_hot_method(&self, name: &str) -> bool {
-        self.hot_methods.iter().any(|&hot| name == hot)
+        self.hot_methods.contains(&name)
     }
 
     /// Check if method likely contains loops based on size
     fn likely_has_loops(&self, decl: &crate::graph::Declaration) -> bool {
-        let byte_size = decl.location.end_byte.saturating_sub(decl.location.start_byte);
+        let byte_size = decl
+            .location
+            .end_byte
+            .saturating_sub(decl.location.start_byte);
         // Larger methods are more likely to contain loops
         byte_size > 400 // ~10 lines
     }
@@ -111,7 +114,10 @@ impl Detector for ObjectAllocationInLoopDetector {
                 continue;
             }
 
-            let byte_size = decl.location.end_byte.saturating_sub(decl.location.start_byte);
+            let byte_size = decl
+                .location
+                .end_byte
+                .saturating_sub(decl.location.start_byte);
 
             // Skip methods that are too small to have allocations
             if byte_size < self.min_method_bytes {

@@ -76,7 +76,10 @@ impl Detector for ComplexConditionDetector {
             }
 
             // Check method size
-            let byte_size = decl.location.end_byte.saturating_sub(decl.location.start_byte);
+            let byte_size = decl
+                .location
+                .end_byte
+                .saturating_sub(decl.location.start_byte);
             if byte_size < self.min_method_bytes {
                 continue;
             }

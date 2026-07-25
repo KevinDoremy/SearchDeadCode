@@ -527,17 +527,27 @@ impl DeepAnalyzer {
             }
 
             // Skip declarations with @VisibleForTesting
-            if decl.annotations.iter().any(|a| a.contains("VisibleForTesting")) {
+            if decl
+                .annotations
+                .iter()
+                .any(|a| a.contains("VisibleForTesting"))
+            {
                 continue;
             }
 
             // Skip test methods and test rules (called by test framework)
             let is_test = decl.annotations.iter().any(|a| {
-                a.contains("Test") || a.contains("Before") || a.contains("After")
-                || a.contains("BeforeEach") || a.contains("AfterEach")
-                || a.contains("BeforeAll") || a.contains("AfterAll")
-                || a.contains("ParameterizedTest") || a.contains("RepeatedTest")
-                || a.contains("Rule") || a.contains("ClassRule")
+                a.contains("Test")
+                    || a.contains("Before")
+                    || a.contains("After")
+                    || a.contains("BeforeEach")
+                    || a.contains("AfterEach")
+                    || a.contains("BeforeAll")
+                    || a.contains("AfterAll")
+                    || a.contains("ParameterizedTest")
+                    || a.contains("RepeatedTest")
+                    || a.contains("Rule")
+                    || a.contains("ClassRule")
             });
             if is_test {
                 continue;
@@ -808,24 +818,33 @@ impl DeepAnalyzer {
         // Skip declarations with @Suppress("unused") or @Suppress("UnusedPrivateMember")
         // Developer explicitly acknowledges the code is unused but wants to keep it
         if decl.annotations.iter().any(|a| {
-            a.contains("Suppress")
-                && (a.contains("unused") || a.contains("UnusedPrivateMember"))
+            a.contains("Suppress") && (a.contains("unused") || a.contains("UnusedPrivateMember"))
         }) {
             return true;
         }
 
         // Skip declarations with @VisibleForTesting - they are public only for testing
-        if decl.annotations.iter().any(|a| a.contains("VisibleForTesting")) {
+        if decl
+            .annotations
+            .iter()
+            .any(|a| a.contains("VisibleForTesting"))
+        {
             return true;
         }
 
         // Skip test methods and test rules (called by test framework)
         if decl.annotations.iter().any(|a| {
-            a.contains("Test") || a.contains("Before") || a.contains("After")
-            || a.contains("BeforeEach") || a.contains("AfterEach")
-            || a.contains("BeforeAll") || a.contains("AfterAll")
-            || a.contains("ParameterizedTest") || a.contains("RepeatedTest")
-            || a.contains("Rule") || a.contains("ClassRule")
+            a.contains("Test")
+                || a.contains("Before")
+                || a.contains("After")
+                || a.contains("BeforeEach")
+                || a.contains("AfterEach")
+                || a.contains("BeforeAll")
+                || a.contains("AfterAll")
+                || a.contains("ParameterizedTest")
+                || a.contains("RepeatedTest")
+                || a.contains("Rule")
+                || a.contains("ClassRule")
         }) {
             return true;
         }

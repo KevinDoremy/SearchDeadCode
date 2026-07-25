@@ -11,7 +11,7 @@
 [![CI](https://github.com/KevinDoremy/SearchDeadCode/actions/workflows/ci.yml/badge.svg?style=flat-square)](https://github.com/KevinDoremy/SearchDeadCode/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/searchdeadcode.svg?style=flat-square)](https://crates.io/crates/searchdeadcode)
 [![Downloads](https://img.shields.io/crates/d/searchdeadcode.svg?style=flat-square)](https://crates.io/crates/searchdeadcode)
-[![MSRV](https://img.shields.io/badge/MSRV-1.70-blue.svg?style=flat-square)](https://blog.rust-lang.org/2023/06/01/Rust-1.70.0.html)
+[![MSRV](https://img.shields.io/badge/MSRV-1.80-blue.svg?style=flat-square)](https://blog.rust-lang.org/2024/07/25/Rust-1.80.0.html)
 [![Homebrew](https://img.shields.io/badge/Homebrew-available-FBB040?logo=homebrew&logoColor=white&style=flat-square)](https://github.com/KevinDoremy/homebrew-tap)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 

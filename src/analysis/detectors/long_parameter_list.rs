@@ -195,7 +195,11 @@ mod tests {
 
         // Add 8 parameters
         for i in 0..8 {
-            graph.add_declaration(create_parameter(&format!("param{}", i), func_id.clone(), 2 + i));
+            graph.add_declaration(create_parameter(
+                &format!("param{}", i),
+                func_id.clone(),
+                2 + i,
+            ));
         }
 
         let detector = LongParameterListDetector::new();
@@ -214,7 +218,11 @@ mod tests {
 
         // Add 3 parameters
         for i in 0..3 {
-            graph.add_declaration(create_parameter(&format!("param{}", i), func_id.clone(), 2 + i));
+            graph.add_declaration(create_parameter(
+                &format!("param{}", i),
+                func_id.clone(),
+                2 + i,
+            ));
         }
 
         let detector = LongParameterListDetector::new();
@@ -233,7 +241,11 @@ mod tests {
 
         // Add 8 parameters
         for i in 0..8 {
-            graph.add_declaration(create_parameter(&format!("dep{}", i), func_id.clone(), 2 + i));
+            graph.add_declaration(create_parameter(
+                &format!("dep{}", i),
+                func_id.clone(),
+                2 + i,
+            ));
         }
 
         let detector = LongParameterListDetector::new();

@@ -241,7 +241,11 @@ mod tests {
         let mut graph = Graph::new();
         graph.add_declaration(create_interface("PaymentProcessor", 1));
         graph.add_declaration(create_class("StripeProcessor", 5, vec!["PaymentProcessor"]));
-        graph.add_declaration(create_class("PayPalProcessor", 10, vec!["PaymentProcessor"]));
+        graph.add_declaration(create_class(
+            "PayPalProcessor",
+            10,
+            vec!["PaymentProcessor"],
+        ));
 
         let detector = SingleImplInterfaceDetector::new();
         let issues = detector.detect(&graph);

@@ -155,11 +155,9 @@ impl JacocoParser {
                                     // just counts - actual line info comes from sourcefile
                                     let _ = &current_file_coverage;
                                 }
-                                "CLASS" => {
-                                    if covered > 0 {
-                                        coverage_data.covered_classes.insert(current_class.clone());
-                                        coverage_data.uncovered_classes.remove(&current_class);
-                                    }
+                                "CLASS" if covered > 0 => {
+                                    coverage_data.covered_classes.insert(current_class.clone());
+                                    coverage_data.uncovered_classes.remove(&current_class);
                                 }
                                 _ => {}
                             }

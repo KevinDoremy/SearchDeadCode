@@ -71,7 +71,11 @@ impl GlobalMutableStateDetector {
         }
 
         // Skip properties with @VisibleForTesting - they are public only for testing
-        if decl.annotations.iter().any(|a| a.contains("VisibleForTesting")) {
+        if decl
+            .annotations
+            .iter()
+            .any(|a| a.contains("VisibleForTesting"))
+        {
             return false;
         }
 
@@ -164,7 +168,12 @@ mod tests {
         )
     }
 
-    fn create_property(name: &str, line: usize, visibility: Visibility, modifiers: Vec<&str>) -> Declaration {
+    fn create_property(
+        name: &str,
+        line: usize,
+        visibility: Visibility,
+        modifiers: Vec<&str>,
+    ) -> Declaration {
         let path = PathBuf::from("test.kt");
         let mut decl = Declaration::new(
             DeclarationId::new(path.clone(), line * 100, line * 100 + 30),
@@ -213,8 +222,12 @@ mod tests {
         assert!(!detector.is_public_mutable_var(&const_val));
 
         // Public var with private setter (effectively read-only externally)
-        let private_set_var = create_property("readOnly", 5, Visibility::Public, vec!["private_set"]);
-        assert!(!detector.is_public_mutable_var(&private_set_var), "var with private set should not be flagged");
+        let private_set_var =
+            create_property("readOnly", 5, Visibility::Public, vec!["private_set"]);
+        assert!(
+            !detector.is_public_mutable_var(&private_set_var),
+            "var with private set should not be flagged"
+        );
     }
 
     #[test]
@@ -240,6 +253,9 @@ mod tests {
         let detector = GlobalMutableStateDetector::new();
         let issues = detector.detect(&graph);
 
-        assert!(issues.is_empty(), "Object with only vals should not be reported");
+        assert!(
+            issues.is_empty(),
+            "Object with only vals should not be reported"
+        );
     }
 }

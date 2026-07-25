@@ -228,10 +228,18 @@ mod tests {
         graph.add_declaration(cls);
 
         for i in 0..5 {
-            graph.add_declaration(create_method(&format!("method{}", i), cls_id.clone(), 2 + i));
+            graph.add_declaration(create_method(
+                &format!("method{}", i),
+                cls_id.clone(),
+                2 + i,
+            ));
         }
         for i in 0..5 {
-            graph.add_declaration(create_property(&format!("prop{}", i), cls_id.clone(), 10 + i));
+            graph.add_declaration(create_property(
+                &format!("prop{}", i),
+                cls_id.clone(),
+                10 + i,
+            ));
         }
 
         let detector = LargeClassDetector::new();
@@ -248,7 +256,11 @@ mod tests {
         graph.add_declaration(cls);
 
         for i in 0..35 {
-            graph.add_declaration(create_method(&format!("method{}", i), cls_id.clone(), 2 + i));
+            graph.add_declaration(create_method(
+                &format!("method{}", i),
+                cls_id.clone(),
+                2 + i,
+            ));
         }
 
         let detector = LargeClassDetector::new();
@@ -266,7 +278,11 @@ mod tests {
         graph.add_declaration(cls);
 
         for i in 0..25 {
-            graph.add_declaration(create_property(&format!("prop{}", i), cls_id.clone(), 2 + i));
+            graph.add_declaration(create_property(
+                &format!("prop{}", i),
+                cls_id.clone(),
+                2 + i,
+            ));
         }
 
         let detector = LargeClassDetector::new();
@@ -284,10 +300,18 @@ mod tests {
         graph.add_declaration(cls);
 
         for i in 0..35 {
-            graph.add_declaration(create_method(&format!("method{}", i), cls_id.clone(), 2 + i));
+            graph.add_declaration(create_method(
+                &format!("method{}", i),
+                cls_id.clone(),
+                2 + i,
+            ));
         }
         for i in 0..25 {
-            graph.add_declaration(create_property(&format!("prop{}", i), cls_id.clone(), 50 + i));
+            graph.add_declaration(create_property(
+                &format!("prop{}", i),
+                cls_id.clone(),
+                50 + i,
+            ));
         }
 
         let detector = LargeClassDetector::new();
@@ -306,7 +330,11 @@ mod tests {
         graph.add_declaration(cls);
 
         for i in 0..15 {
-            graph.add_declaration(create_method(&format!("method{}", i), cls_id.clone(), 2 + i));
+            graph.add_declaration(create_method(
+                &format!("method{}", i),
+                cls_id.clone(),
+                2 + i,
+            ));
         }
 
         // Default (30) should not flag
