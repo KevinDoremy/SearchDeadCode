@@ -660,7 +660,9 @@ impl JavaParser {
                             );
 
                             // Debug: log when we add the reference
-                            if name == "calculateEndTranslation" || name == "getZoomContainerDistanceFromRecyclerViewCenter" {
+                            if name == "calculateEndTranslation"
+                                || name == "getZoomContainerDistanceFromRecyclerViewCenter"
+                            {
                                 debug!("  -> Added as reference with kind {:?}", kind);
                             }
 
@@ -861,17 +863,25 @@ impl JavaParser {
             "variable_declarator" | "local_variable_declaration" => Some(ReferenceKind::Read),
 
             // Control flow statements - conditions and bodies
-            "if_statement" | "while_statement" | "do_statement" | "for_statement"
+            "if_statement"
+            | "while_statement"
+            | "do_statement"
+            | "for_statement"
             | "enhanced_for_statement" => Some(ReferenceKind::Read),
 
             // Switch statements
-            "switch_expression" | "switch_statement" | "switch_block" | "switch_label"
-            | "switch_rule" | "switch_block_statement_group" => Some(ReferenceKind::Read),
+            "switch_expression"
+            | "switch_statement"
+            | "switch_block"
+            | "switch_label"
+            | "switch_rule"
+            | "switch_block_statement_group" => Some(ReferenceKind::Read),
 
             // Exception handling
-            "throw_statement" | "catch_clause" | "try_statement" | "try_with_resources_statement" => {
-                Some(ReferenceKind::Read)
-            }
+            "throw_statement"
+            | "catch_clause"
+            | "try_statement"
+            | "try_with_resources_statement" => Some(ReferenceKind::Read),
 
             // Assert statement
             "assert_statement" => Some(ReferenceKind::Read),

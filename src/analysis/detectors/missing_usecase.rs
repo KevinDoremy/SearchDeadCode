@@ -41,7 +41,9 @@ pub struct MissingUseCaseDetector {
 
 impl MissingUseCaseDetector {
     pub fn new() -> Self {
-        Self { max_repositories: 2 }
+        Self {
+            max_repositories: 2,
+        }
     }
 
     /// Set maximum repositories before warning
@@ -101,7 +103,10 @@ impl Detector for MissingUseCaseDetector {
 
             for child_id in &children {
                 if let Some(child) = graph.get_declaration(child_id) {
-                    if matches!(child.kind, DeclarationKind::Property | DeclarationKind::Field) {
+                    if matches!(
+                        child.kind,
+                        DeclarationKind::Property | DeclarationKind::Field
+                    ) {
                         if Self::is_repository_property(&child.name) {
                             repo_count += 1;
                         }
@@ -204,8 +209,16 @@ mod tests {
         let vm = create_viewmodel("DashboardViewModel", 1);
         let vm_id = vm.id.clone();
         graph.add_declaration(vm);
-        graph.add_declaration(create_property_with_parent("userRepository", vm_id.clone(), 2));
-        graph.add_declaration(create_property_with_parent("orderRepository", vm_id.clone(), 3));
+        graph.add_declaration(create_property_with_parent(
+            "userRepository",
+            vm_id.clone(),
+            2,
+        ));
+        graph.add_declaration(create_property_with_parent(
+            "orderRepository",
+            vm_id.clone(),
+            3,
+        ));
         graph.add_declaration(create_property_with_parent(
             "productRepository",
             vm_id.clone(),
@@ -225,8 +238,16 @@ mod tests {
         let vm = create_viewmodel("DashboardViewModel", 1);
         let vm_id = vm.id.clone();
         graph.add_declaration(vm);
-        graph.add_declaration(create_property_with_parent("userRepository", vm_id.clone(), 2));
-        graph.add_declaration(create_property_with_parent("orderRepository", vm_id.clone(), 3));
+        graph.add_declaration(create_property_with_parent(
+            "userRepository",
+            vm_id.clone(),
+            2,
+        ));
+        graph.add_declaration(create_property_with_parent(
+            "orderRepository",
+            vm_id.clone(),
+            3,
+        ));
         graph.add_declaration(create_property_with_parent(
             "productRepository",
             vm_id.clone(),

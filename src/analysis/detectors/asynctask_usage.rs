@@ -41,9 +41,7 @@ impl AsyncTaskUsageDetector {
 
     /// Check if class extends AsyncTask
     fn extends_asynctask(decl: &crate::graph::Declaration) -> bool {
-        decl.super_types
-            .iter()
-            .any(|s| s.contains("AsyncTask"))
+        decl.super_types.iter().any(|s| s.contains("AsyncTask"))
     }
 
     /// Check if class name suggests AsyncTask

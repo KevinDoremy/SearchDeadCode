@@ -29,7 +29,10 @@ impl ConfidenceIndicator {
     }
 
     /// Get indicator for confidence level
-    pub fn for_level(confidence: &crate::analysis::Confidence, runtime_confirmed: bool) -> ColoredString {
+    pub fn for_level(
+        confidence: &crate::analysis::Confidence,
+        runtime_confirmed: bool,
+    ) -> ColoredString {
         if runtime_confirmed {
             return Self::confirmed();
         }

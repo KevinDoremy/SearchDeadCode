@@ -262,10 +262,7 @@ impl LayoutParser {
             if let (Some(var), Some(method)) = (cap.get(1), cap.get(2)) {
                 let var_name = var.as_str().to_string();
                 let method_name = method.as_str().to_string();
-                debug!(
-                    "Found lambda method call: {}.{}()",
-                    var_name, method_name
-                );
+                debug!("Found lambda method call: {}.{}()", var_name, method_name);
                 // Store with placeholder class - will be resolved later
                 result.method_references.insert(MethodReference {
                     class_fqn: format!("__var__{}", var_name),
@@ -599,9 +596,18 @@ mod tests {
 
         let result = parser.parse(Path::new("layout.xml"), layout).unwrap();
 
-        assert!(result.method_references.iter().any(|r| r.method_name == "onSaveClicked"));
-        assert!(result.method_references.iter().any(|r| r.method_name == "onCancelClicked"));
-        assert!(result.method_references.iter().any(|r| r.method_name == "onResetClicked"));
+        assert!(result
+            .method_references
+            .iter()
+            .any(|r| r.method_name == "onSaveClicked"));
+        assert!(result
+            .method_references
+            .iter()
+            .any(|r| r.method_name == "onCancelClicked"));
+        assert!(result
+            .method_references
+            .iter()
+            .any(|r| r.method_name == "onResetClicked"));
     }
 
     #[test]
@@ -637,7 +643,9 @@ mod tests {
     </androidx.constraintlayout.motion.widget.MotionLayout>
 </layout>"#;
 
-        let result = parser.parse(Path::new("activity_welcome.xml"), layout).unwrap();
+        let result = parser
+            .parse(Path::new("activity_welcome.xml"), layout)
+            .unwrap();
 
         // Check variable is extracted
         assert_eq!(
@@ -652,11 +660,15 @@ mod tests {
 
         // Check method references are extracted
         let connect_ref = MethodReference {
-            class_fqn: "ca.lapresse.android.lapresseplus.module.openingscenario.viewmodel.WelcomeViewModel".to_string(),
+            class_fqn:
+                "ca.lapresse.android.lapresseplus.module.openingscenario.viewmodel.WelcomeViewModel"
+                    .to_string(),
             method_name: "onConnectClicked".to_string(),
         };
         let not_now_ref = MethodReference {
-            class_fqn: "ca.lapresse.android.lapresseplus.module.openingscenario.viewmodel.WelcomeViewModel".to_string(),
+            class_fqn:
+                "ca.lapresse.android.lapresseplus.module.openingscenario.viewmodel.WelcomeViewModel"
+                    .to_string(),
             method_name: "onNotNowClicked".to_string(),
         };
 

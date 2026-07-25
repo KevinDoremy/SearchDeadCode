@@ -30,7 +30,10 @@ impl std::str::FromStr for GroupBy {
             "category" | "cat" => Ok(GroupBy::Category),
             "severity" | "sev" => Ok(GroupBy::Severity),
             "file" => Ok(GroupBy::File),
-            _ => Err(format!("Unknown grouping: {}. Use: rule, category, severity, file", s)),
+            _ => Err(format!(
+                "Unknown grouping: {}. Use: rule, category, severity, file",
+                s
+            )),
         }
     }
 }
@@ -192,7 +195,7 @@ impl GroupedReporter {
                     "  {}  {:>4}  {}",
                     StructureColors::rule_code(group.issue.code()),
                     group.count().to_string().dimmed(),
-                    &group.description
+                    group.description
                 );
             }
             println!();
@@ -207,7 +210,7 @@ impl GroupedReporter {
                     "  {}  {:>4}  {}",
                     StructureColors::rule_code(group.issue.code()),
                     group.count().to_string().dimmed(),
-                    &group.description
+                    group.description
                 );
             }
             println!();
@@ -222,7 +225,7 @@ impl GroupedReporter {
                     "  {}  {:>4}  {}",
                     StructureColors::rule_code(group.issue.code()),
                     group.count().to_string().dimmed(),
-                    &group.description
+                    group.description
                 );
             }
             println!();
@@ -287,7 +290,11 @@ impl GroupedReporter {
 
             let remaining = sorted.len().saturating_sub(show_count);
             if remaining > 0 {
-                println!("  {} ... and {} more", "".dimmed(), remaining.to_string().yellow());
+                println!(
+                    "  {} ... and {} more",
+                    "".dimmed(),
+                    remaining.to_string().yellow()
+                );
             }
 
             println!();
@@ -304,7 +311,7 @@ impl GroupedReporter {
             "{} {} - {} ({} issues)",
             severity_symbol,
             StructureColors::rule_code(rule),
-            &group.description,
+            group.description,
             StructureColors::count(&count.to_string())
         );
         println!("{}", BoxChars::light_line(50).dimmed());
@@ -351,7 +358,8 @@ impl GroupedReporter {
                 }
 
                 let loc = format!(":{}", item.declaration.location.line);
-                let confidence = ConfidenceIndicator::for_level(&item.confidence, item.runtime_confirmed);
+                let confidence =
+                    ConfidenceIndicator::for_level(&item.confidence, item.runtime_confirmed);
                 let name = StructureColors::symbol_name(&item.declaration.name);
 
                 println!("    {} {}  '{}'", loc.dimmed(), confidence, name);

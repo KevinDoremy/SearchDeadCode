@@ -73,7 +73,10 @@ impl EnhancedAnalyzer {
     ) -> HashSet<DeclarationId> {
         use std::collections::VecDeque;
 
-        info!("  → Starting BFS from {} entry points...", entry_points.len());
+        info!(
+            "  → Starting BFS from {} entry points...",
+            entry_points.len()
+        );
 
         let inner_graph = graph.inner();
         let mut reachable: HashSet<DeclarationId> = entry_points.clone();
@@ -84,7 +87,11 @@ impl EnhancedAnalyzer {
         while let Some(current_id) = queue.pop_front() {
             visited_count += 1;
             if visited_count % 10000 == 0 {
-                info!("    Visited {} nodes, queue size: {}", visited_count, queue.len());
+                info!(
+                    "    Visited {} nodes, queue size: {}",
+                    visited_count,
+                    queue.len()
+                );
             }
 
             if let Some(node_idx) = graph.node_index(&current_id) {
@@ -99,7 +106,10 @@ impl EnhancedAnalyzer {
             }
         }
 
-        info!("  → Found {} directly reachable declarations", reachable.len());
+        info!(
+            "  → Found {} directly reachable declarations",
+            reachable.len()
+        );
 
         // Mark ancestors as reachable
         info!("  → Marking ancestors...");
@@ -155,7 +165,10 @@ impl EnhancedAnalyzer {
         graph: &Graph,
         reachable: &HashSet<DeclarationId>,
     ) -> Vec<DeadCode> {
-        info!("  → Scanning {} declarations for dead code...", graph.declarations().count());
+        info!(
+            "  → Scanning {} declarations for dead code...",
+            graph.declarations().count()
+        );
         let declarations: Vec<_> = graph.declarations().collect();
 
         declarations

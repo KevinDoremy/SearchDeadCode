@@ -112,7 +112,7 @@ impl CycleDetector {
         }
 
         // Sort by size (largest first)
-        dead_cycles.sort_by(|a, b| b.size.cmp(&a.size));
+        dead_cycles.sort_by_key(|cycle| std::cmp::Reverse(cycle.size));
 
         dead_cycles
     }

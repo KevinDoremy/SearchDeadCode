@@ -94,7 +94,10 @@ impl Detector for MutableStateExposedDetector {
 
         for decl in graph.declarations() {
             // Only check properties
-            if !matches!(decl.kind, DeclarationKind::Property | DeclarationKind::Field) {
+            if !matches!(
+                decl.kind,
+                DeclarationKind::Property | DeclarationKind::Field
+            ) {
                 continue;
             }
 

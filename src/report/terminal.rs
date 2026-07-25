@@ -63,7 +63,10 @@ impl TerminalReporter {
             let items = &by_file[file];
 
             // File header
-            println!("{}", StructureColors::file_path(&file.display().to_string()));
+            println!(
+                "{}",
+                StructureColors::file_path(&file.display().to_string())
+            );
 
             // Sort items by line number
             let mut sorted_items: Vec<_> = items.iter().collect();
@@ -145,7 +148,6 @@ impl TerminalReporter {
             StructureColors::symbol_name(&item.declaration.name)
         );
     }
-
 }
 
 impl Default for TerminalReporter {

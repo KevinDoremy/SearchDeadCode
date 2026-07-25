@@ -73,7 +73,6 @@ impl ReportOptions {
             declarations_count: None,
         }
     }
-
 }
 
 /// Reporter for outputting dead code analysis results
@@ -101,16 +100,16 @@ impl Reporter {
     pub fn report(&self, dead_code: &[DeadCode]) -> Result<()> {
         match &self.format {
             ReportFormat::Terminal => {
-                let reporter = TerminalReporter::new()
-                    .with_confidence(self.options.show_confidence);
+                let reporter =
+                    TerminalReporter::new().with_confidence(self.options.show_confidence);
                 reporter.report(dead_code)?;
                 // Always show full summary at the end
                 self.print_final_summary(dead_code);
                 Ok(())
             }
             ReportFormat::Compact => {
-                let mut reporter = CompactReporter::new()
-                    .with_confidence(self.options.show_confidence);
+                let mut reporter =
+                    CompactReporter::new().with_confidence(self.options.show_confidence);
                 if let Some(base) = &self.options.base_path {
                     reporter = reporter.with_base_path(base.clone());
                 }
@@ -120,8 +119,8 @@ impl Reporter {
                 Ok(())
             }
             ReportFormat::Grouped(group_by) => {
-                let mut reporter = GroupedReporter::new(*group_by)
-                    .with_max_per_group(self.options.max_per_group);
+                let mut reporter =
+                    GroupedReporter::new(*group_by).with_max_per_group(self.options.max_per_group);
                 if let Some(base) = &self.options.base_path {
                     reporter = reporter.with_base_path(base.clone());
                 }
@@ -162,7 +161,7 @@ impl Reporter {
     fn print_final_summary(&self, dead_code: &[DeadCode]) {
         let mut reporter = SummaryReporter::new()
             .with_top_n(self.options.top_n)
-            .as_final_summary();
+            .into_final_summary();
         if let Some(files) = self.options.files_count {
             reporter = reporter.with_files_count(files);
         }

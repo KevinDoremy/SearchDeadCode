@@ -178,7 +178,6 @@ pub enum DeadCodeIssue {
     // ==========================================================================
     // Anti-Pattern Detectors (inspired by common Android code smells)
     // ==========================================================================
-
     /// Kotlin object with mutable public properties (global mutable state)
     GlobalMutableState,
 
@@ -212,7 +211,6 @@ pub enum DeadCodeIssue {
     // ==========================================================================
     // Phase 2: Performance & Memory Detectors
     // ==========================================================================
-
     /// Memory leak risk (static Context/Activity references)
     MemoryLeakRisk,
 
@@ -231,7 +229,6 @@ pub enum DeadCodeIssue {
     // ==========================================================================
     // Phase 3: Architecture & Design Detectors
     // ==========================================================================
-
     /// Public MutableLiveData/MutableStateFlow (encapsulation violation)
     MutableStateExposed,
 
@@ -250,7 +247,6 @@ pub enum DeadCodeIssue {
     // ==========================================================================
     // Phase 4: Kotlin-Specific Anti-Patterns
     // ==========================================================================
-
     /// Excessive force unwrap (!!) or redundant null checks
     NullabilityOverload,
 
@@ -269,7 +265,6 @@ pub enum DeadCodeIssue {
     // ==========================================================================
     // Phase 5: Android-Specific Code Smells
     // ==========================================================================
-
     /// Resource (Cursor, Stream) not properly closed
     UnclosedResource,
 
@@ -288,7 +283,6 @@ pub enum DeadCodeIssue {
     // ==========================================================================
     // Phase 6: Compose-Specific Detectors
     // ==========================================================================
-
     /// State without remember {} wrapper (resets on recomposition)
     StateWithoutRemember,
 

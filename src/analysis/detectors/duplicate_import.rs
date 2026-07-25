@@ -120,7 +120,7 @@ mod tests {
     #[test]
     fn test_detector_creation() {
         let detector = DuplicateImportDetector::new();
-        let default_detector = DuplicateImportDetector::default();
+        let default_detector = DuplicateImportDetector;
         // Both should be valid
         let _ = detector;
         let _ = default_detector;
@@ -136,7 +136,10 @@ mod tests {
         let detector = DuplicateImportDetector::new();
         let issues = detector.detect(&graph);
 
-        assert!(issues.is_empty(), "Should not find duplicates when all imports are unique");
+        assert!(
+            issues.is_empty(),
+            "Should not find duplicates when all imports are unique"
+        );
     }
 
     #[test]
@@ -163,7 +166,11 @@ mod tests {
         let detector = DuplicateImportDetector::new();
         let issues = detector.detect(&graph);
 
-        assert_eq!(issues.len(), 2, "Should find two duplicates (second and third occurrence)");
+        assert_eq!(
+            issues.len(),
+            2,
+            "Should find two duplicates (second and third occurrence)"
+        );
     }
 
     #[test]
@@ -175,7 +182,10 @@ mod tests {
         let detector = DuplicateImportDetector::new();
         let issues = detector.detect(&graph);
 
-        assert!(issues.is_empty(), "Same import in different files should not be duplicate");
+        assert!(
+            issues.is_empty(),
+            "Same import in different files should not be duplicate"
+        );
     }
 
     #[test]

@@ -82,7 +82,10 @@ impl Detector for StateWithoutRememberDetector {
 
         for decl in graph.declarations() {
             // Only check functions
-            if !matches!(decl.kind, DeclarationKind::Function | DeclarationKind::Method) {
+            if !matches!(
+                decl.kind,
+                DeclarationKind::Function | DeclarationKind::Method
+            ) {
                 continue;
             }
 
@@ -97,7 +100,10 @@ impl Detector for StateWithoutRememberDetector {
             }
 
             // Check function size (larger functions more likely to have state)
-            let byte_size = decl.location.end_byte.saturating_sub(decl.location.start_byte);
+            let byte_size = decl
+                .location
+                .end_byte
+                .saturating_sub(decl.location.start_byte);
             if byte_size < self.min_function_bytes {
                 continue;
             }

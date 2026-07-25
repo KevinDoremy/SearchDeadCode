@@ -380,7 +380,12 @@ impl<'a> EntryPointDetector<'a> {
                 "Data binding method ref: {}.{}",
                 method_ref.class_fqn, method_ref.method_name
             );
-            self.add_method_reference(graph, &method_ref.class_fqn, &method_ref.method_name, entry_points);
+            self.add_method_reference(
+                graph,
+                &method_ref.class_fqn,
+                &method_ref.method_name,
+                entry_points,
+            );
         }
     }
 
@@ -438,7 +443,9 @@ impl<'a> EntryPointDetector<'a> {
             if method_name.starts_with("on") && method_name.len() > 3 {
                 info!(
                     "Data binding: could not find method {} in class {} (children: {})",
-                    method_name, class_fqn, children.len()
+                    method_name,
+                    class_fqn,
+                    children.len()
                 );
             }
         } else {

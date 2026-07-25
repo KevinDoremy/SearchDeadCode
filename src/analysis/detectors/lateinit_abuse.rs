@@ -83,7 +83,10 @@ impl Detector for LateinitAbuseDetector {
 
         // Find all lateinit properties
         for decl in graph.declarations() {
-            if !matches!(decl.kind, DeclarationKind::Property | DeclarationKind::Field) {
+            if !matches!(
+                decl.kind,
+                DeclarationKind::Property | DeclarationKind::Field
+            ) {
                 continue;
             }
 
@@ -112,8 +115,7 @@ impl Detector for LateinitAbuseDetector {
                 if let Some(class_decl) = graph.get_declaration(parent_id) {
                     let prop_names: Vec<_> =
                         lateinit_props.iter().map(|p| p.name.as_str()).collect();
-                    let mut dead =
-                        DeadCode::new(class_decl.clone(), DeadCodeIssue::LateinitAbuse);
+                    let mut dead = DeadCode::new(class_decl.clone(), DeadCodeIssue::LateinitAbuse);
                     dead = dead.with_message(format!(
                         "Class '{}' has {} lateinit properties ({}). Consider constructor injection or lazy initialization.",
                         class_decl.name,
@@ -225,7 +227,9 @@ mod tests {
         let without_inject = create_lateinit_property("name", class.id, 3, false);
 
         assert!(LateinitAbuseDetector::has_inject_annotation(&with_inject));
-        assert!(!LateinitAbuseDetector::has_inject_annotation(&without_inject));
+        assert!(!LateinitAbuseDetector::has_inject_annotation(
+            &without_inject
+        ));
     }
 
     #[test]

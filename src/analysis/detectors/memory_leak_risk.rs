@@ -61,8 +61,7 @@ impl MemoryLeakRiskDetector {
 
     /// Check if declaration is in a static context (object, companion object)
     fn is_static_context(decl: &crate::graph::Declaration) -> bool {
-        decl.is_static
-            || decl.modifiers.iter().any(|m| m == "static")
+        decl.is_static || decl.modifiers.iter().any(|m| m == "static")
     }
 
     /// Check if parent is a Kotlin object or companion object
@@ -89,7 +88,10 @@ impl Detector for MemoryLeakRiskDetector {
 
         for decl in graph.declarations() {
             // Check properties and fields
-            if !matches!(decl.kind, DeclarationKind::Property | DeclarationKind::Field) {
+            if !matches!(
+                decl.kind,
+                DeclarationKind::Property | DeclarationKind::Field
+            ) {
                 continue;
             }
 
@@ -133,8 +135,10 @@ impl Detector for MemoryLeakRiskDetector {
                 // Check children for leak-prone types
                 for child_id in graph.get_children(&decl.id) {
                     if let Some(child) = graph.get_declaration(child_id) {
-                        if matches!(child.kind, DeclarationKind::Property | DeclarationKind::Field)
-                            && self.is_leak_prone_type(&child.name)
+                        if matches!(
+                            child.kind,
+                            DeclarationKind::Property | DeclarationKind::Field
+                        ) && self.is_leak_prone_type(&child.name)
                         {
                             let mut dead =
                                 DeadCode::new(decl.clone(), DeadCodeIssue::MemoryLeakRisk);
@@ -268,7 +272,10 @@ mod tests {
         let detector = MemoryLeakRiskDetector::new();
         let issues = detector.detect(&graph);
 
-        assert!(issues.is_empty(), "Non-leak-prone types should not be flagged");
+        assert!(
+            issues.is_empty(),
+            "Non-leak-prone types should not be flagged"
+        );
     }
 
     #[test]

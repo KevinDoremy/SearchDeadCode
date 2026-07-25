@@ -50,7 +50,10 @@ impl LongMethodDetector {
 
     /// Calculate approximate line count from byte range
     fn estimate_lines(decl: &crate::graph::Declaration) -> usize {
-        let byte_range = decl.location.end_byte.saturating_sub(decl.location.start_byte);
+        let byte_range = decl
+            .location
+            .end_byte
+            .saturating_sub(decl.location.start_byte);
         // Rough estimate: average 40 bytes per line
         (byte_range / 40).max(1)
     }

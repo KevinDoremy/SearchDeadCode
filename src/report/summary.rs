@@ -48,7 +48,7 @@ impl SummaryReporter {
     }
 
     /// Mark this as a final summary appended to another report (different footer)
-    pub fn as_final_summary(mut self) -> Self {
+    pub fn into_final_summary(mut self) -> Self {
         self.is_final_summary = true;
         self
     }
@@ -149,12 +149,7 @@ impl SummaryReporter {
 
         if stats.errors > 0 {
             let pct = (stats.errors as f64 / total) * 100.0;
-            println!(
-                "  {} {:>6} ({:>5.1}%)",
-                "Errors".red(),
-                stats.errors,
-                pct
-            );
+            println!("  {} {:>6} ({:>5.1}%)", "Errors".red(), stats.errors, pct);
         }
 
         if stats.warnings > 0 {
@@ -169,12 +164,7 @@ impl SummaryReporter {
 
         if stats.infos > 0 {
             let pct = (stats.infos as f64 / total) * 100.0;
-            println!(
-                "  {} {:>6} ({:>5.1}%)",
-                "Info".blue(),
-                stats.infos,
-                pct
-            );
+            println!("  {} {:>6} ({:>5.1}%)", "Info".blue(), stats.infos, pct);
         }
     }
 
@@ -321,10 +311,7 @@ impl SummaryReporter {
             );
         } else {
             // Tips for standalone summary mode
-            println!(
-                "{}",
-                "Run without --summary for full details".dimmed()
-            );
+            println!("{}", "Run without --summary for full details".dimmed());
             println!(
                 "{}",
                 "Use --group-by rule to see issues grouped by detector".dimmed()

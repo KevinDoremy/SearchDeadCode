@@ -155,12 +155,14 @@ impl CompactReporter {
 
         // Already short enough, just highlight the name if present
         if message.contains(name) {
-            message.replace(&format!("'{}'", name), &format!("'{}'", StructureColors::symbol_name(name)))
+            message.replace(
+                &format!("'{}'", name),
+                &format!("'{}'", StructureColors::symbol_name(name)),
+            )
         } else {
             format!("{} '{}'", message, StructureColors::symbol_name(name))
         }
     }
-
 }
 
 impl Default for CompactReporter {
@@ -176,7 +178,9 @@ mod tests {
     #[test]
     fn test_path_truncation() {
         let reporter = CompactReporter::new();
-        let long_path = Path::new("/very/long/path/that/exceeds/the/maximum/width/setting/for/display/purposes/file.kt");
+        let long_path = Path::new(
+            "/very/long/path/that/exceeds/the/maximum/width/setting/for/display/purposes/file.kt",
+        );
         let formatted = reporter.format_path(long_path);
         assert!(formatted.len() <= 60);
         assert!(formatted.starts_with("..."));

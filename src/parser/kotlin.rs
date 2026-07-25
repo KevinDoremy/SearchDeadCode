@@ -7,9 +7,15 @@ use crate::graph::{
     UnresolvedReference, Visibility,
 };
 use miette::{IntoDiagnostic, Result};
+use regex::Regex;
 use std::path::Path;
+use std::sync::LazyLock;
 use tracing::debug;
 use tree_sitter::{Node, Parser as TsParser};
+
+/// Matches misparsed function calls like `foo()` inside tree-sitter ERROR regions
+static MISPARSED_CALL_PATTERN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"([a-z][a-zA-Z0-9]*)\s*\(\s*\)").expect("Invalid call regex"));
 
 /// Kotlin source code parser using tree-sitter
 pub struct KotlinParser {
@@ -1040,7 +1046,6 @@ impl KotlinParser {
         loop {
             let current = cursor.node();
 
-
             match current.kind() {
                 "simple_identifier" => {
                     // Determine reference kind based on parent context
@@ -1215,7 +1220,8 @@ impl KotlinParser {
                                 let mut err_cursor = child.walk();
                                 for err_child in child.children(&mut err_cursor) {
                                     if err_child.kind() == "simple_identifier" {
-                                        error_identifier = Some(node_text(err_child, source).to_string());
+                                        error_identifier =
+                                            Some(node_text(err_child, source).to_string());
                                         error_location = Some((
                                             err_child.start_position().row,
                                             err_child.start_position().column,
@@ -1234,16 +1240,23 @@ impl KotlinParser {
                     }
 
                     // If we detected the bug pattern, extract the function call
-                    if has_not_is && error_identifier.is_some() && has_function_type {
+                    if let (true, true, Some(ident)) =
+                        (has_not_is, has_function_type, error_identifier)
+                    {
                         // Reconstruct the function name: "is" + error_identifier
-                        let ident = error_identifier.unwrap();
                         let func_name = format!("is{}", ident);
                         let (row, col, start, end) = error_location.unwrap();
 
                         let location = point_to_location(
                             path,
-                            tree_sitter::Point { row, column: col.saturating_sub(2) }, // Adjust for "is" prefix
-                            tree_sitter::Point { row, column: col + ident.len() },
+                            tree_sitter::Point {
+                                row,
+                                column: col.saturating_sub(2),
+                            }, // Adjust for "is" prefix
+                            tree_sitter::Point {
+                                row,
+                                column: col + ident.len(),
+                            },
                             start.saturating_sub(2),
                             end,
                         );
@@ -1260,33 +1273,33 @@ impl KotlinParser {
                     // Also scan the entire type_test text for additional misparsed function calls
                     // Since the parse error can cascade and absorb multiple when entries
                     let type_test_text = node_text(current, source);
-                    let re_pattern = regex::Regex::new(r"([a-z][a-zA-Z0-9]*)\s*\(\s*\)").ok();
-                    if let Some(re) = re_pattern {
-                        for cap in re.captures_iter(type_test_text) {
-                            if let Some(m) = cap.get(1) {
-                                let func_name = m.as_str().to_string();
-                                // Skip keywords and already-handled isXxx patterns
-                                if func_name != "if" && func_name != "when" && func_name != "for"
-                                    && !func_name.starts_with("is") {
-                                    let offset = current.start_byte() + m.start();
-                                    let end = current.start_byte() + m.end();
+                    for cap in MISPARSED_CALL_PATTERN.captures_iter(type_test_text) {
+                        if let Some(m) = cap.get(1) {
+                            let func_name = m.as_str().to_string();
+                            // Skip keywords and already-handled isXxx patterns
+                            if func_name != "if"
+                                && func_name != "when"
+                                && func_name != "for"
+                                && !func_name.starts_with("is")
+                            {
+                                let offset = current.start_byte() + m.start();
+                                let end = current.start_byte() + m.end();
 
-                                    let location = point_to_location(
-                                        path,
-                                        current.start_position(),
-                                        current.start_position(),
-                                        offset,
-                                        end,
-                                    );
+                                let location = point_to_location(
+                                    path,
+                                    current.start_position(),
+                                    current.start_position(),
+                                    offset,
+                                    end,
+                                );
 
-                                    result.references.push(UnresolvedReference {
-                                        name: func_name,
-                                        qualified_name: None,
-                                        kind: ReferenceKind::Call,
-                                        location,
-                                        imports: imports.to_vec(),
-                                    });
-                                }
+                                result.references.push(UnresolvedReference {
+                                    name: func_name,
+                                    qualified_name: None,
+                                    kind: ReferenceKind::Call,
+                                    location,
+                                    imports: imports.to_vec(),
+                                });
                             }
                         }
                     }
@@ -1298,53 +1311,10 @@ impl KotlinParser {
                     let entry_text = node_text(current, source);
                     if entry_text.matches("->").count() > 1 {
                         // This entry likely contains absorbed misparsed entries
-                        let re_pattern = regex::Regex::new(r"([a-z][a-zA-Z0-9]*)\s*\(\s*\)").ok();
-                        if let Some(re) = re_pattern {
-                            for cap in re.captures_iter(entry_text) {
-                                if let Some(m) = cap.get(1) {
-                                    let func_name = m.as_str().to_string();
-                                    // Skip keywords
-                                    if func_name != "if" && func_name != "when" && func_name != "for" {
-                                        let offset = current.start_byte() + m.start();
-                                        let end = current.start_byte() + m.end();
-
-                                        let location = point_to_location(
-                                            path,
-                                            current.start_position(),
-                                            current.start_position(),
-                                            offset,
-                                            end,
-                                        );
-
-                                        result.references.push(UnresolvedReference {
-                                            name: func_name,
-                                            qualified_name: None,
-                                            kind: ReferenceKind::Call,
-                                            location,
-                                            imports: imports.to_vec(),
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                // Workaround for tree-sitter-kotlin grammar bug (continued):
-                // After `!isXxx()` parse errors, the when conditions get misparsed.
-                // Look for ERROR nodes that contain identifiers followed by () in source.
-                "ERROR" => {
-                    // Check if this ERROR node is inside a when expression context
-                    // by looking for function-call-like patterns in the source text
-                    let error_text = node_text(current, source);
-
-                    // Look for patterns like "identifier()" in the error text
-                    // These are likely misparsed function calls
-                    let re_pattern = regex::Regex::new(r"([a-z][a-zA-Z0-9]*)\s*\(\s*\)").ok();
-                    if let Some(re) = re_pattern {
-                        for cap in re.captures_iter(error_text) {
+                        for cap in MISPARSED_CALL_PATTERN.captures_iter(entry_text) {
                             if let Some(m) = cap.get(1) {
                                 let func_name = m.as_str().to_string();
-                                // Skip common keywords
+                                // Skip keywords
                                 if func_name != "if" && func_name != "when" && func_name != "for" {
                                     let offset = current.start_byte() + m.start();
                                     let end = current.start_byte() + m.end();
@@ -1365,6 +1335,43 @@ impl KotlinParser {
                                         imports: imports.to_vec(),
                                     });
                                 }
+                            }
+                        }
+                    }
+                }
+                // Workaround for tree-sitter-kotlin grammar bug (continued):
+                // After `!isXxx()` parse errors, the when conditions get misparsed.
+                // Look for ERROR nodes that contain identifiers followed by () in source.
+                "ERROR" => {
+                    // Check if this ERROR node is inside a when expression context
+                    // by looking for function-call-like patterns in the source text
+                    let error_text = node_text(current, source);
+
+                    // Look for patterns like "identifier()" in the error text
+                    // These are likely misparsed function calls
+                    for cap in MISPARSED_CALL_PATTERN.captures_iter(error_text) {
+                        if let Some(m) = cap.get(1) {
+                            let func_name = m.as_str().to_string();
+                            // Skip common keywords
+                            if func_name != "if" && func_name != "when" && func_name != "for" {
+                                let offset = current.start_byte() + m.start();
+                                let end = current.start_byte() + m.end();
+
+                                let location = point_to_location(
+                                    path,
+                                    current.start_position(),
+                                    current.start_position(),
+                                    offset,
+                                    end,
+                                );
+
+                                result.references.push(UnresolvedReference {
+                                    name: func_name,
+                                    qualified_name: None,
+                                    kind: ReferenceKind::Call,
+                                    location,
+                                    imports: imports.to_vec(),
+                                });
                             }
                         }
                     }
@@ -2110,15 +2117,42 @@ impl KotlinParser {
 
         // Regex to find simple function calls: identifier followed by (
         // We use captures to extract just the identifier
-        let call_pattern = regex::Regex::new(
-            r"\b([a-z][a-zA-Z0-9_]*)\s*\("
-        ).ok();
+        let call_pattern = regex::Regex::new(r"\b([a-z][a-zA-Z0-9_]*)\s*\(").ok();
 
         let keywords: HashSet<&str> = [
-            "if", "when", "for", "while", "try", "catch", "finally", "return", "throw", "do",
-            "class", "fun", "val", "var", "object", "interface", "enum", "annotation",
-            "println", "print", "require", "check", "error", "assert", "apply", "also", "let", "run", "with"
-        ].iter().cloned().collect();
+            "if",
+            "when",
+            "for",
+            "while",
+            "try",
+            "catch",
+            "finally",
+            "return",
+            "throw",
+            "do",
+            "class",
+            "fun",
+            "val",
+            "var",
+            "object",
+            "interface",
+            "enum",
+            "annotation",
+            "println",
+            "print",
+            "require",
+            "check",
+            "error",
+            "assert",
+            "apply",
+            "also",
+            "let",
+            "run",
+            "with",
+        ]
+        .iter()
+        .cloned()
+        .collect();
 
         if let Some(re) = call_pattern {
             for cap in re.captures_iter(source) {
@@ -2137,7 +2171,12 @@ impl KotlinParser {
                     }
 
                     // Skip type constructors (PascalCase)
-                    if func_name.chars().next().map(|c| c.is_uppercase()).unwrap_or(true) {
+                    if func_name
+                        .chars()
+                        .next()
+                        .map(|c| c.is_uppercase())
+                        .unwrap_or(true)
+                    {
                         continue;
                     }
 
