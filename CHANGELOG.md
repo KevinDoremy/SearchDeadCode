@@ -7,10 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-25
+
 ### Added
+- **Incremental cache wired in**: `--incremental`, `--clear-cache` and `--cache-path`
+  now work. The cache stores full parse results (v2 format) so a cache hit
+  rebuilds the exact same graph, and it self-invalidates on tool version changes.
+- **Phantom source set detection**: a `src/` directory no build file accounts for
+  is reported and excluded — its references no longer keep dead code alive.
+- **`--explain SYMBOL`**: why is this symbol dead (or alive)? Incoming references,
+  every root source checked, and the verdict.
+- **`--kill-list SYMBOL`**: "if I delete X, what else falls?" — the transitive
+  closure of exclusive dependents, with an estimated line count.
+- **`--clusters`**: dead code grouped into connected, deletable clusters sorted
+  by size, instead of a flat per-file list.
+- **Per-finding deletion risk**: names found in string literals, serialization
+  annotations or reflection/event-bus neighborhoods are tagged medium/high in
+  the terminal and in JSON output.
+- **DI binding resolution**: `@Provides`/`@Binds` methods are roots only when
+  their produced type is actually consumed. Orphan modules now show up as dead.
+- **`--compare OLD=NEW`**: migration diff — old-world symbols deletable at the
+  flip vs blockers still referenced from outside, each with a referencer.
+- **`--init`**: generates a commented `.deadcode.yml` matching the project
+  (phantom source sets pre-excluded, DI framework detected).
+- **`--flag NAME --behavior enabled|disabled`**: feature-flag cleanup preview —
+  what dies once the flag is burned in.
+
+### Fixed
+- Kotlin parser now extracts function return types.
+- Deep analysis no longer follows dead method edges out of reachable classes.
+- Ambiguous simple-name resolutions are marked on references and ignored where
+  precision matters (migration blockers).
+- Analyzing a single file no longer tries to create the cache under it.
+
+### Previously unreleased
 - OpenSSF Scorecard badge
 - Downloads badge
-- MSRV (Minimum Supported Rust Version) policy: 1.70+
+- MSRV (Minimum Supported Rust Version) policy: 1.80+ (bumped from 1.70)
 - This CHANGELOG.md file
 
 ## [0.4.0] - 2024-12-07
