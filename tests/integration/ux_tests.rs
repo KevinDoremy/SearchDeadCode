@@ -221,6 +221,24 @@ fn healthy_project_gets_one_quiet_line() {
 }
 
 #[test]
+fn dry_run_previews_the_actual_diff() {
+    let temp = tempfile::tempdir().unwrap();
+    write_sample_project(temp.path());
+
+    let output = run(temp.path(), &["--delete", "--dry-run"]);
+
+    let stdout = stdout_of(&output);
+    assert!(
+        stdout.contains("- class ObsoleteWidget {"),
+        "the lines that would go are shown as a removal diff, stdout was:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("would be deleted"),
+        "the total stays, stdout was:\n{stdout}"
+    );
+}
+
+#[test]
 fn json_on_stdout_is_pure_json() {
     let temp = tempfile::tempdir().unwrap();
     write_sample_project(temp.path());
