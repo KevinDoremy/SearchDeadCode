@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-07-26
+
+### Changed
+- A healthy project reports on a single checked line — no summary block.
+- `--delete --dry-run` previews the exact lines a deletion would remove as a
+  red, line-numbered diff instead of a list of names.
+
 ## [0.8.0] - 2026-07-26
 
 ### Changed
