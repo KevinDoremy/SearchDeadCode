@@ -942,18 +942,26 @@ fn build_graph_incremental(
 
     analyzer.save().into_diagnostic()?;
 
-    if !cli.quiet {
-        eprintln!(
-            "{}",
-            format!(
-                "⚡ Incremental: {} parsed, {} from cache",
-                parsed_count, cached_count
-            )
-            .cyan()
-        );
-    }
+    phase_line(
+        cli.quiet,
+        "parsed",
+        &format!("{} parsed, {} from cache", parsed_count, cached_count),
+    );
 
     Ok(builder.build())
+}
+
+/// One aligned, checked progress line per phase (pnpm-style)
+fn phase_line(quiet: bool, label: &str, detail: &str) {
+    if quiet {
+        return;
+    }
+    eprintln!(
+        " {} {:<10} {}",
+        "✓".green().bold(),
+        label.bold(),
+        detail.dimmed()
+    );
 }
 
 fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
@@ -1046,12 +1054,6 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         build_graph_incremental(&files, &cache_root, &cache_file, cli)?
     } else if cli.parallel {
         // Parallel parsing mode
-        if !cli.quiet {
-            eprintln!(
-                "{}",
-                format!("⚡ Parallel mode: parsing {} files...", files.len()).cyan()
-            );
-        }
         let parallel_builder = ParallelGraphBuilder::new();
         parallel_builder.build_from_files(&files)?
     } else {
@@ -1079,15 +1081,11 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     };
 
     let parse_time = start_time.elapsed();
-    if cli.parallel && !cli.quiet {
-        eprintln!(
-            "{}",
-            format!(
-                "⚡ Parsed {} files in {:.2}s",
-                files.len(),
-                parse_time.as_secs_f64()
-            )
-            .green()
+    if cli.parallel && !cli.incremental {
+        phase_line(
+            cli.quiet,
+            "parsed",
+            &format!("{} files in {:.2}s", files.len(), parse_time.as_secs_f64()),
         );
     }
 
@@ -1192,36 +1190,46 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     // Step 5: Run reachability analysis (deep, enhanced, or standard)
     info!("Running reachability analysis...");
 
-    let (dead_code, reachable) = if cli.deep {
+    let analysis_start = std::time::Instant::now();
+    let (mode_label, (dead_code, reachable)) = if cli.deep {
         // Deep analysis mode - most aggressive
-        eprintln!(
-            "{}",
-            "🔬 Deep mode: aggressive dead code detection...".cyan()
-        );
         let deep = DeepAnalyzer::new()
             .with_parallel(cli.parallel)
             .with_unused_members(true);
-        deep.analyze(&graph, &entry_points)
+        ("deep mode", deep.analyze(&graph, &entry_points))
     } else if cli.enhanced && proguard_data.is_some() {
         // Enhanced mode with ProGuard cross-validation
-        eprintln!(
-            "{}",
-            "🔍 Enhanced mode: cross-validating with ProGuard data...".cyan()
-        );
         let mut enhanced = EnhancedAnalyzer::new();
         if let Some(pg) = proguard_data.clone() {
             enhanced = enhanced.with_proguard(pg);
         }
-        enhanced.analyze(&graph, &entry_points)
+        (
+            "enhanced with ProGuard",
+            enhanced.analyze(&graph, &entry_points),
+        )
     } else if cli.parallel {
         // Standard analysis with parallel analyzer
         let enhanced = EnhancedAnalyzer::new();
-        enhanced.analyze(&graph, &entry_points)
+        ("standard", enhanced.analyze(&graph, &entry_points))
     } else {
         // Standard sequential analysis
         let analyzer = ReachabilityAnalyzer::new();
-        analyzer.find_unreachable_with_reachable(&graph, &entry_points)
+        (
+            "standard",
+            analyzer.find_unreachable_with_reachable(&graph, &entry_points),
+        )
     };
+    phase_line(
+        cli.quiet,
+        "analysis",
+        &format!(
+            "{}, {} reachable of {} in {:.2}s",
+            mode_label,
+            reachable.len(),
+            graph.declarations().count(),
+            analysis_start.elapsed().as_secs_f64()
+        ),
+    );
 
     info!(
         "Reachability: {} reachable, {} total",
