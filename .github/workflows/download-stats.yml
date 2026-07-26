@@ -35,9 +35,9 @@ jobs:
           # gh api emits the error body on stdout on HTTP failures: pipe
           # through jq so garbage collapses to empty, then fall back
           clones=$(gh api "repos/${{ github.repository }}/traffic/clones" 2>/dev/null \
-            | jq -c '{count, uniques}' 2>/dev/null)
+            | jq -c 'select(.count != null) | {count, uniques}' 2>/dev/null)
           views=$(gh api "repos/${{ github.repository }}/traffic/views" 2>/dev/null \
-            | jq -c '{count, uniques}' 2>/dev/null)
+            | jq -c 'select(.count != null) | {count, uniques}' 2>/dev/null)
 
           # Validate every piece; anything invalid is reported and replaced
           for name in crates assets stars; do
@@ -66,11 +66,14 @@ jobs:
 
           tail -1 stats/downloads.jsonl
 
-          # Refresh the README clones badge (shields.io endpoint schema)
-          clone_count=$(echo "$clones" | jq '.count // "n/a"')
-          jq -c -n --arg msg "$clone_count" \
-            '{schemaVersion: 1, label: "clones (14d)", message: $msg,
-              color: "informational"}' > stats/clones-badge.json
+          # Refresh the README clones badge (shields.io endpoint schema).
+          # Without traffic access, keep the last known badge instead of n/a.
+          clone_count=$(echo "$clones" | jq -r '.count // empty')
+          if [ -n "$clone_count" ]; then
+            jq -c -n --arg msg "$clone_count" \
+              '{schemaVersion: 1, label: "clones (14d)", message: $msg,
+                color: "informational"}' > stats/clones-badge.json
+          fi
 
       - name: Push snapshot
         run: |
