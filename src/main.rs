@@ -727,6 +727,29 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
 
     info!("Found {} files to analyze", files.len());
 
+    // Step 1b: Drop phantom source sets (src/ dirs no build file accounts for)
+    let audit = discovery::detect_phantom_source_sets(&cli.path);
+    let files = if audit.phantom_dirs.is_empty() {
+        files
+    } else {
+        if !cli.quiet {
+            for dir in &audit.phantom_dirs {
+                eprintln!(
+                    "{}",
+                    format!(
+                        "⚠ Phantom source set (not part of the build), excluded: {}",
+                        dir.display()
+                    )
+                    .yellow()
+                );
+            }
+        }
+        files
+            .into_iter()
+            .filter(|f| !audit.phantom_dirs.iter().any(|d| f.path.starts_with(d)))
+            .collect()
+    };
+
     if files.is_empty() {
         println!("{}", "No Kotlin or Java files found.".yellow());
         return Ok(());
