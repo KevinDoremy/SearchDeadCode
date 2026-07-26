@@ -49,10 +49,16 @@ jobs:
 
           tail -1 stats/downloads.jsonl
 
+          # Refresh the README clones badge (shields.io endpoint schema)
+          clone_count=$(echo "$clones" | jq '.count // "n/a"')
+          jq -c -n --arg msg "$clone_count" \
+            '{schemaVersion: 1, label: "clones (14d)", message: $msg,
+              color: "informational"}' > stats/clones-badge.json
+
       - name: Push snapshot
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add stats/downloads.jsonl
+          git add stats/downloads.jsonl stats/clones-badge.json
           git commit -m "stats: snapshot $(date -u +%Y-%m-%d)" || exit 0
           git push origin stats
