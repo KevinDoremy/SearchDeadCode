@@ -1,0 +1,58 @@
+name: Download stats
+
+on:
+  schedule:
+    # Daily, off the :00 mark. GitHub's traffic API only keeps 14 days of
+    # clone/view history: this snapshot is what makes it permanent.
+    - cron: "43 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: stats
+
+      - name: Collect and append snapshot
+        env:
+          # The default token cannot read traffic data. Add a classic PAT
+          # with repo scope as TRAFFIC_TOKEN to capture clones/views; the
+          # other counters work without it.
+          GH_TOKEN: ${{ secrets.TRAFFIC_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          date_utc=$(date -u +%Y-%m-%d)
+          crates=$(curl -s -A "searchdeadcode-stats" \
+            https://crates.io/api/v1/crates/searchdeadcode | jq '.crate.downloads // 0')
+          assets=$(gh api "repos/${{ github.repository }}/releases" \
+            --jq '[.[].assets[].download_count] | add // 0')
+          stars=$(gh api "repos/${{ github.repository }}" --jq '.stargazers_count')
+          clones=$(gh api "repos/${{ github.repository }}/traffic/clones" \
+            --jq '{count, uniques}' 2>/dev/null || echo '{}')
+          views=$(gh api "repos/${{ github.repository }}/traffic/views" \
+            --jq '{count, uniques}' 2>/dev/null || echo '{}')
+
+          jq -c -n \
+            --arg date "$date_utc" \
+            --argjson crates "${crates:-0}" \
+            --argjson assets "${assets:-0}" \
+            --argjson stars "${stars:-0}" \
+            --argjson clones "${clones:-{}}" \
+            --argjson views "${views:-{}}" \
+            '{date: $date, crates_io: $crates, github_assets: $assets,
+              stars: $stars, clones_14d: $clones, views_14d: $views}' \
+            >> stats/downloads.jsonl
+
+          tail -1 stats/downloads.jsonl
+
+      - name: Push snapshot
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add stats/downloads.jsonl
+          git commit -m "stats: snapshot $(date -u +%Y-%m-%d)" || exit 0
+          git push origin stats
