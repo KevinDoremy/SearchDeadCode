@@ -143,6 +143,11 @@ struct Cli {
     #[arg(long)]
     clusters: bool,
 
+    /// Migration diff: OLD=NEW worlds (package prefix or path fragment).
+    /// Lists old-world symbols deletable at the flip and the blockers.
+    #[arg(long, value_name = "OLD=NEW")]
+    compare: Option<String>,
+
     /// Coverage files (JaCoCo XML, Kover XML, or LCOV format)
     /// Can be specified multiple times for merged coverage
     #[arg(long, value_name = "FILE")]
@@ -713,6 +718,58 @@ fn print_clusters(graph: &graph::Graph, clusters: Vec<Vec<graph::DeclarationId>>
     }
 }
 
+/// Print the migration diff between the old world and everything else
+fn print_migration_report(
+    graph: &graph::Graph,
+    old_token: &str,
+    new_token: &str,
+    report: &analysis::migration::MigrationReport,
+) {
+    println!("🔀 Migration compare: {} → {}", old_token, new_token);
+
+    let deletable_ids: Vec<graph::DeclarationId> =
+        report.deletable.iter().map(|e| e.id.clone()).collect();
+    let (entries, lines) = outermost_entries(graph, &deletable_ids);
+    println!(
+        "\nDeletable at the flip ({} declarations, ~{} lines):",
+        deletable_ids.len(),
+        lines
+    );
+    for entry in entries {
+        println!("{entry}");
+    }
+
+    println!(
+        "\nStill referenced from outside ({} blockers):",
+        report.blockers.len()
+    );
+    for blocker in &report.blockers {
+        let Some(decl) = graph.get_declaration(&blocker.id) else {
+            continue;
+        };
+        let used_by = blocker
+            .blocked_by
+            .as_ref()
+            .and_then(|id| graph.get_declaration(id))
+            .map(|r| {
+                format!(
+                    ", used by {}:{} ({})",
+                    r.location.file.display(),
+                    r.location.line,
+                    r.name
+                )
+            })
+            .unwrap_or_default();
+        println!(
+            "   - {} — {}:{}{}",
+            decl.name,
+            decl.location.file.display(),
+            decl.location.line,
+            used_by
+        );
+    }
+}
+
 /// Print a kill-list: the target plus everything that only it kept alive
 fn print_kill_list(graph: &graph::Graph, symbol: &str, ids: &[graph::DeclarationId]) {
     let (entries, estimated_lines) = outermost_entries(graph, ids);
@@ -981,6 +1038,14 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         let enhanced = EnhancedAnalyzer::new();
         let (_, reachable) = enhanced.analyze(&graph, &entry_points);
         explain_symbol(&graph, &entry_points, &reachable, symbol);
+        return Ok(());
+    }
+
+    // --compare short-circuits the normal report
+    if let Some(spec) = cli.compare.as_deref() {
+        let (old_token, new_token) = spec.split_once('=').unwrap_or((spec, ""));
+        let report = analysis::migration::compare(&graph, old_token);
+        print_migration_report(&graph, old_token, new_token, &report);
         return Ok(());
     }
 

@@ -8,6 +8,7 @@ mod enhanced;
 mod entry_points;
 mod hybrid;
 pub mod kill_list;
+pub mod migration;
 mod reachability;
 pub mod resources;
 pub mod risk;

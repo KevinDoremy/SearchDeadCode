@@ -100,6 +100,11 @@ pub struct Reference {
 
     /// Whether this is a qualified reference (e.g., com.example.Foo)
     pub is_qualified: bool,
+
+    /// True when simple-name resolution matched several candidates and this
+    /// edge is one guess among others (kept for conservative liveness, but
+    /// precision-sensitive views may ignore it)
+    pub ambiguous: bool,
 }
 
 impl Reference {
@@ -109,11 +114,17 @@ impl Reference {
             location,
             name,
             is_qualified: false,
+            ambiguous: false,
         }
     }
 
     pub fn with_qualified(mut self, qualified: bool) -> Self {
         self.is_qualified = qualified;
+        self
+    }
+
+    pub fn with_ambiguous(mut self, ambiguous: bool) -> Self {
+        self.ambiguous = ambiguous;
         self
     }
 }

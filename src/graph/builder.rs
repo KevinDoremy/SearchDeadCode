@@ -156,6 +156,7 @@ impl GraphBuilder {
 
         for unresolved in references {
             let resolved_ids = self.resolve_reference(&unresolved);
+            let ambiguous = resolved_ids.len() > 1;
             for to_id in resolved_ids {
                 // Skip self-references (e.g., property referencing itself in initialization)
                 // These are artifacts of parsing and don't represent actual code usage
@@ -193,7 +194,8 @@ impl GraphBuilder {
                         unresolved.from.end,
                     ),
                     unresolved.name.clone(),
-                );
+                )
+                .with_ambiguous(ambiguous);
                 self.graph
                     .add_reference(&unresolved.from, &to_id, reference);
             }

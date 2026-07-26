@@ -110,6 +110,10 @@ name = "dagger"
 path = "tests/integration/dagger_tests.rs"
 
 [[test]]
+name = "migration"
+path = "tests/integration/migration_tests.rs"
+
+[[test]]
 name = "detectors"
 path = "tests/integration/detector_tests.rs"
 
