@@ -1192,6 +1192,15 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     info!("Running reachability analysis...");
 
     let analysis_start = std::time::Instant::now();
+    // Never frozen: the analysis phase can run for a minute on big repos
+    let spinner = if cli.quiet {
+        None
+    } else {
+        let sp = ProgressBar::new_spinner();
+        sp.set_message("analysis…");
+        sp.enable_steady_tick(std::time::Duration::from_millis(120));
+        Some(sp)
+    };
     let (mode_label, (dead_code, reachable)) = if cli.deep {
         // Deep analysis mode - most aggressive
         let deep = DeepAnalyzer::new()
@@ -1220,6 +1229,9 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
             analyzer.find_unreachable_with_reachable(&graph, &entry_points),
         )
     };
+    if let Some(sp) = spinner {
+        sp.finish_and_clear();
+    }
     phase_line(
         cli.quiet,
         "analysis",

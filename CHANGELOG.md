@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-07-26
+
+### Fixed
+- Source sets wired via `java.srcDir("src/x/...")`/`srcDirs` count as declared
+  and are no longer reported as phantom (found on a real 49-module monorepo).
+- The analysis phase shows a spinner instead of up to a minute of silence on
+  large repositories.
+
 ## [0.10.0] - 2026-07-26
 
 ### Added
