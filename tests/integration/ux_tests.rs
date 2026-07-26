@@ -85,6 +85,42 @@ fn report_footer_suggests_next_steps() {
 }
 
 #[test]
+fn default_report_annotates_findings_with_source() {
+    let temp = tempfile::tempdir().unwrap();
+    write_sample_project(temp.path());
+
+    let output = run(temp.path(), &[]);
+
+    let stdout = stdout_of(&output);
+    assert!(
+        stdout.contains("class ObsoleteWidget"),
+        "the offending source line is shown, stdout was:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("^^^"),
+        "the symbol is underlined rustc-style, stdout was:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("= help: searchdeadcode --explain"),
+        "each finding carries its own next step, stdout was:\n{stdout}"
+    );
+}
+
+#[test]
+fn compact_report_stays_one_line_per_finding() {
+    let temp = tempfile::tempdir().unwrap();
+    write_sample_project(temp.path());
+
+    let output = run(temp.path(), &["--compact"]);
+
+    let stdout = stdout_of(&output);
+    assert!(
+        !stdout.contains("^^^"),
+        "--compact keeps the dense view, stdout was:\n{stdout}"
+    );
+}
+
+#[test]
 fn json_on_stdout_is_pure_json() {
     let temp = tempfile::tempdir().unwrap();
     write_sample_project(temp.path());

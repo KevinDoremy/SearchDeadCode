@@ -68,12 +68,18 @@ impl TerminalReporter {
                 StructureColors::file_path(&file.display().to_string())
             );
 
+            // Source lines for rustc-style annotations, read once per file
+            let source_lines: Option<Vec<String>> = std::fs::read_to_string(file)
+                .ok()
+                .map(|content| content.lines().map(String::from).collect());
+
             // Sort items by line number
             let mut sorted_items: Vec<_> = items.iter().collect();
             sorted_items.sort_by_key(|i| i.declaration.location.line);
 
             for item in sorted_items {
                 self.print_item(item);
+                self.print_annotation(item, source_lines.as_deref());
             }
 
             println!();
@@ -147,13 +153,48 @@ impl TerminalReporter {
             runtime_badge,
             risk_badge
         );
+    }
 
-        // Print declaration info
+    /// Rustc-style annotation: the offending source line, an underline and a
+    /// per-finding next step. Falls back to a plain declaration line when the
+    /// source is unreadable.
+    fn print_annotation(&self, item: &DeadCode, source_lines: Option<&[String]>) {
+        let line_no = item.declaration.location.line;
+        let src = source_lines.and_then(|lines| line_no.checked_sub(1).and_then(|i| lines.get(i)));
+
+        let Some(src) = src else {
+            println!(
+                "    {} {} '{}'",
+                "→".dimmed(),
+                item.declaration.kind.display_name().dimmed(),
+                StructureColors::symbol_name(&item.declaration.name)
+            );
+            return;
+        };
+
+        let src = src.trim_end();
+        let name = &item.declaration.name;
+        let (pad, caret_len) = match src.find(name.as_str()) {
+            Some(byte_pos) => (src[..byte_pos].chars().count(), name.chars().count().max(1)),
+            None => (
+                item.declaration.location.column.saturating_sub(1),
+                src.chars().count().max(1),
+            ),
+        };
+
+        println!("      {}", "|".dimmed());
+        println!("{:>5} {} {}", line_no, "|".dimmed(), src);
         println!(
-            "    {} {} '{}'",
-            "→".dimmed(),
-            item.declaration.kind.display_name().dimmed(),
-            StructureColors::symbol_name(&item.declaration.name)
+            "      {} {}{} {}",
+            "|".dimmed(),
+            " ".repeat(pad),
+            "^".repeat(caret_len).yellow().bold(),
+            "declared here".dimmed()
+        );
+        println!(
+            "      {} {}",
+            "=".dimmed(),
+            format!("help: searchdeadcode --explain {}", name).dimmed()
         );
     }
 }
