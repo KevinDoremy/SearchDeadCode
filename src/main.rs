@@ -12,6 +12,7 @@ mod config;
 mod coverage;
 mod discovery;
 mod graph;
+mod interactive;
 mod parser;
 mod proguard;
 mod refactor;
@@ -1768,6 +1769,24 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     report_options.top_n = cli.top;
     report_options.files_count = Some(files.len());
     report_options.declarations_count = Some(graph.declarations().count());
+
+    // Interactive triage: fzf-style filtering with keyboard actions.
+    // --delete --interactive keeps its historical confirm-each semantics.
+    if cli.interactive && !cli.delete {
+        use std::io::IsTerminal;
+        if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
+            interactive::run_triage(
+                &graph,
+                &entry_points,
+                &reachable,
+                dead_code,
+                &cli.path,
+                cli.undo_script.clone(),
+            )?;
+            return Ok(());
+        }
+        eprintln!("--interactive requires a terminal; printing the standard report instead.");
+    }
 
     if cli.clusters {
         let dead_ids: std::collections::HashSet<graph::DeclarationId> =
