@@ -95,7 +95,7 @@ jobs:
 
       - name: Generate SBOM (CycloneDX)
         run: |
-          cargo sbom --output-format cyclonedx_json_1_4 > sbom.cdx.json
+          cargo sbom --output-format cyclone_dx_json_1_4 > sbom.cdx.json
 
       - name: Generate SBOM attestation
         uses: actions/attest-sbom@v4
