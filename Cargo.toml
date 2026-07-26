@@ -114,6 +114,10 @@ name = "migration"
 path = "tests/integration/migration_tests.rs"
 
 [[test]]
+name = "init"
+path = "tests/integration/init_tests.rs"
+
+[[test]]
 name = "detectors"
 path = "tests/integration/detector_tests.rs"
 

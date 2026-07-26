@@ -148,6 +148,11 @@ struct Cli {
     #[arg(long, value_name = "OLD=NEW")]
     compare: Option<String>,
 
+    /// Generate a commented .deadcode.yml matching the project's shape
+    /// (source sets, DI framework, exclusions) and exit
+    #[arg(long)]
+    init: bool,
+
     /// Coverage files (JaCoCo XML, Kover XML, or LCOV format)
     /// Can be specified multiple times for merged coverage
     #[arg(long, value_name = "FILE")]
@@ -380,6 +385,20 @@ fn main() -> Result<()> {
         let name = cmd.get_name().to_string();
         generate(shell, &mut cmd, name, &mut std::io::stdout());
         return Ok(());
+    }
+
+    // Generate a starter config and exit
+    if cli.init {
+        match config::generate_config(&cli.path) {
+            Ok(path) => {
+                println!("✅ Wrote {}", path);
+                return Ok(());
+            }
+            Err(message) => {
+                eprintln!("{}", message);
+                std::process::exit(2);
+            }
+        }
     }
 
     // Initialize logging
