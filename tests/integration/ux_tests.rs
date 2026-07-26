@@ -190,6 +190,37 @@ fn progress_renders_as_aligned_phase_lines() {
 }
 
 #[test]
+fn healthy_project_gets_one_quiet_line() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(
+        temp.path().join("Main.kt"),
+        "package sample\n\nfun main() {\n    UsedHelper().greet()\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("UsedHelper.kt"),
+        "package sample\n\nclass UsedHelper {\n    fun greet() {}\n}\n",
+    )
+    .unwrap();
+
+    let output = run(temp.path(), &[]);
+
+    let stdout = stdout_of(&output);
+    assert!(
+        stdout.contains("No dead code found"),
+        "the happy case is stated, stdout was:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("Analysis Summary"),
+        "a healthy project needs no summary block, stdout was:\n{stdout}"
+    );
+    assert!(
+        stdout.lines().filter(|l| !l.trim().is_empty()).count() <= 3,
+        "less is more: a clean run fits in three lines, stdout was:\n{stdout}"
+    );
+}
+
+#[test]
 fn json_on_stdout_is_pure_json() {
     let temp = tempfile::tempdir().unwrap();
     write_sample_project(temp.path());
