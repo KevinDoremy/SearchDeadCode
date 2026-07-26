@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-07-26
+
+### Added
+- **`--interactive` triage mode** (fzf-style): fuzzy-filter the findings by
+  typing, act from the keyboard — Explain, Kill-list, or Delete with a diff
+  preview and confirmation. Deletions land in an undo script rewritten after
+  every removal; exclusive dependents of deleted symbols are marked ↯.
+  Requires a real terminal; piped runs fall back to the standard report.
+  `--delete --interactive` keeps its historical confirm-each behavior.
+
 ## [0.9.0] - 2026-07-26
 
 ### Changed

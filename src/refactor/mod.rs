@@ -3,7 +3,7 @@
 #![allow(unused_imports)]
 
 mod editor;
-mod safe_delete;
+pub(crate) mod safe_delete;
 mod undo;
 
 pub use editor::FileEditor;

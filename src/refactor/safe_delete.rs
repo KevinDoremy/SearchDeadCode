@@ -6,6 +6,63 @@ use miette::{IntoDiagnostic, Result};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+/// What a deletion actually removed. Line-based (brace matching), which can
+/// differ from the declaration's byte span — this is the source of truth for
+/// shifting the remaining findings of the same file.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Deletion {
+    /// 1-based first removed line
+    pub start_line: usize,
+    /// Number of lines actually removed
+    pub removed_lines: usize,
+    /// Number of bytes actually removed
+    pub removed_bytes: usize,
+}
+
+/// Delta-style preview: the exact lines a deletion would remove, prefixed
+/// with a red minus. Falls back to a one-line description when the source
+/// cannot be read.
+pub(crate) fn removal_diff(item: &DeadCode) -> String {
+    let id = &item.declaration.id;
+    let Ok(content) = std::fs::read_to_string(&id.file) else {
+        return format!(
+            "  {} {} at {}:{}",
+            item.declaration.kind.display_name(),
+            item.declaration.name.white(),
+            item.declaration.location.file.display(),
+            item.declaration.location.line
+        );
+    };
+
+    let end = id.end.min(content.len());
+    let start = id.start.min(end);
+    let snippet = &content[start..end];
+    let first_line = item.declaration.location.line;
+
+    let mut out = String::new();
+    out.push('\n');
+    out.push_str(
+        &format!(
+            "── {}:{} ({} {}) ",
+            item.declaration.location.file.display(),
+            first_line,
+            item.declaration.kind.display_name(),
+            item.declaration.name
+        )
+        .dimmed()
+        .to_string(),
+    );
+    for (offset, line) in snippet.lines().enumerate() {
+        out.push('\n');
+        out.push_str(&format!(
+            "{:>5} {}",
+            first_line + offset,
+            format!("- {}", line).red()
+        ));
+    }
+    out
+}
+
 /// Safe delete functionality with user confirmation
 pub struct SafeDeleter {
     interactive: bool,
@@ -80,15 +137,8 @@ impl SafeDeleter {
         println!("{}", "Deleting dead code...".cyan().bold());
 
         for item in &selected {
-            if let Some(ref mut script) = undo_script {
-                // Record for undo
-                if let Ok(contents) = std::fs::read_to_string(&item.declaration.location.file) {
-                    script.record_file_state(&item.declaration.location.file, &contents);
-                }
-            }
-
-            // Perform deletion
-            match self.delete_declaration(item) {
+            // Perform deletion (undo state is recorded inside)
+            match self.delete_one(item, &mut undo_script) {
                 Ok(_) => {
                     println!(
                         "  {} Deleted {} '{}'",
@@ -118,42 +168,42 @@ impl SafeDeleter {
         Ok(())
     }
 
-    /// Delta-style preview: the exact lines a deletion would remove,
-    /// prefixed with a red minus. Falls back to the one-line description
-    /// when the source cannot be read.
     fn print_removal_diff(&self, item: &DeadCode) {
-        let id = &item.declaration.id;
-        let Ok(content) = std::fs::read_to_string(&id.file) else {
-            println!(
-                "  {} {} at {}:{}",
-                item.declaration.kind.display_name(),
-                item.declaration.name.white(),
-                item.declaration.location.file.display(),
-                item.declaration.location.line
-            );
-            return;
-        };
+        println!("{}", removal_diff(item));
+    }
 
-        let end = id.end.min(content.len());
-        let start = id.start.min(end);
-        let snippet = &content[start..end];
-        let first_line = item.declaration.location.line;
+    /// Delete one item: record the pre-delete state for undo, then remove the
+    /// declaration. Returns what was actually removed.
+    pub(crate) fn delete_one(
+        &self,
+        item: &DeadCode,
+        undo: &mut Option<UndoScript>,
+    ) -> Result<Deletion> {
+        let file_path = &item.declaration.location.file;
+        let contents = std::fs::read_to_string(file_path).into_diagnostic()?;
 
-        println!();
-        println!(
-            "{}",
-            format!(
-                "── {}:{} ({} {}) ",
-                item.declaration.location.file.display(),
-                first_line,
-                item.declaration.kind.display_name(),
-                item.declaration.name
-            )
-            .dimmed()
-        );
-        for (offset, line) in snippet.lines().enumerate() {
-            println!("{:>5} {}", first_line + offset, format!("- {}", line).red());
+        if let Some(script) = undo {
+            script.record_file_state(file_path, &contents);
         }
+
+        let lines: Vec<&str> = contents.lines().collect();
+        let start_idx = item.declaration.location.line.saturating_sub(1);
+        let end_idx = self.find_declaration_end(&lines, start_idx);
+
+        let new_lines: Vec<&str> = lines
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| *i < start_idx || *i > end_idx)
+            .map(|(_, line)| *line)
+            .collect();
+        let new_contents = new_lines.join("\n");
+        std::fs::write(file_path, &new_contents).into_diagnostic()?;
+
+        Ok(Deletion {
+            start_line: start_idx + 1,
+            removed_lines: end_idx - start_idx + 1,
+            removed_bytes: contents.len().saturating_sub(new_contents.len()),
+        })
     }
 
     /// Interactive selection mode - confirm each item
@@ -233,34 +283,8 @@ impl SafeDeleter {
         Ok(selected)
     }
 
-    /// Delete a single declaration from its file
-    fn delete_declaration(&self, dead_code: &DeadCode) -> Result<()> {
-        let file_path = &dead_code.declaration.location.file;
-        let contents = std::fs::read_to_string(file_path).into_diagnostic()?;
-
-        let lines: Vec<&str> = contents.lines().collect();
-        let start_line = dead_code.declaration.location.line.saturating_sub(1);
-
-        // Find the end of the declaration (simple heuristic)
-        let end_line = self.find_declaration_end(&lines, start_line);
-
-        // Remove the lines
-        let mut new_lines: Vec<&str> = Vec::new();
-        for (i, line) in lines.iter().enumerate() {
-            if i < start_line || i > end_line {
-                new_lines.push(line);
-            }
-        }
-
-        // Write back
-        let new_contents = new_lines.join("\n");
-        std::fs::write(file_path, new_contents).into_diagnostic()?;
-
-        Ok(())
-    }
-
     /// Find the end line of a declaration (simple brace matching)
-    fn find_declaration_end(&self, lines: &[&str], start_line: usize) -> usize {
+    pub(crate) fn find_declaration_end(&self, lines: &[&str], start_line: usize) -> usize {
         let mut brace_count = 0;
         let mut found_open = false;
 
@@ -289,5 +313,103 @@ impl SafeDeleter {
         }
 
         start_line
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::analysis::DeadCodeIssue;
+    use crate::graph::{Declaration, DeclarationId, DeclarationKind, Language, Location};
+    use std::path::Path;
+
+    /// Two small classes; byte offsets computed from the literal below.
+    const TWO_CLASSES: &str =
+        "class Alpha {\n    fun a() {}\n}\n\nclass Beta {\n    fun b() {}\n}\n";
+
+    fn finding_at(file: &Path, name: &str, line: usize, start: usize, end: usize) -> DeadCode {
+        let id = DeclarationId::new(file.to_path_buf(), start, end);
+        let location = Location::new(file.to_path_buf(), line, 1, start, end);
+        let decl = Declaration::new(
+            id,
+            name.to_string(),
+            DeclarationKind::Class,
+            location,
+            Language::Kotlin,
+        );
+        DeadCode::new(decl, DeadCodeIssue::Unreferenced)
+    }
+
+    #[test]
+    fn removal_diff_prefixes_the_doomed_lines() {
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("Alpha.kt");
+        std::fs::write(&file, TWO_CLASSES).unwrap();
+        let alpha_end = TWO_CLASSES.find("}\n").unwrap() + 1;
+        let item = finding_at(&file, "Alpha", 1, 0, alpha_end);
+
+        let diff = removal_diff(&item);
+
+        assert!(diff.contains("- class Alpha {"), "diff was:\n{diff}");
+        assert!(
+            !diff.contains("Beta"),
+            "only the doomed span, diff was:\n{diff}"
+        );
+    }
+
+    #[test]
+    fn removal_diff_falls_back_when_source_is_unreadable() {
+        let item = finding_at(Path::new("/nonexistent/X.kt"), "Ghost", 3, 0, 10);
+
+        let diff = removal_diff(&item);
+
+        assert!(diff.contains("Ghost"), "diff was:\n{diff}");
+    }
+
+    #[test]
+    fn delete_one_reports_what_was_removed_and_records_undo() {
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("Code.kt");
+        std::fs::write(&file, TWO_CLASSES).unwrap();
+        let item = finding_at(&file, "Alpha", 1, 0, 30);
+        let deleter = SafeDeleter::new(false, false, None);
+        let mut undo = Some(UndoScript::new());
+
+        let deletion = deleter.delete_one(&item, &mut undo).unwrap();
+
+        assert_eq!(deletion.start_line, 1);
+        assert_eq!(deletion.removed_lines, 3, "class block spans three lines");
+        assert!(deletion.removed_bytes > 0);
+        let remaining = std::fs::read_to_string(&file).unwrap();
+        assert!(!remaining.contains("Alpha"));
+        assert!(remaining.contains("Beta"), "the neighbor survives");
+        assert_eq!(undo.as_ref().unwrap().file_count(), 1);
+    }
+
+    #[test]
+    fn two_successive_deletes_in_the_same_file_hit_the_right_blocks() {
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("Code.kt");
+        std::fs::write(&file, TWO_CLASSES).unwrap();
+        let deleter = SafeDeleter::new(false, false, None);
+        let mut undo = None;
+
+        let alpha = finding_at(&file, "Alpha", 1, 0, 30);
+        let first = deleter.delete_one(&alpha, &mut undo).unwrap();
+
+        // Beta was declared at line 5; after the first deletion it shifted up
+        let shifted_line = 5 - first.removed_lines - 1; // one blank line also gone? no: lines strictly inside the block
+        let beta_line = 5 - first.removed_lines;
+        let _ = shifted_line;
+        let beta = finding_at(&file, "Beta", beta_line, 0, 0);
+        deleter.delete_one(&beta, &mut undo).unwrap();
+
+        let remaining = std::fs::read_to_string(&file).unwrap();
+        assert!(!remaining.contains("Alpha"), "remaining:\n{remaining}");
+        assert!(!remaining.contains("Beta"), "remaining:\n{remaining}");
+        assert!(
+            !remaining.contains("fun"),
+            "both bodies gone, remaining:\n{remaining}"
+        );
     }
 }

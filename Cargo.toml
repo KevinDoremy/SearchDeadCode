@@ -1,6 +1,6 @@
 [package]
 name = "searchdeadcode"
-version = "0.9.0"
+version = "0.10.0"
 edition = "2021"
 default-run = "searchdeadcode"
 rust-version = "1.80"  # MSRV - Minimum Supported Rust Version (LazyLock)
@@ -57,7 +57,7 @@ thiserror = "2.0"
 anyhow = "1.0"
 
 # Interactive prompts
-dialoguer = "0.12"
+dialoguer = { version = "0.12", features = ["fuzzy-select"] }
 
 # File watching
 notify = "8.0"
@@ -124,6 +124,10 @@ path = "tests/integration/flag_tests.rs"
 [[test]]
 name = "ux"
 path = "tests/integration/ux_tests.rs"
+
+[[test]]
+name = "interactive"
+path = "tests/integration/interactive_tests.rs"
 
 [[test]]
 name = "detectors"
