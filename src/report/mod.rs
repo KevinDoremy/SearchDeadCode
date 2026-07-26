@@ -100,8 +100,11 @@ impl Reporter {
     pub fn report(&self, dead_code: &[DeadCode]) -> Result<()> {
         match &self.format {
             ReportFormat::Terminal => {
-                let reporter =
+                let mut reporter =
                     TerminalReporter::new().with_confidence(self.options.show_confidence);
+                if let Some(base) = &self.options.base_path {
+                    reporter = reporter.with_base_path(base.clone());
+                }
                 reporter.report(dead_code)?;
                 // Always show full summary at the end
                 self.print_final_summary(dead_code);

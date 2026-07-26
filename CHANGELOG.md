@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-07-26
+
+### Changed
+- Report file headers are relative to the analyzed root.
+- Annotations only render on digestible reports (≤ 20 findings); big reports
+  keep one line per finding.
+
+### Added
+- `docs/cli-tour.md`: every important command with its real output, linked
+  from the README.
+
 ## [0.7.0] - 2026-07-26
 
 ### Added
