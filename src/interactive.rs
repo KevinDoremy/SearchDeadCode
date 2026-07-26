@@ -6,6 +6,7 @@
 
 use crate::analysis::DeadCode;
 use crate::graph::{DeclarationId, Graph};
+use crate::refactor::safe_delete::Deletion;
 use miette::Result;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -61,6 +62,26 @@ fn format_row(dc: &DeadCode, base: &Path, approx_lines: usize) -> String {
         approx_lines,
         risk
     )
+}
+
+/// After a deletion, update the remaining findings of that file: drop those
+/// whose line fell inside the removed range (nested members), shift the line
+/// and byte offsets of everything below. Other files are untouched.
+#[allow(dead_code)] // consumed by the dialoguer loop, landing next
+fn apply_deletion(findings: &mut Vec<DeadCode>, file: &Path, del: &Deletion) {
+    let removed_end = del.start_line + del.removed_lines; // exclusive
+    findings.retain(|dc| {
+        dc.declaration.location.file != file
+            || dc.declaration.location.line < del.start_line
+            || dc.declaration.location.line >= removed_end
+    });
+    for dc in findings.iter_mut() {
+        if dc.declaration.location.file == file && dc.declaration.location.line >= removed_end {
+            dc.declaration.location.line -= del.removed_lines;
+            dc.declaration.id.start = dc.declaration.id.start.saturating_sub(del.removed_bytes);
+            dc.declaration.id.end = dc.declaration.id.end.saturating_sub(del.removed_bytes);
+        }
+    }
 }
 
 /// Line count of the declaration's byte span, as a size estimate
@@ -151,6 +172,81 @@ mod tests {
             !row.contains('\u{1b}'),
             "fuzzy matching needs plain text, row was: {row:?}"
         );
+    }
+
+    fn deletion(start_line: usize, removed_lines: usize, removed_bytes: usize) -> Deletion {
+        Deletion {
+            start_line,
+            removed_lines,
+            removed_bytes,
+        }
+    }
+
+    #[test]
+    fn apply_deletion_drops_findings_inside_the_removed_range() {
+        let file = Path::new("/p/Code.kt");
+        let mut findings = vec![
+            finding(
+                "Removed",
+                "/p/Code.kt",
+                5,
+                Severity::Warning,
+                RiskLevel::Low,
+            ),
+            finding("Nested", "/p/Code.kt", 6, Severity::Warning, RiskLevel::Low),
+        ];
+
+        apply_deletion(&mut findings, file, &deletion(5, 3, 60));
+
+        assert!(findings.is_empty(), "both fall inside lines 5..8");
+    }
+
+    #[test]
+    fn apply_deletion_shifts_later_findings_of_the_same_file() {
+        let file = Path::new("/p/Code.kt");
+        let mut below = finding("Below", "/p/Code.kt", 20, Severity::Warning, RiskLevel::Low);
+        below.declaration.id.start = 500;
+        below.declaration.id.end = 700;
+        let mut findings = vec![below];
+
+        apply_deletion(&mut findings, file, &deletion(5, 3, 60));
+
+        assert_eq!(findings[0].declaration.location.line, 17);
+        assert_eq!(findings[0].declaration.id.start, 440);
+        assert_eq!(findings[0].declaration.id.end, 640);
+    }
+
+    #[test]
+    fn apply_deletion_leaves_earlier_findings_untouched() {
+        let file = Path::new("/p/Code.kt");
+        let mut findings = vec![finding(
+            "Above",
+            "/p/Code.kt",
+            2,
+            Severity::Warning,
+            RiskLevel::Low,
+        )];
+
+        apply_deletion(&mut findings, file, &deletion(5, 3, 60));
+
+        assert_eq!(findings[0].declaration.location.line, 2);
+        assert_eq!(findings[0].declaration.id.start, 100);
+    }
+
+    #[test]
+    fn apply_deletion_ignores_other_files() {
+        let mut findings = vec![finding(
+            "Elsewhere",
+            "/p/Other.kt",
+            10,
+            Severity::Warning,
+            RiskLevel::Low,
+        )];
+
+        apply_deletion(&mut findings, Path::new("/p/Code.kt"), &deletion(5, 3, 60));
+
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].declaration.location.line, 10);
     }
 
     #[test]
