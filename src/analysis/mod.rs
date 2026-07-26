@@ -10,6 +10,7 @@ mod hybrid;
 pub mod kill_list;
 mod reachability;
 pub mod resources;
+pub mod risk;
 
 pub use cycles::CycleDetector;
 pub use deep::DeepAnalyzer;
@@ -64,6 +65,25 @@ impl std::fmt::Display for Confidence {
     }
 }
 
+/// How risky it is to delete a finding, based on signals static analysis
+/// cannot fully resolve (string references, reflection, event bus)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum RiskLevel {
+    Low,
+    Medium,
+    High,
+}
+
+impl std::fmt::Display for RiskLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RiskLevel::Low => write!(f, "low"),
+            RiskLevel::Medium => write!(f, "medium"),
+            RiskLevel::High => write!(f, "high"),
+        }
+    }
+}
+
 /// Represents a piece of dead code detected by analysis
 #[derive(Debug, Clone)]
 pub struct DeadCode {
@@ -84,6 +104,9 @@ pub struct DeadCode {
 
     /// Whether runtime coverage data confirmed this is unused
     pub runtime_confirmed: bool,
+
+    /// Deletion risk based on soft signals (string refs, reflection, bus)
+    pub risk: RiskLevel,
 }
 
 impl DeadCode {
@@ -98,6 +121,7 @@ impl DeadCode {
             confidence: Confidence::Medium, // Default for static-only analysis
             message,
             runtime_confirmed: false,
+            risk: RiskLevel::Low,
         }
     }
 

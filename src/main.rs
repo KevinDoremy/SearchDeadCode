@@ -1587,6 +1587,10 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         dead_code
     };
 
+    // Step 13b: Assess deletion risk on the final findings
+    let mut dead_code = dead_code;
+    analysis::risk::assess(&mut dead_code, &files);
+
     // Step 14: Report results
     let report_format = determine_report_format(cli);
     let mut report_options = report::ReportOptions::new();

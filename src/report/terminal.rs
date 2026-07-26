@@ -127,17 +127,25 @@ impl TerminalReporter {
             String::new()
         };
 
+        // Risk badge: only medium/high, low stays quiet
+        let risk_badge = match item.risk {
+            crate::analysis::RiskLevel::High => " [risk: high]".red().bold().to_string(),
+            crate::analysis::RiskLevel::Medium => " [risk: medium]".yellow().to_string(),
+            crate::analysis::RiskLevel::Low => String::new(),
+        };
+
         // Issue code
         let issue_code = StructureColors::rule_code(item.issue.code());
 
         println!(
-            "  {}{} {} [{}] {}{}",
+            "  {}{} {} [{}] {}{}{}",
             confidence_indicator,
             StructureColors::location(&location),
             severity_symbol,
             issue_code,
             item.message,
-            runtime_badge
+            runtime_badge,
+            risk_badge
         );
 
         // Print declaration info
