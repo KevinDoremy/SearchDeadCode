@@ -55,6 +55,10 @@ impl TerminalReporter {
             self.print_legend();
         }
 
+        // Less is more: source annotations earn their lines on digestible
+        // reports; past that, one line per finding keeps the report scannable
+        let annotate = dead_code.len() <= 20;
+
         // Print by file
         let mut files: Vec<_> = by_file.keys().collect();
         files.sort();
@@ -69,9 +73,13 @@ impl TerminalReporter {
             );
 
             // Source lines for rustc-style annotations, read once per file
-            let source_lines: Option<Vec<String>> = std::fs::read_to_string(file)
-                .ok()
-                .map(|content| content.lines().map(String::from).collect());
+            let source_lines: Option<Vec<String>> = if annotate {
+                std::fs::read_to_string(file)
+                    .ok()
+                    .map(|content| content.lines().map(String::from).collect())
+            } else {
+                None
+            };
 
             // Sort items by line number
             let mut sorted_items: Vec<_> = items.iter().collect();
@@ -79,7 +87,9 @@ impl TerminalReporter {
 
             for item in sorted_items {
                 self.print_item(item);
-                self.print_annotation(item, source_lines.as_deref());
+                if annotate {
+                    self.print_annotation(item, source_lines.as_deref());
+                }
             }
 
             println!();

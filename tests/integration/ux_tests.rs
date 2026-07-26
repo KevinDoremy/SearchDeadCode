@@ -121,6 +121,35 @@ fn compact_report_stays_one_line_per_finding() {
 }
 
 #[test]
+fn big_reports_skip_annotations_to_stay_readable() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(
+        temp.path().join("Main.kt"),
+        "package sample\n\nfun main() {}\n",
+    )
+    .unwrap();
+    let mut many = String::from("package sample\n\n");
+    for i in 0..25 {
+        many.push_str(&format!(
+            "class DeadThing{i} {{\n    fun poke() {{}}\n}}\n\n"
+        ));
+    }
+    fs::write(temp.path().join("ManyDead.kt"), many).unwrap();
+
+    let output = run(temp.path(), &[]);
+
+    let stdout = stdout_of(&output);
+    assert!(
+        stdout.contains("DeadThing0"),
+        "findings are still listed, stdout was:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("^^^"),
+        "less is more: big reports keep one line per finding, stdout was:\n{stdout}"
+    );
+}
+
+#[test]
 fn json_on_stdout_is_pure_json() {
     let temp = tempfile::tempdir().unwrap();
     write_sample_project(temp.path());
