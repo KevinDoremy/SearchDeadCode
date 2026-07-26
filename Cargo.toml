@@ -106,6 +106,10 @@ name = "risk"
 path = "tests/integration/risk_tests.rs"
 
 [[test]]
+name = "dagger"
+path = "tests/integration/dagger_tests.rs"
+
+[[test]]
 name = "detectors"
 path = "tests/integration/detector_tests.rs"
 

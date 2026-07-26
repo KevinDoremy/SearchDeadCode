@@ -164,6 +164,16 @@ impl DeepAnalyzer {
             // Find all members of this type
             for decl in graph.declarations() {
                 if decl.parent.as_ref() == Some(&type_id) {
+                    // Only follow property/field initializers: following method
+                    // edges would resurrect everything a dead method references
+                    // (e.g. an unconsumed @Provides body)
+                    if !matches!(
+                        decl.kind,
+                        crate::graph::DeclarationKind::Property
+                            | crate::graph::DeclarationKind::Field
+                    ) {
+                        continue;
+                    }
                     // Follow edges from this member
                     if let Some(member_idx) = graph.node_index(&decl.id) {
                         for neighbor in inner_graph.neighbors(member_idx) {

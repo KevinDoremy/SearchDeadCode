@@ -447,6 +447,10 @@ impl KotlinParser {
         decl.annotations = self.extract_annotations(node, source);
         decl.parent = parent;
 
+        // Return type (e.g., "fun provide(): Engine" -> "Engine"); same node
+        // shapes as property types
+        decl.type_name = self.extract_property_type(node, source);
+
         // Extract extension receiver type (e.g., fun String.myExtension())
         if let Some(receiver_type) = self.extract_extension_receiver(node, source) {
             // Add a reference to the receiver type so it's not marked as dead code

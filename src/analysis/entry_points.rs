@@ -66,7 +66,7 @@ impl<'a> EntryPointDetector<'a> {
     /// Detect entry points from code analysis (annotations, inheritance)
     fn detect_code_entry_points(&self, graph: &Graph, entry_points: &mut HashSet<DeclarationId>) {
         for decl in graph.declarations() {
-            if self.is_code_entry_point(decl) {
+            if self.is_code_entry_point(graph, decl) {
                 debug!(
                     "Code entry point: {} ({})",
                     decl.name,
@@ -78,7 +78,17 @@ impl<'a> EntryPointDetector<'a> {
     }
 
     /// Check if a declaration is an entry point based on code analysis
-    fn is_code_entry_point(&self, decl: &Declaration) -> bool {
+    fn is_code_entry_point(&self, graph: &Graph, decl: &Declaration) -> bool {
+        // DI providers (@Provides/@Binds) are roots only when their produced
+        // type is actually consumed — an orphan binding is dead code
+        let is_di_provider = decl
+            .annotations
+            .iter()
+            .any(|a| a.contains("Provides") || a.contains("Binds"));
+        if is_di_provider && di_binding_is_consumed(graph, decl) {
+            return true;
+        }
+
         // Check Android components by inheritance
         if decl.is_android_entry_point() {
             return true;
@@ -127,10 +137,10 @@ impl<'a> EntryPointDetector<'a> {
             "Composable",
             "Preview",
             "PreviewParameter",
-            // Dagger/Hilt
+            // Dagger/Hilt — Provides/Binds are handled conditionally in
+            // is_code_entry_point: a provider is a root only when its
+            // produced type is consumed somewhere
             "Inject",
-            "Provides",
-            "Binds",
             "BindsInstance",
             "BindsOptionalOf",
             "Module",
@@ -499,6 +509,56 @@ impl<'a> EntryPointDetector<'a> {
             }
         }
     }
+}
+
+/// Is the type produced by this @Provides/@Binds method consumed anywhere?
+///
+/// Consumption = an incoming reference to the produced type that is neither
+/// the provider itself, nor another provider returning the same type, nor a
+/// subtype implementing it (an interface's implementations are not users).
+/// Providers without return-type information stay conservative roots.
+fn di_binding_is_consumed(graph: &Graph, provider: &Declaration) -> bool {
+    let Some(produced) = provider.type_name.as_deref() else {
+        return true;
+    };
+    let produced_simple = produced
+        .split('<')
+        .next()
+        .unwrap_or(produced)
+        .trim()
+        .trim_end_matches('?');
+    if produced_simple.is_empty() {
+        return true;
+    }
+
+    for target in graph.find_by_name(produced_simple) {
+        for (referencer, _) in graph.get_references_to(&target.id) {
+            if referencer.id == provider.id {
+                continue;
+            }
+            let is_provider_of_same = referencer
+                .annotations
+                .iter()
+                .any(|a| a.contains("Provides") || a.contains("Binds"))
+                && referencer
+                    .type_name
+                    .as_deref()
+                    .map(|t| t.split('<').next().unwrap_or(t).trim() == produced_simple)
+                    .unwrap_or(false);
+            if is_provider_of_same {
+                continue;
+            }
+            if referencer
+                .super_types
+                .iter()
+                .any(|s| s.contains(produced_simple))
+            {
+                continue;
+            }
+            return true;
+        }
+    }
+    false
 }
 
 #[cfg(test)]

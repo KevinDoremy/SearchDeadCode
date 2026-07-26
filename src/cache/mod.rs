@@ -113,6 +113,10 @@ pub struct FileCacheEntry {
 pub struct AnalysisCache {
     /// Cache format version
     pub version: u32,
+    /// Tool version that produced the cache — parser behavior evolves, so a
+    /// cache from another version must not serve stale parse results
+    #[serde(default)]
+    pub tool_version: String,
     /// Project root path
     pub project_root: PathBuf,
     /// Cached file data, keyed by relative path
@@ -126,6 +130,7 @@ impl AnalysisCache {
     pub fn new(project_root: PathBuf) -> Self {
         Self {
             version: CACHE_VERSION,
+            tool_version: env!("CARGO_PKG_VERSION").to_string(),
             project_root,
             files: HashMap::new(),
             created_at: SystemTime::now()
@@ -141,7 +146,7 @@ impl AnalysisCache {
         let reader = BufReader::new(file);
         let cache: Self = serde_json::from_reader(reader)?;
 
-        if cache.version != CACHE_VERSION {
+        if cache.version != CACHE_VERSION || cache.tool_version != env!("CARGO_PKG_VERSION") {
             return Err(CacheError::VersionMismatch);
         }
 
