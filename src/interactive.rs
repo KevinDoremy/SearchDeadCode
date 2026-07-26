@@ -33,7 +33,7 @@ pub fn run_triage(
 /// One plain-text row per finding for the fuzzy list. No ANSI: the fuzzy
 /// matcher works on the raw string, escape codes would break filtering.
 #[allow(dead_code)] // consumed by the dialoguer loop, landing next
-fn format_row(dc: &DeadCode, base: &Path, approx_lines: usize) -> String {
+fn format_row(dc: &DeadCode, base: &Path, approx_lines: usize, dependent: bool) -> String {
     use crate::analysis::{RiskLevel, Severity};
 
     let symbol = match dc.severity {
@@ -52,16 +52,33 @@ fn format_row(dc: &DeadCode, base: &Path, approx_lines: usize) -> String {
         RiskLevel::Medium => "  [risk:med]",
         RiskLevel::Low => "",
     };
+    let marker = if dependent { " ↯" } else { "" };
     format!(
-        "{} {:<30} {:<10} {}:{}  ~{}L{}",
+        "{} {:<30} {:<10} {}:{}  ~{}L{}{}",
         symbol,
         dc.declaration.name,
         dc.declaration.kind.display_name(),
         path.display(),
         dc.declaration.location.line,
         approx_lines,
-        risk
+        risk,
+        marker
     )
+}
+
+/// Exclusive dependents of a deleted symbol: everything that only stayed
+/// alive through it (the target itself excluded)
+#[allow(dead_code)] // consumed by the dialoguer loop, landing next
+fn dependents_of(
+    graph: &Graph,
+    entry_points: &HashSet<DeclarationId>,
+    deleted: &DeclarationId,
+) -> HashSet<DeclarationId> {
+    let targets: HashSet<DeclarationId> = std::iter::once(deleted.clone()).collect();
+    crate::analysis::kill_list::kill_list(graph, entry_points, &targets)
+        .into_iter()
+        .filter(|id| id != deleted)
+        .collect()
 }
 
 /// After a deletion, update the remaining findings of that file: drop those
@@ -131,7 +148,7 @@ mod tests {
             RiskLevel::Low,
         );
 
-        let row = format_row(&dc, Path::new("/proj"), 12);
+        let row = format_row(&dc, Path::new("/proj"), 12, false);
 
         assert!(
             row.starts_with("▲ "),
@@ -151,8 +168,8 @@ mod tests {
         let low = finding("A", "/p/A.kt", 1, Severity::Info, RiskLevel::Low);
         let high = finding("B", "/p/B.kt", 1, Severity::Error, RiskLevel::High);
 
-        let low_row = format_row(&low, Path::new("/p"), 1);
-        let high_row = format_row(&high, Path::new("/p"), 1);
+        let low_row = format_row(&low, Path::new("/p"), 1, false);
+        let high_row = format_row(&high, Path::new("/p"), 1, false);
 
         assert!(!low_row.contains("risk"), "low risk stays quiet: {low_row}");
         assert!(
@@ -166,7 +183,7 @@ mod tests {
     fn rows_contain_no_ansi_escapes() {
         let dc = finding("X", "/p/X.kt", 1, Severity::Warning, RiskLevel::High);
 
-        let row = format_row(&dc, Path::new("/p"), 5);
+        let row = format_row(&dc, Path::new("/p"), 5, false);
 
         assert!(
             !row.contains('\u{1b}'),
@@ -247,6 +264,65 @@ mod tests {
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].declaration.location.line, 10);
+    }
+
+    #[test]
+    fn row_marks_dependents_of_a_deleted_symbol() {
+        let dc = finding("Orphan", "/p/O.kt", 1, Severity::Warning, RiskLevel::Low);
+
+        let plain = format_row(&dc, Path::new("/p"), 2, false);
+        let marked = format_row(&dc, Path::new("/p"), 2, true);
+
+        assert!(!plain.contains('↯'), "plain row: {plain}");
+        assert!(marked.ends_with(" ↯"), "marked row: {marked}");
+    }
+
+    #[test]
+    fn dependents_of_returns_exclusive_dependents_without_the_target() {
+        use crate::discovery::{FileType, SourceFile};
+        use crate::graph::GraphBuilder;
+
+        let temp = tempfile::tempdir().unwrap();
+        let root_path = temp.path().join("Root.kt");
+        std::fs::write(
+            &root_path,
+            "package s\n\nclass Root {\n    fun go() {\n        Leaf().poke()\n    }\n}\n",
+        )
+        .unwrap();
+        let leaf_path = temp.path().join("Leaf.kt");
+        std::fs::write(
+            &leaf_path,
+            "package s\n\nclass Leaf {\n    fun poke() {}\n}\n",
+        )
+        .unwrap();
+
+        let mut builder = GraphBuilder::new();
+        builder
+            .process_file(&SourceFile::new(root_path.clone(), FileType::Kotlin))
+            .unwrap();
+        builder
+            .process_file(&SourceFile::new(leaf_path, FileType::Kotlin))
+            .unwrap();
+        let graph = builder.build();
+
+        let root_id = graph
+            .find_by_name("Root")
+            .first()
+            .map(|d| d.id.clone())
+            .expect("Root parsed");
+        let leaf_id = graph
+            .find_by_name("Leaf")
+            .first()
+            .map(|d| d.id.clone())
+            .expect("Leaf parsed");
+
+        let dependents = dependents_of(&graph, &HashSet::new(), &root_id);
+
+        assert!(!dependents.contains(&root_id), "the target itself is out");
+        assert!(
+            dependents.contains(&leaf_id),
+            "Leaf only lives through Root"
+        );
     }
 
     #[test]
