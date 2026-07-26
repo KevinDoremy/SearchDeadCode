@@ -36,13 +36,21 @@ jobs:
           views=$(gh api "repos/${{ github.repository }}/traffic/views" \
             --jq '{count, uniques}' 2>/dev/null || echo '{}')
 
+          # Explicit fallbacks: ${var:-{}} appends a stray brace when the
+          # variable is set, corrupting the JSON
+          [ -n "$crates" ] || crates=0
+          [ -n "$assets" ] || assets=0
+          [ -n "$stars" ] || stars=0
+          [ -n "$clones" ] || clones='{}'
+          [ -n "$views" ] || views='{}'
+
           jq -c -n \
             --arg date "$date_utc" \
-            --argjson crates "${crates:-0}" \
-            --argjson assets "${assets:-0}" \
-            --argjson stars "${stars:-0}" \
-            --argjson clones "${clones:-{}}" \
-            --argjson views "${views:-{}}" \
+            --argjson crates "$crates" \
+            --argjson assets "$assets" \
+            --argjson stars "$stars" \
+            --argjson clones "$clones" \
+            --argjson views "$views" \
             '{date: $date, crates_io: $crates, github_assets: $assets,
               stars: $stars, clones_14d: $clones, views_14d: $views}' \
             >> stats/downloads.jsonl
