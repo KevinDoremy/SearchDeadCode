@@ -162,6 +162,19 @@ impl Reporter {
 
     /// Print the full summary at the end of any report
     fn print_final_summary(&self, dead_code: &[DeadCode]) {
+        // Less is more: a healthy project fits on one line, no summary block
+        if dead_code.is_empty() {
+            use colored::Colorize;
+            let files = self.options.files_count.unwrap_or(0);
+            let decls = self.options.declarations_count.unwrap_or(0);
+            println!(
+                "{} {}",
+                "✓".green().bold(),
+                format!("{} files, {} declarations — all alive", files, decls).dimmed()
+            );
+            return;
+        }
+
         let mut reporter = SummaryReporter::new()
             .with_top_n(self.options.top_n)
             .into_final_summary();
