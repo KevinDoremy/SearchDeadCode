@@ -168,6 +168,28 @@ fn report_paths_are_relative_to_the_project() {
 }
 
 #[test]
+fn progress_renders_as_aligned_phase_lines() {
+    let temp = tempfile::tempdir().unwrap();
+    write_sample_project(temp.path());
+
+    let output = run(temp.path(), &[]);
+
+    let stderr = stderr_of(&output);
+    assert!(
+        stderr.contains("✓ parsed"),
+        "phases render as checked lines, stderr was:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("✓ analysis"),
+        "the analysis phase is a checked line too, stderr was:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("Deep mode: aggressive"),
+        "the old banner style is gone, stderr was:\n{stderr}"
+    );
+}
+
+#[test]
 fn json_on_stdout_is_pure_json() {
     let temp = tempfile::tempdir().unwrap();
     write_sample_project(temp.path());
