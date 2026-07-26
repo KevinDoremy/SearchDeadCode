@@ -131,6 +131,36 @@ struct Cli {
     #[arg(long)]
     detect: Option<String>,
 
+    /// Explain why a symbol (simple name or FQN) is considered dead or alive
+    #[arg(long, value_name = "SYMBOL")]
+    explain: Option<String>,
+
+    /// Show everything that falls if this symbol is deleted (exclusive dependents)
+    #[arg(long, value_name = "SYMBOL")]
+    kill_list: Option<String>,
+
+    /// Group dead code findings into connected, deletable clusters
+    #[arg(long)]
+    clusters: bool,
+
+    /// Migration diff: OLD=NEW worlds (package prefix or path fragment).
+    /// Lists old-world symbols deletable at the flip and the blockers.
+    #[arg(long, value_name = "OLD=NEW")]
+    compare: Option<String>,
+
+    /// Generate a commented .deadcode.yml matching the project's shape
+    /// (source sets, DI framework, exclusions) and exit
+    #[arg(long)]
+    init: bool,
+
+    /// Feature flag cleanup: name (or key) of the flag being settled
+    #[arg(long, value_name = "NAME")]
+    flag: Option<String>,
+
+    /// Assumed final behavior of --flag
+    #[arg(long, value_enum, default_value = "enabled")]
+    behavior: FlagBehavior,
+
     /// Coverage files (JaCoCo XML, Kover XML, or LCOV format)
     /// Can be specified multiple times for merged coverage
     #[arg(long, value_name = "FILE")]
@@ -327,6 +357,13 @@ enum OutputFormat {
     Sarif,
 }
 
+#[derive(clap::ValueEnum, Clone, Copy, Debug, Default)]
+enum FlagBehavior {
+    #[default]
+    Enabled,
+    Disabled,
+}
+
 /// Determine the report format from CLI options
 fn determine_report_format(cli: &Cli) -> report::ReportFormat {
     // Explicit format flags take precedence
@@ -363,6 +400,20 @@ fn main() -> Result<()> {
         let name = cmd.get_name().to_string();
         generate(shell, &mut cmd, name, &mut std::io::stdout());
         return Ok(());
+    }
+
+    // Generate a starter config and exit
+    if cli.init {
+        match config::generate_config(&cli.path) {
+            Ok(path) => {
+                println!("✅ Wrote {}", path);
+                return Ok(());
+            }
+            Err(message) => {
+                eprintln!("{}", message);
+                std::process::exit(2);
+            }
+        }
     }
 
     // Initialize logging
@@ -641,6 +692,263 @@ fn load_config(cli: &Cli) -> Result<Config> {
     Ok(config)
 }
 
+/// Outermost entries of a declaration set with their estimated line total
+fn outermost_entries(graph: &graph::Graph, ids: &[graph::DeclarationId]) -> (Vec<String>, usize) {
+    let in_list: std::collections::HashSet<&graph::DeclarationId> = ids.iter().collect();
+    let mut estimated_lines = 0usize;
+    let mut entries = Vec::new();
+
+    for id in ids {
+        let Some(decl) = graph.get_declaration(id) else {
+            continue;
+        };
+        let is_outermost = decl
+            .parent
+            .as_ref()
+            .map(|p| !in_list.contains(p))
+            .unwrap_or(true);
+        if !is_outermost {
+            continue;
+        }
+        if let Ok(content) = std::fs::read(&id.file) {
+            let end = id.end.min(content.len());
+            let start = id.start.min(end);
+            estimated_lines += content[start..end].iter().filter(|b| **b == b'\n').count() + 1;
+        }
+        entries.push(format!(
+            "   - {} — {}:{}",
+            decl.name,
+            decl.location.file.display(),
+            decl.location.line
+        ));
+    }
+
+    (entries, estimated_lines)
+}
+
+/// Print dead code grouped into connected clusters, biggest first
+fn print_clusters(graph: &graph::Graph, clusters: Vec<Vec<graph::DeclarationId>>) {
+    let mut rendered: Vec<(Vec<String>, usize, usize)> = clusters
+        .into_iter()
+        .map(|ids| {
+            let (entries, lines) = outermost_entries(graph, &ids);
+            (entries, lines, ids.len())
+        })
+        .filter(|(entries, _, _)| !entries.is_empty())
+        .collect();
+    rendered.sort_by_key(|cluster| std::cmp::Reverse(cluster.1));
+
+    println!("🧩 {} deletable cluster(s), biggest first", rendered.len());
+    for (index, (entries, lines, count)) in rendered.iter().enumerate() {
+        println!(
+            "\nCluster {}: {} declaration(s), ~{} lines",
+            index + 1,
+            count,
+            lines
+        );
+        for entry in entries {
+            println!("{entry}");
+        }
+    }
+}
+
+/// Print the migration diff between the old world and everything else
+fn print_migration_report(
+    graph: &graph::Graph,
+    old_token: &str,
+    new_token: &str,
+    report: &analysis::migration::MigrationReport,
+) {
+    println!("🔀 Migration compare: {} → {}", old_token, new_token);
+
+    let deletable_ids: Vec<graph::DeclarationId> =
+        report.deletable.iter().map(|e| e.id.clone()).collect();
+    let (entries, lines) = outermost_entries(graph, &deletable_ids);
+    println!(
+        "\nDeletable at the flip ({} declarations, ~{} lines):",
+        deletable_ids.len(),
+        lines
+    );
+    for entry in entries {
+        println!("{entry}");
+    }
+
+    println!(
+        "\nStill referenced from outside ({} blockers):",
+        report.blockers.len()
+    );
+    for blocker in &report.blockers {
+        let Some(decl) = graph.get_declaration(&blocker.id) else {
+            continue;
+        };
+        let used_by = blocker
+            .blocked_by
+            .as_ref()
+            .and_then(|id| graph.get_declaration(id))
+            .map(|r| {
+                format!(
+                    ", used by {}:{} ({})",
+                    r.location.file.display(),
+                    r.location.line,
+                    r.name
+                )
+            })
+            .unwrap_or_default();
+        println!(
+            "   - {} — {}:{}{}",
+            decl.name,
+            decl.location.file.display(),
+            decl.location.line,
+            used_by
+        );
+    }
+}
+
+/// Print a kill-list: the target plus everything that only it kept alive
+fn print_kill_list(graph: &graph::Graph, symbol: &str, ids: &[graph::DeclarationId]) {
+    let (entries, estimated_lines) = outermost_entries(graph, ids);
+
+    println!(
+        "💀 Kill-list for {}: {} declarations, ~{} lines",
+        symbol,
+        ids.len(),
+        estimated_lines
+    );
+    for entry in entries {
+        println!("{entry}");
+    }
+}
+
+/// Print why a symbol is considered dead or alive
+fn explain_symbol(
+    graph: &graph::Graph,
+    entry_points: &std::collections::HashSet<graph::DeclarationId>,
+    reachable: &std::collections::HashSet<graph::DeclarationId>,
+    symbol: &str,
+) {
+    let candidates: Vec<&graph::Declaration> = match graph.find_by_fqn(symbol) {
+        Some(decl) => vec![decl],
+        None => graph.find_by_name(symbol),
+    };
+
+    if candidates.is_empty() {
+        println!("Symbol '{}' not found in the analyzed project.", symbol);
+        return;
+    }
+
+    for decl in candidates.iter().take(3) {
+        let display_name = decl.fully_qualified_name.as_deref().unwrap_or(&decl.name);
+        println!(
+            "\n🔎 Explain: {} ({:?}) — {}:{}",
+            display_name,
+            decl.kind,
+            decl.location.file.display(),
+            decl.location.line
+        );
+
+        let incoming = graph.get_references_to(&decl.id);
+        println!("   Incoming references: {}", incoming.len());
+        for (from, _) in incoming.iter().take(5) {
+            println!(
+                "     - referenced by {}:{} ({})",
+                from.location.file.display(),
+                from.location.line,
+                from.name
+            );
+        }
+
+        let is_entry = entry_points.contains(&decl.id);
+        let is_reachable = reachable.contains(&decl.id);
+        println!("   Roots checked:");
+        println!(
+            "     - entry point (manifest, layouts, navigation, menus, annotations, inheritance, config): {}",
+            if is_entry { "yes" } else { "no" }
+        );
+        println!(
+            "     - reachable from an entry point: {}",
+            if is_reachable { "yes" } else { "no" }
+        );
+
+        if is_entry || is_reachable {
+            println!("   Verdict: ALIVE");
+        } else {
+            println!("   Verdict: DEAD — no root retains this symbol");
+        }
+    }
+}
+
+/// Build the graph incrementally: parse changed files, load unchanged ones from cache
+fn build_graph_incremental(
+    files: &[discovery::SourceFile],
+    project_root: &std::path::Path,
+    cache_file: &std::path::Path,
+    cli: &Cli,
+) -> Result<graph::Graph> {
+    use cache::{FileCacheEntry, FileMetadata, IncrementalAnalyzer};
+    use discovery::FileType;
+    use miette::IntoDiagnostic;
+    use std::collections::HashSet;
+
+    let mut analyzer =
+        IncrementalAnalyzer::with_cache_path(project_root.to_path_buf(), cache_file.to_path_buf());
+    analyzer.prune();
+
+    let source_paths: Vec<PathBuf> = files
+        .iter()
+        .filter(|f| matches!(f.file_type, FileType::Kotlin | FileType::Java))
+        .map(|f| f.path.clone())
+        .collect();
+    let (to_parse, _) = analyzer.get_files_to_parse(&source_paths);
+    let to_parse: HashSet<PathBuf> = to_parse.into_iter().cloned().collect();
+
+    let mut builder = GraphBuilder::new();
+    let mut parsed_count = 0usize;
+    let mut cached_count = 0usize;
+
+    for file in files {
+        if !matches!(file.file_type, FileType::Kotlin | FileType::Java) {
+            continue; // XML files are handled later in the pipeline
+        }
+
+        if !to_parse.contains(&file.path) {
+            if let Some(entry) = analyzer.get_cached(&file.path) {
+                let parse_result = entry.parse_result.clone();
+                builder.add_parse_result(parse_result);
+                cached_count += 1;
+                continue;
+            }
+        }
+
+        if let Some(parse_result) = builder.parse_source(file)? {
+            let metadata = FileMetadata::from_path(&file.path).into_diagnostic()?;
+            analyzer.update_cache(
+                &file.path,
+                FileCacheEntry {
+                    metadata,
+                    parse_result: parse_result.clone(),
+                },
+            );
+            builder.add_parse_result(parse_result);
+            parsed_count += 1;
+        }
+    }
+
+    analyzer.save().into_diagnostic()?;
+
+    if !cli.quiet {
+        eprintln!(
+            "{}",
+            format!(
+                "⚡ Incremental: {} parsed, {} from cache",
+                parsed_count, cached_count
+            )
+            .cyan()
+        );
+    }
+
+    Ok(builder.build())
+}
+
 fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     use colored::Colorize;
     use indicatif::{ProgressBar, ProgressStyle};
@@ -655,13 +963,57 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
 
     info!("Found {} files to analyze", files.len());
 
+    // Step 1b: Drop phantom source sets (src/ dirs no build file accounts for)
+    let audit = discovery::detect_phantom_source_sets(&cli.path);
+    let files = if audit.phantom_dirs.is_empty() {
+        files
+    } else {
+        if !cli.quiet {
+            for dir in &audit.phantom_dirs {
+                eprintln!(
+                    "{}",
+                    format!(
+                        "⚠ Phantom source set (not part of the build), excluded: {}",
+                        dir.display()
+                    )
+                    .yellow()
+                );
+            }
+        }
+        files
+            .into_iter()
+            .filter(|f| !audit.phantom_dirs.iter().any(|d| f.path.starts_with(d)))
+            .collect()
+    };
+
     if files.is_empty() {
         println!("{}", "No Kotlin or Java files found.".yellow());
         return Ok(());
     }
 
     // Step 2: Parse files and build graph
-    let graph = if cli.parallel {
+    let cache_root = if cli.path.is_dir() {
+        cli.path.clone()
+    } else {
+        cli.path
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("."))
+    };
+    let cache_file = cli
+        .cache_path
+        .clone()
+        .unwrap_or_else(|| cache::AnalysisCache::default_cache_path(&cache_root));
+    if cli.clear_cache {
+        let _ = std::fs::remove_file(&cache_file);
+        if !cli.quiet {
+            eprintln!("{}", "🧹 Cache cleared".cyan());
+        }
+    }
+
+    let graph = if cli.incremental {
+        build_graph_incremental(&files, &cache_root, &cache_file, cli)?
+    } else if cli.parallel {
         // Parallel parsing mode
         if !cli.quiet {
             eprintln!(
@@ -714,6 +1066,71 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     let entry_points = entry_detector.detect(&graph, &cli.path)?;
 
     info!("Found {} entry points", entry_points.len());
+
+    // --explain short-circuits the normal report
+    if let Some(symbol) = cli.explain.as_deref() {
+        let enhanced = EnhancedAnalyzer::new();
+        let (_, reachable) = enhanced.analyze(&graph, &entry_points);
+        explain_symbol(&graph, &entry_points, &reachable, symbol);
+        return Ok(());
+    }
+
+    // --flag short-circuits the normal report
+    if let Some(flag_name) = cli.flag.as_deref() {
+        let enabled = matches!(cli.behavior, FlagBehavior::Enabled);
+        let report = analysis::flags::dead_under_flag(&files, flag_name, enabled);
+        println!(
+            "🚩 Flag cleanup: {} = {} ({} gate site(s))",
+            flag_name,
+            if enabled { "enabled" } else { "disabled" },
+            report.gate_count
+        );
+        if report.dead_symbols.is_empty() {
+            println!("Nothing dies with this flag.");
+        } else {
+            println!("Dead once the flag is burned in:");
+            for name in &report.dead_symbols {
+                match graph.find_by_name(name).first() {
+                    Some(decl) => println!(
+                        "   - {} — {}:{}",
+                        name,
+                        decl.location.file.display(),
+                        decl.location.line
+                    ),
+                    None => println!("   - {}", name),
+                }
+            }
+        }
+        return Ok(());
+    }
+
+    // --compare short-circuits the normal report
+    if let Some(spec) = cli.compare.as_deref() {
+        let (old_token, new_token) = spec.split_once('=').unwrap_or((spec, ""));
+        let report = analysis::migration::compare(&graph, old_token);
+        print_migration_report(&graph, old_token, new_token, &report);
+        return Ok(());
+    }
+
+    // --kill-list short-circuits the normal report
+    if let Some(symbol) = cli.kill_list.as_deref() {
+        let targets: std::collections::HashSet<graph::DeclarationId> =
+            match graph.find_by_fqn(symbol) {
+                Some(decl) => std::iter::once(decl.id.clone()).collect(),
+                None => graph
+                    .find_by_name(symbol)
+                    .iter()
+                    .map(|d| d.id.clone())
+                    .collect(),
+            };
+        if targets.is_empty() {
+            println!("Symbol '{}' not found in the analyzed project.", symbol);
+            return Ok(());
+        }
+        let list = analysis::kill_list::kill_list(&graph, &entry_points, &targets);
+        print_kill_list(&graph, symbol, &list);
+        return Ok(());
+    }
 
     // Step 4: Load ProGuard data early if available (needed for enhanced mode)
     let proguard_data = if let Some(ref usage_path) = cli.proguard_usage {
@@ -1298,6 +1715,10 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         dead_code
     };
 
+    // Step 13b: Assess deletion risk on the final findings
+    let mut dead_code = dead_code;
+    analysis::risk::assess(&mut dead_code, &files);
+
     // Step 14: Report results
     let report_format = determine_report_format(cli);
     let mut report_options = report::ReportOptions::new();
@@ -1309,8 +1730,15 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     report_options.files_count = Some(files.len());
     report_options.declarations_count = Some(graph.declarations().count());
 
-    let reporter = Reporter::with_options(report_format, report_options);
-    reporter.report(&dead_code)?;
+    if cli.clusters {
+        let dead_ids: std::collections::HashSet<graph::DeclarationId> =
+            dead_code.iter().map(|d| d.declaration.id.clone()).collect();
+        let clusters = analysis::kill_list::dead_clusters(&graph, &dead_ids);
+        print_clusters(&graph, clusters);
+    } else {
+        let reporter = Reporter::with_options(report_format, report_options);
+        reporter.report(&dead_code)?;
+    }
 
     // Print timing
     let elapsed = start_time.elapsed();

@@ -25,7 +25,7 @@ pub enum CacheError {
 }
 
 /// Current cache format version
-const CACHE_VERSION: u32 = 1;
+const CACHE_VERSION: u32 = 2;
 
 /// File metadata for change detection
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -98,40 +98,14 @@ impl FileMetadata {
     }
 }
 
-/// Cached data for a single file
+/// Cached data for a single file: the full parse result, so a cache hit
+/// rebuilds exactly the same graph as a fresh parse
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileCacheEntry {
     /// File metadata for change detection
     pub metadata: FileMetadata,
-    /// Declarations found in this file
-    pub declarations: Vec<CachedDeclaration>,
-    /// Unresolved references from this file
-    pub unresolved_references: Vec<CachedReference>,
-}
-
-/// Simplified declaration for caching
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CachedDeclaration {
-    pub id: String,
-    pub name: String,
-    pub kind: String,
-    pub line: usize,
-    pub column: usize,
-    pub fully_qualified_name: Option<String>,
-    pub parent_id: Option<String>,
-    pub annotations: Vec<String>,
-    pub modifiers: Vec<String>,
-    pub visibility: String,
-    pub language: String,
-}
-
-/// Simplified reference for caching
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CachedReference {
-    pub from_id: String,
-    pub target_name: String,
-    pub kind: String,
-    pub line: usize,
+    /// Complete parse result for this file
+    pub parse_result: crate::parser::ParseResult,
 }
 
 /// The complete cache structure
@@ -139,6 +113,10 @@ pub struct CachedReference {
 pub struct AnalysisCache {
     /// Cache format version
     pub version: u32,
+    /// Tool version that produced the cache — parser behavior evolves, so a
+    /// cache from another version must not serve stale parse results
+    #[serde(default)]
+    pub tool_version: String,
     /// Project root path
     pub project_root: PathBuf,
     /// Cached file data, keyed by relative path
@@ -152,6 +130,7 @@ impl AnalysisCache {
     pub fn new(project_root: PathBuf) -> Self {
         Self {
             version: CACHE_VERSION,
+            tool_version: env!("CARGO_PKG_VERSION").to_string(),
             project_root,
             files: HashMap::new(),
             created_at: SystemTime::now()
@@ -167,7 +146,7 @@ impl AnalysisCache {
         let reader = BufReader::new(file);
         let cache: Self = serde_json::from_reader(reader)?;
 
-        if cache.version != CACHE_VERSION {
+        if cache.version != CACHE_VERSION || cache.tool_version != env!("CARGO_PKG_VERSION") {
             return Err(CacheError::VersionMismatch);
         }
 
@@ -236,11 +215,15 @@ impl AnalysisCache {
     pub fn stats(&self) -> CacheStats {
         CacheStats {
             total_files: self.files.len(),
-            total_declarations: self.files.values().map(|e| e.declarations.len()).sum(),
+            total_declarations: self
+                .files
+                .values()
+                .map(|e| e.parse_result.declarations.len())
+                .sum(),
             total_references: self
                 .files
                 .values()
-                .map(|e| e.unresolved_references.len())
+                .map(|e| e.parse_result.references.len())
                 .sum(),
         }
     }
@@ -378,8 +361,7 @@ mod tests {
                     size: 100,
                     content_hash: "abc123".to_string(),
                 },
-                declarations: vec![],
-                unresolved_references: vec![],
+                parse_result: crate::parser::ParseResult::new(),
             },
         );
 

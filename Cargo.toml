@@ -1,6 +1,6 @@
 [package]
 name = "searchdeadcode"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 default-run = "searchdeadcode"
 rust-version = "1.80"  # MSRV - Minimum Supported Rust Version (LazyLock)
@@ -80,6 +80,46 @@ harness = false
 [[test]]
 name = "analysis"
 path = "tests/integration/analysis_test.rs"
+
+[[test]]
+name = "incremental_cache"
+path = "tests/integration/incremental_cache_tests.rs"
+
+[[test]]
+name = "source_sets"
+path = "tests/integration/source_set_tests.rs"
+
+[[test]]
+name = "explain"
+path = "tests/integration/explain_tests.rs"
+
+[[test]]
+name = "kill_list"
+path = "tests/integration/kill_list_tests.rs"
+
+[[test]]
+name = "clusters"
+path = "tests/integration/cluster_tests.rs"
+
+[[test]]
+name = "risk"
+path = "tests/integration/risk_tests.rs"
+
+[[test]]
+name = "dagger"
+path = "tests/integration/dagger_tests.rs"
+
+[[test]]
+name = "migration"
+path = "tests/integration/migration_tests.rs"
+
+[[test]]
+name = "init"
+path = "tests/integration/init_tests.rs"
+
+[[test]]
+name = "flags"
+path = "tests/integration/flag_tests.rs"
 
 [[test]]
 name = "detectors"

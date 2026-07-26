@@ -302,8 +302,6 @@ impl Declaration {
             "AfterEach",
             "JvmStatic",
             "BindingAdapter",
-            "Provides",
-            "Binds",
             "Inject",
             "HiltAndroidApp",
             "AndroidEntryPoint",

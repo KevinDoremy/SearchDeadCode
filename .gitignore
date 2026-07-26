@@ -17,3 +17,4 @@ sample_usage.txt
 # Cargo
 Cargo.toml.new
 Cargo.toml.tmp
+.searchdeadcode-cache.json
