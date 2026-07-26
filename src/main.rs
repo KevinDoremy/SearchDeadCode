@@ -131,6 +131,10 @@ struct Cli {
     #[arg(long)]
     detect: Option<String>,
 
+    /// Explain why a symbol (simple name or FQN) is considered dead or alive
+    #[arg(long, value_name = "SYMBOL")]
+    explain: Option<String>,
+
     /// Coverage files (JaCoCo XML, Kover XML, or LCOV format)
     /// Can be specified multiple times for merged coverage
     #[arg(long, value_name = "FILE")]
@@ -641,6 +645,64 @@ fn load_config(cli: &Cli) -> Result<Config> {
     Ok(config)
 }
 
+/// Print why a symbol is considered dead or alive
+fn explain_symbol(
+    graph: &graph::Graph,
+    entry_points: &std::collections::HashSet<graph::DeclarationId>,
+    reachable: &std::collections::HashSet<graph::DeclarationId>,
+    symbol: &str,
+) {
+    let candidates: Vec<&graph::Declaration> = match graph.find_by_fqn(symbol) {
+        Some(decl) => vec![decl],
+        None => graph.find_by_name(symbol),
+    };
+
+    if candidates.is_empty() {
+        println!("Symbol '{}' not found in the analyzed project.", symbol);
+        return;
+    }
+
+    for decl in candidates.iter().take(3) {
+        let display_name = decl.fully_qualified_name.as_deref().unwrap_or(&decl.name);
+        println!(
+            "\n🔎 Explain: {} ({:?}) — {}:{}",
+            display_name,
+            decl.kind,
+            decl.location.file.display(),
+            decl.location.line
+        );
+
+        let incoming = graph.get_references_to(&decl.id);
+        println!("   Incoming references: {}", incoming.len());
+        for (from, _) in incoming.iter().take(5) {
+            println!(
+                "     - referenced by {}:{} ({})",
+                from.location.file.display(),
+                from.location.line,
+                from.name
+            );
+        }
+
+        let is_entry = entry_points.contains(&decl.id);
+        let is_reachable = reachable.contains(&decl.id);
+        println!("   Roots checked:");
+        println!(
+            "     - entry point (manifest, layouts, navigation, menus, annotations, inheritance, config): {}",
+            if is_entry { "yes" } else { "no" }
+        );
+        println!(
+            "     - reachable from an entry point: {}",
+            if is_reachable { "yes" } else { "no" }
+        );
+
+        if is_entry || is_reachable {
+            println!("   Verdict: ALIVE");
+        } else {
+            println!("   Verdict: DEAD — no root retains this symbol");
+        }
+    }
+}
+
 /// Build the graph incrementally: parse changed files, load unchanged ones from cache
 fn build_graph_incremental(
     files: &[discovery::SourceFile],
@@ -830,6 +892,14 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     let entry_points = entry_detector.detect(&graph, &cli.path)?;
 
     info!("Found {} entry points", entry_points.len());
+
+    // --explain short-circuits the normal report
+    if let Some(symbol) = cli.explain.as_deref() {
+        let enhanced = EnhancedAnalyzer::new();
+        let (_, reachable) = enhanced.analyze(&graph, &entry_points);
+        explain_symbol(&graph, &entry_points, &reachable, symbol);
+        return Ok(());
+    }
 
     // Step 4: Load ProGuard data early if available (needed for enhanced mode)
     let proguard_data = if let Some(ref usage_path) = cli.proguard_usage {
