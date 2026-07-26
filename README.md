@@ -13,6 +13,7 @@
 [![Cargo downloads](https://img.shields.io/crates/d/searchdeadcode.svg?style=flat-square&label=cargo%20downloads)](https://crates.io/crates/searchdeadcode)
 [![GitHub downloads](https://img.shields.io/github/downloads/KevinDoremy/SearchDeadCode/total?style=flat-square&label=binary%20downloads)](https://github.com/KevinDoremy/SearchDeadCode/releases)
 [![Clones](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FKevinDoremy%2FSearchDeadCode%2Fstats%2Fstats%2Fclones-badge.json&style=flat-square)](https://github.com/KevinDoremy/SearchDeadCode/tree/stats/stats)
+[![Total clones](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FKevinDoremy%2FSearchDeadCode%2Fstats%2Fstats%2Fcumulative-badge.json&style=flat-square)](https://github.com/KevinDoremy/SearchDeadCode/tree/stats/stats)
 [![MSRV](https://img.shields.io/badge/MSRV-1.80-blue.svg?style=flat-square)](https://blog.rust-lang.org/2024/07/25/Rust-1.80.0.html)
 [![Homebrew](https://img.shields.io/badge/Homebrew-available-FBB040?logo=homebrew&logoColor=white&style=flat-square)](https://github.com/KevinDoremy/homebrew-tap)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
