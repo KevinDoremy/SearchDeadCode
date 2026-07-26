@@ -6,6 +6,7 @@ mod deep;
 pub mod detectors;
 mod enhanced;
 mod entry_points;
+pub mod flags;
 mod hybrid;
 pub mod kill_list;
 pub mod migration;

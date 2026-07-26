@@ -153,6 +153,14 @@ struct Cli {
     #[arg(long)]
     init: bool,
 
+    /// Feature flag cleanup: name (or key) of the flag being settled
+    #[arg(long, value_name = "NAME")]
+    flag: Option<String>,
+
+    /// Assumed final behavior of --flag
+    #[arg(long, value_enum, default_value = "enabled")]
+    behavior: FlagBehavior,
+
     /// Coverage files (JaCoCo XML, Kover XML, or LCOV format)
     /// Can be specified multiple times for merged coverage
     #[arg(long, value_name = "FILE")]
@@ -347,6 +355,13 @@ enum OutputFormat {
     Compact,
     Json,
     Sarif,
+}
+
+#[derive(clap::ValueEnum, Clone, Copy, Debug, Default)]
+enum FlagBehavior {
+    #[default]
+    Enabled,
+    Disabled,
 }
 
 /// Determine the report format from CLI options
@@ -1057,6 +1072,35 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         let enhanced = EnhancedAnalyzer::new();
         let (_, reachable) = enhanced.analyze(&graph, &entry_points);
         explain_symbol(&graph, &entry_points, &reachable, symbol);
+        return Ok(());
+    }
+
+    // --flag short-circuits the normal report
+    if let Some(flag_name) = cli.flag.as_deref() {
+        let enabled = matches!(cli.behavior, FlagBehavior::Enabled);
+        let report = analysis::flags::dead_under_flag(&files, flag_name, enabled);
+        println!(
+            "🚩 Flag cleanup: {} = {} ({} gate site(s))",
+            flag_name,
+            if enabled { "enabled" } else { "disabled" },
+            report.gate_count
+        );
+        if report.dead_symbols.is_empty() {
+            println!("Nothing dies with this flag.");
+        } else {
+            println!("Dead once the flag is burned in:");
+            for name in &report.dead_symbols {
+                match graph.find_by_name(name).first() {
+                    Some(decl) => println!(
+                        "   - {} — {}:{}",
+                        name,
+                        decl.location.file.display(),
+                        decl.location.line
+                    ),
+                    None => println!("   - {}", name),
+                }
+            }
+        }
         return Ok(());
     }
 

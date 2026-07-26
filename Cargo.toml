@@ -118,6 +118,10 @@ name = "init"
 path = "tests/integration/init_tests.rs"
 
 [[test]]
+name = "flags"
+path = "tests/integration/flag_tests.rs"
+
+[[test]]
 name = "detectors"
 path = "tests/integration/detector_tests.rs"
 
