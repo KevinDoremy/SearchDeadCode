@@ -25,6 +25,72 @@ pub fn kill_list(
     result
 }
 
+/// Partition dead declarations into connected clusters.
+///
+/// Connectivity runs through reference edges in both directions AND through
+/// parent/member links, over the dead set expanded with its members — two dead
+/// classes linked by a method call belong to the same cluster even when the
+/// method itself is not a separate finding.
+pub fn dead_clusters(graph: &Graph, dead: &HashSet<DeclarationId>) -> Vec<Vec<DeclarationId>> {
+    let expanded = with_members(graph, dead);
+
+    let mut parent_links: std::collections::HashMap<DeclarationId, Vec<DeclarationId>> =
+        std::collections::HashMap::new();
+    for decl in graph.declarations() {
+        if let Some(parent) = &decl.parent {
+            if expanded.contains(&decl.id) && expanded.contains(parent) {
+                parent_links
+                    .entry(parent.clone())
+                    .or_default()
+                    .push(decl.id.clone());
+                parent_links
+                    .entry(decl.id.clone())
+                    .or_default()
+                    .push(parent.clone());
+            }
+        }
+    }
+
+    let mut visited: HashSet<DeclarationId> = HashSet::new();
+    let mut clusters = Vec::new();
+
+    for id in &expanded {
+        if visited.contains(id) {
+            continue;
+        }
+        let mut component = Vec::new();
+        let mut queue = VecDeque::from([id.clone()]);
+        visited.insert(id.clone());
+
+        while let Some(current) = queue.pop_front() {
+            component.push(current.clone());
+
+            let referenced: Vec<DeclarationId> = graph
+                .get_references_from(&current)
+                .into_iter()
+                .map(|(d, _)| d.id.clone())
+                .chain(
+                    graph
+                        .get_references_to(&current)
+                        .into_iter()
+                        .map(|(d, _)| d.id.clone()),
+                )
+                .chain(parent_links.get(&current).cloned().unwrap_or_default())
+                .collect();
+
+            for neighbor in referenced {
+                if expanded.contains(&neighbor) && visited.insert(neighbor.clone()) {
+                    queue.push_back(neighbor);
+                }
+            }
+        }
+        component.sort_by(|a, b| a.file.cmp(&b.file).then(a.start.cmp(&b.start)));
+        clusters.push(component);
+    }
+
+    clusters
+}
+
 /// Expand a set of declarations with every declaration nested inside them
 fn with_members(graph: &Graph, targets: &HashSet<DeclarationId>) -> HashSet<DeclarationId> {
     let mut set = targets.clone();

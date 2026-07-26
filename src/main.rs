@@ -139,6 +139,10 @@ struct Cli {
     #[arg(long, value_name = "SYMBOL")]
     kill_list: Option<String>,
 
+    /// Group dead code findings into connected, deletable clusters
+    #[arg(long)]
+    clusters: bool,
+
     /// Coverage files (JaCoCo XML, Kover XML, or LCOV format)
     /// Can be specified multiple times for merged coverage
     #[arg(long, value_name = "FILE")]
@@ -649,8 +653,8 @@ fn load_config(cli: &Cli) -> Result<Config> {
     Ok(config)
 }
 
-/// Print a kill-list: the target plus everything that only it kept alive
-fn print_kill_list(graph: &graph::Graph, symbol: &str, ids: &[graph::DeclarationId]) {
+/// Outermost entries of a declaration set with their estimated line total
+fn outermost_entries(graph: &graph::Graph, ids: &[graph::DeclarationId]) -> (Vec<String>, usize) {
     let in_list: std::collections::HashSet<&graph::DeclarationId> = ids.iter().collect();
     let mut estimated_lines = 0usize;
     let mut entries = Vec::new();
@@ -659,26 +663,59 @@ fn print_kill_list(graph: &graph::Graph, symbol: &str, ids: &[graph::Declaration
         let Some(decl) = graph.get_declaration(id) else {
             continue;
         };
-        // Count every declaration's size, list only the outermost ones
+        let is_outermost = decl
+            .parent
+            .as_ref()
+            .map(|p| !in_list.contains(p))
+            .unwrap_or(true);
+        if !is_outermost {
+            continue;
+        }
         if let Ok(content) = std::fs::read(&id.file) {
             let end = id.end.min(content.len());
             let start = id.start.min(end);
-            let is_outermost = decl
-                .parent
-                .as_ref()
-                .map(|p| !in_list.contains(p))
-                .unwrap_or(true);
-            if is_outermost {
-                estimated_lines += content[start..end].iter().filter(|b| **b == b'\n').count() + 1;
-                entries.push(format!(
-                    "   - {} — {}:{}",
-                    decl.name,
-                    decl.location.file.display(),
-                    decl.location.line
-                ));
-            }
+            estimated_lines += content[start..end].iter().filter(|b| **b == b'\n').count() + 1;
+        }
+        entries.push(format!(
+            "   - {} — {}:{}",
+            decl.name,
+            decl.location.file.display(),
+            decl.location.line
+        ));
+    }
+
+    (entries, estimated_lines)
+}
+
+/// Print dead code grouped into connected clusters, biggest first
+fn print_clusters(graph: &graph::Graph, clusters: Vec<Vec<graph::DeclarationId>>) {
+    let mut rendered: Vec<(Vec<String>, usize, usize)> = clusters
+        .into_iter()
+        .map(|ids| {
+            let (entries, lines) = outermost_entries(graph, &ids);
+            (entries, lines, ids.len())
+        })
+        .filter(|(entries, _, _)| !entries.is_empty())
+        .collect();
+    rendered.sort_by_key(|cluster| std::cmp::Reverse(cluster.1));
+
+    println!("🧩 {} deletable cluster(s), biggest first", rendered.len());
+    for (index, (entries, lines, count)) in rendered.iter().enumerate() {
+        println!(
+            "\nCluster {}: {} declaration(s), ~{} lines",
+            index + 1,
+            count,
+            lines
+        );
+        for entry in entries {
+            println!("{entry}");
         }
     }
+}
+
+/// Print a kill-list: the target plus everything that only it kept alive
+fn print_kill_list(graph: &graph::Graph, symbol: &str, ids: &[graph::DeclarationId]) {
+    let (entries, estimated_lines) = outermost_entries(graph, ids);
 
     println!(
         "💀 Kill-list for {}: {} declarations, ~{} lines",
@@ -1561,8 +1598,15 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     report_options.files_count = Some(files.len());
     report_options.declarations_count = Some(graph.declarations().count());
 
-    let reporter = Reporter::with_options(report_format, report_options);
-    reporter.report(&dead_code)?;
+    if cli.clusters {
+        let dead_ids: std::collections::HashSet<graph::DeclarationId> =
+            dead_code.iter().map(|d| d.declaration.id.clone()).collect();
+        let clusters = analysis::kill_list::dead_clusters(&graph, &dead_ids);
+        print_clusters(&graph, clusters);
+    } else {
+        let reporter = Reporter::with_options(report_format, report_options);
+        reporter.report(&dead_code)?;
+    }
 
     // Print timing
     let elapsed = start_time.elapsed();
