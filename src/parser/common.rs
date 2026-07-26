@@ -3,10 +3,11 @@
 
 use crate::graph::{Declaration, Location, UnresolvedReference};
 use miette::Result;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 /// Result of parsing a source file
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParseResult {
     /// Declarations found in the file
     pub declarations: Vec<Declaration>,

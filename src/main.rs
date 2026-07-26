@@ -641,6 +641,78 @@ fn load_config(cli: &Cli) -> Result<Config> {
     Ok(config)
 }
 
+/// Build the graph incrementally: parse changed files, load unchanged ones from cache
+fn build_graph_incremental(
+    files: &[discovery::SourceFile],
+    project_root: &std::path::Path,
+    cache_file: &std::path::Path,
+    cli: &Cli,
+) -> Result<graph::Graph> {
+    use cache::{FileCacheEntry, FileMetadata, IncrementalAnalyzer};
+    use discovery::FileType;
+    use miette::IntoDiagnostic;
+    use std::collections::HashSet;
+
+    let mut analyzer =
+        IncrementalAnalyzer::with_cache_path(project_root.to_path_buf(), cache_file.to_path_buf());
+    analyzer.prune();
+
+    let source_paths: Vec<PathBuf> = files
+        .iter()
+        .filter(|f| matches!(f.file_type, FileType::Kotlin | FileType::Java))
+        .map(|f| f.path.clone())
+        .collect();
+    let (to_parse, _) = analyzer.get_files_to_parse(&source_paths);
+    let to_parse: HashSet<PathBuf> = to_parse.into_iter().cloned().collect();
+
+    let mut builder = GraphBuilder::new();
+    let mut parsed_count = 0usize;
+    let mut cached_count = 0usize;
+
+    for file in files {
+        if !matches!(file.file_type, FileType::Kotlin | FileType::Java) {
+            continue; // XML files are handled later in the pipeline
+        }
+
+        if !to_parse.contains(&file.path) {
+            if let Some(entry) = analyzer.get_cached(&file.path) {
+                let parse_result = entry.parse_result.clone();
+                builder.add_parse_result(parse_result);
+                cached_count += 1;
+                continue;
+            }
+        }
+
+        if let Some(parse_result) = builder.parse_source(file)? {
+            let metadata = FileMetadata::from_path(&file.path).into_diagnostic()?;
+            analyzer.update_cache(
+                &file.path,
+                FileCacheEntry {
+                    metadata,
+                    parse_result: parse_result.clone(),
+                },
+            );
+            builder.add_parse_result(parse_result);
+            parsed_count += 1;
+        }
+    }
+
+    analyzer.save().into_diagnostic()?;
+
+    if !cli.quiet {
+        eprintln!(
+            "{}",
+            format!(
+                "⚡ Incremental: {} parsed, {} from cache",
+                parsed_count, cached_count
+            )
+            .cyan()
+        );
+    }
+
+    Ok(builder.build())
+}
+
 fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     use colored::Colorize;
     use indicatif::{ProgressBar, ProgressStyle};
@@ -661,7 +733,28 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     }
 
     // Step 2: Parse files and build graph
-    let graph = if cli.parallel {
+    let cache_root = if cli.path.is_dir() {
+        cli.path.clone()
+    } else {
+        cli.path
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("."))
+    };
+    let cache_file = cli
+        .cache_path
+        .clone()
+        .unwrap_or_else(|| cache::AnalysisCache::default_cache_path(&cache_root));
+    if cli.clear_cache {
+        let _ = std::fs::remove_file(&cache_file);
+        if !cli.quiet {
+            eprintln!("{}", "🧹 Cache cleared".cyan());
+        }
+    }
+
+    let graph = if cli.incremental {
+        build_graph_incremental(&files, &cache_root, &cache_file, cli)?
+    } else if cli.parallel {
         // Parallel parsing mode
         if !cli.quiet {
             eprintln!(

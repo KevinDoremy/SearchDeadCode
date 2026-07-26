@@ -82,6 +82,10 @@ name = "analysis"
 path = "tests/integration/analysis_test.rs"
 
 [[test]]
+name = "incremental_cache"
+path = "tests/integration/incremental_cache_tests.rs"
+
+[[test]]
 name = "detectors"
 path = "tests/integration/detector_tests.rs"
 

@@ -66,15 +66,7 @@ impl GraphBuilder {
         debug!("Parsing Kotlin file: {}", path.display());
 
         let parse_result = self.kotlin_parser.parse(path, contents)?;
-
-        // Add declarations to graph (clone since we need to reference them later)
-        let declarations = parse_result.declarations.clone();
-        for decl in parse_result.declarations {
-            self.graph.add_declaration(decl);
-        }
-
-        // Store unresolved references for later resolution
-        self.store_unresolved_references(&declarations, parse_result.references);
+        self.add_parse_result(parse_result);
 
         Ok(())
     }
@@ -83,17 +75,32 @@ impl GraphBuilder {
         debug!("Parsing Java file: {}", path.display());
 
         let parse_result = self.java_parser.parse(path, contents)?;
+        self.add_parse_result(parse_result);
 
-        // Add declarations to graph (clone since we need to reference them later)
+        Ok(())
+    }
+
+    /// Parse a Kotlin or Java file without adding it to the graph.
+    /// Returns None for file types handled elsewhere (XML).
+    pub fn parse_source(
+        &mut self,
+        file: &SourceFile,
+    ) -> Result<Option<crate::parser::ParseResult>> {
+        let contents = file.read_contents()?;
+        match file.file_type {
+            FileType::Kotlin => Ok(Some(self.kotlin_parser.parse(&file.path, &contents)?)),
+            FileType::Java => Ok(Some(self.java_parser.parse(&file.path, &contents)?)),
+            _ => Ok(None),
+        }
+    }
+
+    /// Add a parse result (fresh or loaded from cache) to the graph
+    pub fn add_parse_result(&mut self, parse_result: crate::parser::ParseResult) {
         let declarations = parse_result.declarations.clone();
         for decl in parse_result.declarations {
             self.graph.add_declaration(decl);
         }
-
-        // Store unresolved references for later resolution
         self.store_unresolved_references(&declarations, parse_result.references);
-
-        Ok(())
     }
 
     /// Store unresolved references, attributing each to the correct enclosing declaration
