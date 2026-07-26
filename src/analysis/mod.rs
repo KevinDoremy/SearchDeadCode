@@ -7,6 +7,7 @@ pub mod detectors;
 mod enhanced;
 mod entry_points;
 mod hybrid;
+pub mod kill_list;
 mod reachability;
 pub mod resources;
 

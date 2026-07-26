@@ -135,6 +135,10 @@ struct Cli {
     #[arg(long, value_name = "SYMBOL")]
     explain: Option<String>,
 
+    /// Show everything that falls if this symbol is deleted (exclusive dependents)
+    #[arg(long, value_name = "SYMBOL")]
+    kill_list: Option<String>,
+
     /// Coverage files (JaCoCo XML, Kover XML, or LCOV format)
     /// Can be specified multiple times for merged coverage
     #[arg(long, value_name = "FILE")]
@@ -645,6 +649,48 @@ fn load_config(cli: &Cli) -> Result<Config> {
     Ok(config)
 }
 
+/// Print a kill-list: the target plus everything that only it kept alive
+fn print_kill_list(graph: &graph::Graph, symbol: &str, ids: &[graph::DeclarationId]) {
+    let in_list: std::collections::HashSet<&graph::DeclarationId> = ids.iter().collect();
+    let mut estimated_lines = 0usize;
+    let mut entries = Vec::new();
+
+    for id in ids {
+        let Some(decl) = graph.get_declaration(id) else {
+            continue;
+        };
+        // Count every declaration's size, list only the outermost ones
+        if let Ok(content) = std::fs::read(&id.file) {
+            let end = id.end.min(content.len());
+            let start = id.start.min(end);
+            let is_outermost = decl
+                .parent
+                .as_ref()
+                .map(|p| !in_list.contains(p))
+                .unwrap_or(true);
+            if is_outermost {
+                estimated_lines += content[start..end].iter().filter(|b| **b == b'\n').count() + 1;
+                entries.push(format!(
+                    "   - {} — {}:{}",
+                    decl.name,
+                    decl.location.file.display(),
+                    decl.location.line
+                ));
+            }
+        }
+    }
+
+    println!(
+        "💀 Kill-list for {}: {} declarations, ~{} lines",
+        symbol,
+        ids.len(),
+        estimated_lines
+    );
+    for entry in entries {
+        println!("{entry}");
+    }
+}
+
 /// Print why a symbol is considered dead or alive
 fn explain_symbol(
     graph: &graph::Graph,
@@ -898,6 +944,26 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         let enhanced = EnhancedAnalyzer::new();
         let (_, reachable) = enhanced.analyze(&graph, &entry_points);
         explain_symbol(&graph, &entry_points, &reachable, symbol);
+        return Ok(());
+    }
+
+    // --kill-list short-circuits the normal report
+    if let Some(symbol) = cli.kill_list.as_deref() {
+        let targets: std::collections::HashSet<graph::DeclarationId> =
+            match graph.find_by_fqn(symbol) {
+                Some(decl) => std::iter::once(decl.id.clone()).collect(),
+                None => graph
+                    .find_by_name(symbol)
+                    .iter()
+                    .map(|d| d.id.clone())
+                    .collect(),
+            };
+        if targets.is_empty() {
+            println!("Symbol '{}' not found in the analyzed project.", symbol);
+            return Ok(());
+        }
+        let list = analysis::kill_list::kill_list(&graph, &entry_points, &targets);
+        print_kill_list(&graph, symbol, &list);
         return Ok(());
     }
 

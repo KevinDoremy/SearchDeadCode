@@ -94,6 +94,10 @@ name = "explain"
 path = "tests/integration/explain_tests.rs"
 
 [[test]]
+name = "kill_list"
+path = "tests/integration/kill_list_tests.rs"
+
+[[test]]
 name = "detectors"
 path = "tests/integration/detector_tests.rs"
 
