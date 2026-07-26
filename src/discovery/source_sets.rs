@@ -27,6 +27,12 @@ static DECLARED_NAME: LazyLock<Regex> = LazyLock::new(|| {
         .expect("Invalid declared-name regex")
 });
 
+/// Directories wired into an existing source set: java.srcDir("src/x/java"),
+/// resources.srcDirs("src/x/assets"), ...
+static SRC_DIR_NAME: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"srcDirs?\(\s*"src/([A-Za-z0-9_]+)/"#).expect("Invalid srcDir regex")
+});
+
 /// Result of scanning a project for phantom source sets
 #[derive(Debug, Default)]
 pub struct SourceSetAudit {
@@ -86,6 +92,7 @@ fn scan_module(module_dir: &Path, out: &mut Vec<PathBuf>) {
 fn declared_names(build_file_text: &str) -> HashSet<String> {
     DECLARED_NAME
         .captures_iter(build_file_text)
+        .chain(SRC_DIR_NAME.captures_iter(build_file_text))
         .map(|c| c[1].to_string())
         .collect()
 }
@@ -122,6 +129,15 @@ mod tests {
     fn undeclared_custom_name_is_phantom() {
         let declared = HashSet::new();
         assert!(!is_known_source_set("savedTests", &declared));
+    }
+
+    #[test]
+    fn src_dir_additions_count_as_declared() {
+        // Real-world pattern: getByName("test") { java.srcDir("src/sharedTest/java") }
+        let names = declared_names(
+            "sourceSets {\n    getByName(\"test\") {\n        java.srcDir(\"src/sharedTest/java\")\n        resources.srcDirs(\"src/test/assets\")\n    }\n}\n",
+        );
+        assert!(names.contains("sharedTest"), "names were: {names:?}");
     }
 
     #[test]
