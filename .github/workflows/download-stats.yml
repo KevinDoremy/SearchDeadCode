@@ -75,10 +75,37 @@ jobs:
                 color: "informational"}' > stats/clones-badge.json
           fi
 
+          # All-time cumulative counter: seeded with an estimate, then grown
+          # with exact daily deltas. counted_through prevents double counting
+          # across the API's overlapping 14-day windows; today is excluded
+          # because its count is still partial.
+          if [ -n "$clone_count" ] && [ -f stats/cumulative.json ]; then
+            daily=$(gh api "repos/${{ github.repository }}/traffic/clones" 2>/dev/null \
+              | jq -c '.clones // []' 2>/dev/null)
+            [ -n "$daily" ] || daily='[]'
+            cum=$(cat stats/cumulative.json)
+            jq -c -n --argjson cum "$cum" --argjson daily "$daily" --arg today "$date_utc" '
+              ($cum.counted_through) as $ct
+              | ([ $daily[]
+                  | select(((.timestamp | split("T")[0]) > $ct)
+                            and ((.timestamp | split("T")[0]) < $today))
+                  | .count ] | add // 0) as $delta
+              | ([ $daily[] | (.timestamp | split("T")[0]) | select(. < $today) ]
+                  | max // $ct) as $seen
+              | $cum
+              | .total += $delta
+              | .counted_through = (if $seen > $ct then $seen else $ct end)
+            ' > stats/cumulative.json
+            jq -c -n --arg msg "$(jq -r '.total' stats/cumulative.json)" \
+              '{schemaVersion: 1, label: "total clones (est.)", message: $msg,
+                color: "informational"}' > stats/cumulative-badge.json
+          fi
+
       - name: Push snapshot
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add stats/downloads.jsonl stats/clones-badge.json
+          git add stats/downloads.jsonl stats/clones-badge.json \
+            stats/cumulative.json stats/cumulative-badge.json
           git commit -m "stats: snapshot $(date -u +%Y-%m-%d)" || exit 0
           git push origin stats
