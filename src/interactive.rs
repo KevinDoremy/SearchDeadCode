@@ -11,28 +11,176 @@ use miette::Result;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+enum Action {
+    Explain,
+    KillList,
+    Delete,
+    Back,
+    Quit,
+}
+
 /// Run the triage loop. The caller guarantees a real terminal.
 pub fn run_triage(
-    _graph: &Graph,
-    _entry_points: &HashSet<DeclarationId>,
-    _reachable: &HashSet<DeclarationId>,
-    findings: Vec<DeadCode>,
-    _base_path: &Path,
-    _undo_script_path: Option<PathBuf>,
+    graph: &Graph,
+    entry_points: &HashSet<DeclarationId>,
+    reachable: &HashSet<DeclarationId>,
+    mut findings: Vec<DeadCode>,
+    base_path: &Path,
+    undo_script_path: Option<PathBuf>,
 ) -> Result<()> {
+    use colored::Colorize;
+
     if findings.is_empty() {
         println!("Nothing to triage — no dead code found.");
         return Ok(());
     }
 
-    // The dialoguer loop lands in a later step of the plan.
-    println!("Interactive triage: {} findings.", findings.len());
+    let undo_path = undo_script_path.unwrap_or_else(|| PathBuf::from(".searchdeadcode-undo.sh"));
+    let deleter = crate::refactor::SafeDeleter::new(false, false, None);
+    let mut undo: Option<crate::refactor::UndoScript> = Some(crate::refactor::UndoScript::new());
+    let mut dependents: HashSet<DeclarationId> = HashSet::new();
+    let mut explained = 0usize;
+    let mut deleted = 0usize;
+
+    'list: loop {
+        if findings.is_empty() {
+            println!("{}", "All findings triaged.".green());
+            break;
+        }
+
+        let rows = build_rows(&findings, base_path, &dependents);
+        let Some(index) = prompt_pick(&rows) else {
+            break 'list; // Esc or Ctrl-C: quit with summary
+        };
+
+        loop {
+            let item = &findings[index];
+            let name = item.declaration.name.clone();
+            match prompt_action(&name) {
+                Action::Explain => {
+                    crate::explain_symbol(graph, entry_points, reachable, &name);
+                    explained += 1;
+                }
+                Action::KillList => {
+                    let targets: HashSet<DeclarationId> =
+                        std::iter::once(item.declaration.id.clone()).collect();
+                    let list = crate::analysis::kill_list::kill_list(graph, entry_points, &targets);
+                    crate::print_kill_list(graph, &name, &list);
+                }
+                Action::Delete => {
+                    println!("{}", crate::refactor::safe_delete::removal_diff(item));
+                    println!();
+                    let confirmed =
+                        dialoguer::Confirm::with_theme(&dialoguer::theme::ColorfulTheme::default())
+                            .with_prompt(format!("Delete {}?", name))
+                            .default(false)
+                            .interact_opt()
+                            .unwrap_or(None)
+                            .unwrap_or(false);
+                    if confirmed {
+                        let deleted_id = item.declaration.id.clone();
+                        let file = item.declaration.location.file.clone();
+                        let deletion = deleter.delete_one(item, &mut undo)?;
+                        if let Some(script) = &undo {
+                            script.write(&undo_path)?;
+                        }
+                        dependents.extend(dependents_of(graph, entry_points, &deleted_id));
+                        apply_deletion(&mut findings, &file, &deletion);
+                        deleted += 1;
+                        println!("  {} Deleted {}", "✓".green(), name);
+                    }
+                    continue 'list;
+                }
+                Action::Back => continue 'list,
+                Action::Quit => break 'list,
+            }
+        }
+    }
+
+    println!();
+    println!(
+        "{}",
+        format!(
+            "Session: {} explained, {} deleted{}",
+            explained,
+            deleted,
+            if deleted > 0 {
+                format!(" — undo: {}", undo_path.display())
+            } else {
+                String::new()
+            }
+        )
+        .dimmed()
+    );
+    if deleted > 0 {
+        println!("{}", "Re-run searchdeadcode for a fresh analysis.".dimmed());
+    }
+    let _ = console::Term::stderr().show_cursor();
     Ok(())
+}
+
+/// One row per finding, with a per-file source cache for line estimates
+fn build_rows(
+    findings: &[DeadCode],
+    base_path: &Path,
+    dependents: &HashSet<DeclarationId>,
+) -> Vec<String> {
+    let mut sources: std::collections::HashMap<PathBuf, String> = std::collections::HashMap::new();
+    findings
+        .iter()
+        .map(|dc| {
+            let content = sources
+                .entry(dc.declaration.location.file.clone())
+                .or_insert_with(|| {
+                    std::fs::read_to_string(&dc.declaration.location.file).unwrap_or_default()
+                });
+            let lines = approx_lines_in(content, dc);
+            format_row(
+                dc,
+                base_path,
+                lines,
+                dependents.contains(&dc.declaration.id),
+            )
+        })
+        .collect()
+}
+
+/// Fuzzy pick over the rows; None on Esc/Ctrl-C
+fn prompt_pick(rows: &[String]) -> Option<usize> {
+    dialoguer::FuzzySelect::with_theme(&dialoguer::theme::ColorfulTheme::default())
+        .with_prompt("Type to filter, Enter to act, Esc to quit")
+        .items(rows)
+        .default(0)
+        .max_length(15)
+        .interact_opt()
+        .unwrap_or(None)
+}
+
+/// Action menu for a picked finding; Esc/Ctrl-C maps to Back
+fn prompt_action(name: &str) -> Action {
+    let choice = dialoguer::Select::with_theme(&dialoguer::theme::ColorfulTheme::default())
+        .with_prompt(name.to_string())
+        .items([
+            "Explain — why is it dead?",
+            "Kill-list — what falls with it?",
+            "Delete — diff preview then confirm",
+            "Back to the list",
+            "Quit",
+        ])
+        .default(0)
+        .interact_opt()
+        .unwrap_or(None);
+    match choice {
+        Some(0) => Action::Explain,
+        Some(1) => Action::KillList,
+        Some(2) => Action::Delete,
+        Some(3) => Action::Back,
+        _ => Action::Quit,
+    }
 }
 
 /// One plain-text row per finding for the fuzzy list. No ANSI: the fuzzy
 /// matcher works on the raw string, escape codes would break filtering.
-#[allow(dead_code)] // consumed by the dialoguer loop, landing next
 fn format_row(dc: &DeadCode, base: &Path, approx_lines: usize, dependent: bool) -> String {
     use crate::analysis::{RiskLevel, Severity};
 
@@ -68,7 +216,6 @@ fn format_row(dc: &DeadCode, base: &Path, approx_lines: usize, dependent: bool) 
 
 /// Exclusive dependents of a deleted symbol: everything that only stayed
 /// alive through it (the target itself excluded)
-#[allow(dead_code)] // consumed by the dialoguer loop, landing next
 fn dependents_of(
     graph: &Graph,
     entry_points: &HashSet<DeclarationId>,
@@ -84,7 +231,6 @@ fn dependents_of(
 /// After a deletion, update the remaining findings of that file: drop those
 /// whose line fell inside the removed range (nested members), shift the line
 /// and byte offsets of everything below. Other files are untouched.
-#[allow(dead_code)] // consumed by the dialoguer loop, landing next
 fn apply_deletion(findings: &mut Vec<DeadCode>, file: &Path, del: &Deletion) {
     let removed_end = del.start_line + del.removed_lines; // exclusive
     findings.retain(|dc| {
@@ -102,7 +248,6 @@ fn apply_deletion(findings: &mut Vec<DeadCode>, file: &Path, del: &Deletion) {
 }
 
 /// Line count of the declaration's byte span, as a size estimate
-#[allow(dead_code)] // consumed by the dialoguer loop, landing next
 fn approx_lines_in(content: &str, dc: &DeadCode) -> usize {
     let end = dc.declaration.id.end.min(content.len());
     let start = dc.declaration.id.start.min(end);

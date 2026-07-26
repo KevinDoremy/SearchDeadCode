@@ -119,6 +119,30 @@ phantom source sets pre-excluded, DI framework detected and named.
 ✅ Wrote .deadcode.yml
 ```
 
+## `searchdeadcode . --interactive` — fzf-style triage
+
+**What it does**: opens the findings in a fuzzy-filterable list. Type to
+filter, Enter to act on a finding: Explain, Kill-list, or Delete with a diff
+preview and confirmation. Every deletion lands in an undo script.
+
+```
+? Type to filter, Enter to act, Esc to quit › old
+❯ ▲ OldCheckout          class   legacy/OldCheckout.kt:3        ~6L
+  ▲ OldReceiptPrinter    class   legacy/OldReceiptPrinter.kt:3  ~3L ↯
+
+  OldCheckout
+❯ Explain — why is it dead?
+  Kill-list — what falls with it?
+  Delete — diff preview then confirm
+  Back to the list
+  Quit
+```
+
+**You get**: triage at typing speed. Deleted findings vanish from the list,
+their exclusive dependents get marked ↯, and the session ends with a summary
+and the undo script path. (Requires a real terminal; piped runs fall back to
+the standard report.)
+
 ## `searchdeadcode . --delete --dry-run` — the safe preview
 
 **What it does**: shows exactly what `--delete` would remove. Touches nothing.

@@ -82,6 +82,10 @@ fn report_footer_suggests_next_steps() {
         stdout.contains("--explain") && stdout.contains("--clusters"),
         "a report with findings guides the user to the next move, stdout was:\n{stdout}"
     );
+    assert!(
+        stdout.contains("--interactive"),
+        "the triage mode is discoverable, stdout was:\n{stdout}"
+    );
 }
 
 #[test]

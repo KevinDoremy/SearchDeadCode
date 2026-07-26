@@ -1801,6 +1801,7 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         let is_terminal = matches!(cli.format, OutputFormat::Terminal | OutputFormat::Compact);
         if is_terminal && cli.output.is_none() && !cli.quiet && !dead_code.is_empty() {
             println!("\n{}", "Next steps".bold());
+            println!("  searchdeadcode --interactive       triage findings from the keyboard");
             println!("  searchdeadcode --clusters          group findings into deletable units");
             println!("  searchdeadcode --explain <name>    see why a symbol is considered dead");
             println!("  searchdeadcode --delete --dry-run  preview the cleanup, touch nothing");
