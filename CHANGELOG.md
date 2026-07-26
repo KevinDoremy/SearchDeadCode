@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-07-26
+
+### Changed
+- Progress renders as aligned checked phase lines (`✓ parsed`, `✓ analysis`)
+  with counts and timing, replacing the emoji banners. Lines print when a
+  phase completes — a checkmark never lies.
+
 ## [0.7.1] - 2026-07-26
 
 ### Changed
