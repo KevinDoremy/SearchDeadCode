@@ -38,18 +38,15 @@ impl SafeDeleter {
                 .push(item);
         }
 
-        // In dry-run mode, skip selection and show all candidates
+        // In dry-run mode, skip selection and preview the removal as a diff
         if self.dry_run {
             println!();
-            println!("{}", "Dry run - would delete:".yellow().bold());
+            println!(
+                "{}",
+                "Dry run — the diff --delete would apply:".yellow().bold()
+            );
             for item in dead_code {
-                println!(
-                    "  {} {} at {}:{}",
-                    item.declaration.kind.display_name(),
-                    item.declaration.name.white(),
-                    item.declaration.location.file.display(),
-                    item.declaration.location.line
-                );
+                self.print_removal_diff(item);
             }
             println!();
             println!(
@@ -119,6 +116,44 @@ impl SafeDeleter {
         }
 
         Ok(())
+    }
+
+    /// Delta-style preview: the exact lines a deletion would remove,
+    /// prefixed with a red minus. Falls back to the one-line description
+    /// when the source cannot be read.
+    fn print_removal_diff(&self, item: &DeadCode) {
+        let id = &item.declaration.id;
+        let Ok(content) = std::fs::read_to_string(&id.file) else {
+            println!(
+                "  {} {} at {}:{}",
+                item.declaration.kind.display_name(),
+                item.declaration.name.white(),
+                item.declaration.location.file.display(),
+                item.declaration.location.line
+            );
+            return;
+        };
+
+        let end = id.end.min(content.len());
+        let start = id.start.min(end);
+        let snippet = &content[start..end];
+        let first_line = item.declaration.location.line;
+
+        println!();
+        println!(
+            "{}",
+            format!(
+                "── {}:{} ({} {}) ",
+                item.declaration.location.file.display(),
+                first_line,
+                item.declaration.kind.display_name(),
+                item.declaration.name
+            )
+            .dimmed()
+        );
+        for (offset, line) in snippet.lines().enumerate() {
+            println!("{:>5} {}", first_line + offset, format!("- {}", line).red());
+        }
     }
 
     /// Interactive selection mode - confirm each item
