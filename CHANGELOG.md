@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-07-26
+
+### Changed
+- **Clean output streams**: logs go to stderr at warn level by default
+  (`--verbose` restores the detail). stdout carries results only, so
+  `searchdeadcode . --format json | jq` finally works.
+- Reports with findings end on a **Next steps** footer pointing at
+  `--clusters`, `--explain` and `--delete --dry-run`, replacing the old
+  static summary tips.
+
+### Added
+- First-contact guidance: a project without `.deadcode.yml` gets pointed at
+  `--init`; an empty run shows which path was searched.
+
 ## [0.5.0] - 2026-07-25
 
 ### Added

@@ -1,0 +1,100 @@
+//! Integration tests for the CLI user experience: clean output streams,
+//! first-contact guidance, and contextual next steps.
+
+use std::fs;
+use std::path::Path;
+use std::process::Output;
+
+fn write_sample_project(dir: &Path) {
+    fs::write(
+        dir.join("Main.kt"),
+        "package sample\n\nfun main() {\n    UsedHelper().greet()\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.join("UsedHelper.kt"),
+        "package sample\n\nclass UsedHelper {\n    fun greet() {}\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.join("ObsoleteWidget.kt"),
+        "package sample\n\nclass ObsoleteWidget {\n    fun render() {}\n}\n",
+    )
+    .unwrap();
+}
+
+fn run(dir: &Path, extra_args: &[&str]) -> Output {
+    std::process::Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+        .arg(dir)
+        .args(extra_args)
+        .output()
+        .unwrap()
+}
+
+fn stdout_of(output: &Output) -> String {
+    String::from_utf8_lossy(&output.stdout).to_string()
+}
+
+fn stderr_of(output: &Output) -> String {
+    String::from_utf8_lossy(&output.stderr).to_string()
+}
+
+#[test]
+fn missing_config_suggests_init() {
+    let temp = tempfile::tempdir().unwrap();
+    write_sample_project(temp.path());
+
+    let output = run(temp.path(), &[]);
+
+    let stderr = stderr_of(&output);
+    assert!(
+        stderr.contains("--init"),
+        "a project without config gets pointed at --init, stderr was:\n{stderr}"
+    );
+}
+
+#[test]
+fn empty_project_explains_what_was_searched() {
+    let temp = tempfile::tempdir().unwrap();
+
+    let output = run(temp.path(), &[]);
+
+    let stdout = stdout_of(&output);
+    assert!(
+        stdout.contains("No Kotlin or Java files found"),
+        "the empty case is stated plainly, stdout was:\n{stdout}"
+    );
+    assert!(
+        stdout.contains(temp.path().to_str().unwrap()),
+        "the searched path is shown so the user can spot a typo, stdout was:\n{stdout}"
+    );
+}
+
+#[test]
+fn report_footer_suggests_next_steps() {
+    let temp = tempfile::tempdir().unwrap();
+    write_sample_project(temp.path());
+
+    let output = run(temp.path(), &[]);
+
+    let stdout = stdout_of(&output);
+    assert!(
+        stdout.contains("--explain") && stdout.contains("--clusters"),
+        "a report with findings guides the user to the next move, stdout was:\n{stdout}"
+    );
+}
+
+#[test]
+fn json_on_stdout_is_pure_json() {
+    let temp = tempfile::tempdir().unwrap();
+    write_sample_project(temp.path());
+
+    let output = run(temp.path(), &["--format", "json"]);
+
+    let stdout = stdout_of(&output);
+    let parsed: Result<serde_json::Value, _> = serde_json::from_str(&stdout);
+    assert!(
+        parsed.is_ok(),
+        "stdout must be pipeable JSON, logs belong on stderr; stdout was:\n{stdout}"
+    );
+}

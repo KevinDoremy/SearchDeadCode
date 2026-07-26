@@ -1,6 +1,6 @@
 [package]
 name = "searchdeadcode"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
 default-run = "searchdeadcode"
 rust-version = "1.80"  # MSRV - Minimum Supported Rust Version (LazyLock)
@@ -120,6 +120,10 @@ path = "tests/integration/init_tests.rs"
 [[test]]
 name = "flags"
 path = "tests/integration/flag_tests.rs"
+
+[[test]]
+name = "ux"
+path = "tests/integration/ux_tests.rs"
 
 [[test]]
 name = "detectors"
