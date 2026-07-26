@@ -100,8 +100,9 @@ jobs:
       - name: Generate SBOM attestation
         uses: actions/attest-sbom@v4
         with:
-          subject-name: searchdeadcode
-          subject-digest: sha256:${{ github.sha }}
+          # Let the action compute the sha256 itself: github.sha is a git
+          # SHA-1 and attest-sbom v4 rejects it as a subject digest
+          subject-path: sbom.cdx.json
           sbom-path: sbom.cdx.json
 
       - name: Upload SBOM artifact
