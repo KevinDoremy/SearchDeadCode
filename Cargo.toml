@@ -122,6 +122,10 @@ name = "flags"
 path = "tests/integration/flag_tests.rs"
 
 [[test]]
+name = "ux"
+path = "tests/integration/ux_tests.rs"
+
+[[test]]
 name = "detectors"
 path = "tests/integration/detector_tests.rs"
 

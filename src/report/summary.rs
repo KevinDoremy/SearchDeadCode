@@ -300,15 +300,7 @@ impl SummaryReporter {
     fn print_footer(&self) {
         println!("{}", BoxChars::light_line(50).dimmed());
         if self.is_final_summary {
-            // Tips for final summary appended to other reports
-            println!(
-                "{}",
-                "Tip: Run with --delete to safely remove dead code".dimmed()
-            );
-            println!(
-                "{}",
-                "Tip: Use --min-confidence high to filter low confidence".dimmed()
-            );
+            // The Next steps footer printed by the CLI covers the guidance
         } else {
             // Tips for standalone summary mode
             println!("{}", "Run without --summary for full details".dimmed());

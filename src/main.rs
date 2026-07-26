@@ -664,10 +664,17 @@ fn init_logging(verbose: bool, quiet: bool) {
     } else if verbose {
         EnvFilter::new("debug")
     } else {
-        EnvFilter::new("info")
+        // The styled progress lines already tell the story; raw logs are
+        // developer detail, opt-in via --verbose
+        EnvFilter::new("warn")
     };
 
-    fmt().with_env_filter(filter).with_target(false).init();
+    // stdout carries results only — logs go to stderr so JSON stays pipeable
+    fmt()
+        .with_env_filter(filter)
+        .with_target(false)
+        .with_writer(std::io::stderr)
+        .init();
 }
 
 fn load_config(cli: &Cli) -> Result<Config> {
@@ -956,6 +963,26 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
 
     let start_time = Instant::now();
 
+    // First contact: a project without config deserves a pointer
+    if cli.config.is_none() && !cli.quiet {
+        let has_config = [
+            ".deadcode.yml",
+            ".deadcode.yaml",
+            ".deadcode.toml",
+            "deadcode.yml",
+            "deadcode.yaml",
+            "deadcode.toml",
+        ]
+        .iter()
+        .any(|name| cli.path.join(name).is_file());
+        if !has_config {
+            eprintln!(
+                "{}",
+                "💡 No .deadcode.yml found — `searchdeadcode --init` writes one matched to this project".dimmed()
+            );
+        }
+    }
+
     // Step 1: Discover files
     info!("Discovering files...");
     let finder = FileFinder::new(config);
@@ -987,7 +1014,11 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     };
 
     if files.is_empty() {
-        println!("{}", "No Kotlin or Java files found.".yellow());
+        println!(
+            "{}",
+            format!("No Kotlin or Java files found in {}.", cli.path.display()).yellow()
+        );
+        println!("Check the path, or point the tool at your sources: searchdeadcode <path>");
         return Ok(());
     }
 
@@ -1738,6 +1769,15 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     } else {
         let reporter = Reporter::with_options(report_format, report_options);
         reporter.report(&dead_code)?;
+
+        // Guide the next move — terminal output with findings only
+        let is_terminal = matches!(cli.format, OutputFormat::Terminal | OutputFormat::Compact);
+        if is_terminal && cli.output.is_none() && !cli.quiet && !dead_code.is_empty() {
+            println!("\n{}", "Next steps".bold());
+            println!("  searchdeadcode --clusters          group findings into deletable units");
+            println!("  searchdeadcode --explain <name>    see why a symbol is considered dead");
+            println!("  searchdeadcode --delete --dry-run  preview the cleanup, touch nothing");
+        }
     }
 
     // Print timing
