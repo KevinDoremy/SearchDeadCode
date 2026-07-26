@@ -67,6 +67,8 @@ searchdeadcode ./my-android-app --delete --dry-run
 searchdeadcode ./my-android-app --min-confidence high
 ```
 
+Every command with its real output: [`docs/cli-tour.md`](docs/cli-tour.md).
+
 ### Sample output
 
 ```

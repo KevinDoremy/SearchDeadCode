@@ -13,17 +13,25 @@ use std::path::PathBuf;
 pub struct TerminalReporter {
     /// Show confidence levels in output
     show_confidence: bool,
+    /// Base path used to relativize file headers
+    base_path: Option<PathBuf>,
 }
 
 impl TerminalReporter {
     pub fn new() -> Self {
         Self {
             show_confidence: true,
+            base_path: None,
         }
     }
 
     pub fn with_confidence(mut self, show: bool) -> Self {
         self.show_confidence = show;
+        self
+    }
+
+    pub fn with_base_path(mut self, base: PathBuf) -> Self {
+        self.base_path = Some(base);
         self
     }
 
@@ -66,10 +74,15 @@ impl TerminalReporter {
         for file in files {
             let items = &by_file[file];
 
-            // File header
+            // File header, relative to the analyzed root when possible
+            let display_path = self
+                .base_path
+                .as_ref()
+                .and_then(|base| file.strip_prefix(base).ok())
+                .unwrap_or(file);
             println!(
                 "{}",
-                StructureColors::file_path(&file.display().to_string())
+                StructureColors::file_path(&display_path.display().to_string())
             );
 
             // Source lines for rustc-style annotations, read once per file

@@ -150,6 +150,24 @@ fn big_reports_skip_annotations_to_stay_readable() {
 }
 
 #[test]
+fn report_paths_are_relative_to_the_project() {
+    let temp = tempfile::tempdir().unwrap();
+    write_sample_project(temp.path());
+
+    let output = run(temp.path(), &[]);
+
+    let stdout = stdout_of(&output);
+    let header = stdout
+        .lines()
+        .find(|l| l.trim_end().ends_with("ObsoleteWidget.kt"))
+        .expect("a file header names ObsoleteWidget.kt");
+    assert!(
+        !header.contains(temp.path().to_str().unwrap()),
+        "file headers are relative to the analyzed root, header was:\n{header}"
+    );
+}
+
+#[test]
 fn json_on_stdout_is_pure_json() {
     let temp = tempfile::tempdir().unwrap();
     write_sample_project(temp.path());
