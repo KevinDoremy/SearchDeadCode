@@ -27,22 +27,31 @@ jobs:
         run: |
           date_utc=$(date -u +%Y-%m-%d)
           crates=$(curl -s -A "searchdeadcode-stats" \
-            https://crates.io/api/v1/crates/searchdeadcode | jq '.crate.downloads // 0')
-          assets=$(gh api "repos/${{ github.repository }}/releases" \
-            --jq '[.[].assets[].download_count] | add // 0')
-          stars=$(gh api "repos/${{ github.repository }}" --jq '.stargazers_count')
-          clones=$(gh api "repos/${{ github.repository }}/traffic/clones" \
-            --jq '{count, uniques}' 2>/dev/null || echo '{}')
-          views=$(gh api "repos/${{ github.repository }}/traffic/views" \
-            --jq '{count, uniques}' 2>/dev/null || echo '{}')
+            https://crates.io/api/v1/crates/searchdeadcode | jq '.crate.downloads // 0' 2>/dev/null)
+          assets=$(gh api "repos/${{ github.repository }}/releases" 2>/dev/null \
+            | jq '[.[].assets[].download_count] | add // 0' 2>/dev/null)
+          stars=$(gh api "repos/${{ github.repository }}" 2>/dev/null \
+            | jq '.stargazers_count' 2>/dev/null)
+          # gh api emits the error body on stdout on HTTP failures: pipe
+          # through jq so garbage collapses to empty, then fall back
+          clones=$(gh api "repos/${{ github.repository }}/traffic/clones" 2>/dev/null \
+            | jq -c 'select(.count != null) | {count, uniques}' 2>/dev/null)
+          views=$(gh api "repos/${{ github.repository }}/traffic/views" 2>/dev/null \
+            | jq -c 'select(.count != null) | {count, uniques}' 2>/dev/null)
 
-          # Explicit fallbacks: ${var:-{}} appends a stray brace when the
-          # variable is set, corrupting the JSON
-          [ -n "$crates" ] || crates=0
-          [ -n "$assets" ] || assets=0
-          [ -n "$stars" ] || stars=0
-          [ -n "$clones" ] || clones='{}'
-          [ -n "$views" ] || views='{}'
+          # Validate every piece; anything invalid is reported and replaced
+          for name in crates assets stars; do
+            if ! printf '%s' "${!name}" | jq -e . >/dev/null 2>&1; then
+              echo "invalid $name: <${!name}>, using 0"
+              printf -v "$name" '0'
+            fi
+          done
+          for name in clones views; do
+            if ! printf '%s' "${!name}" | jq -e . >/dev/null 2>&1; then
+              echo "invalid $name: <${!name}>, using {}"
+              printf -v "$name" '{}'
+            fi
+          done
 
           jq -c -n \
             --arg date "$date_utc" \
@@ -57,11 +66,14 @@ jobs:
 
           tail -1 stats/downloads.jsonl
 
-          # Refresh the README clones badge (shields.io endpoint schema)
-          clone_count=$(echo "$clones" | jq '.count // "n/a"')
-          jq -c -n --arg msg "$clone_count" \
-            '{schemaVersion: 1, label: "clones (14d)", message: $msg,
-              color: "informational"}' > stats/clones-badge.json
+          # Refresh the README clones badge (shields.io endpoint schema).
+          # Without traffic access, keep the last known badge instead of n/a.
+          clone_count=$(echo "$clones" | jq -r '.count // empty')
+          if [ -n "$clone_count" ]; then
+            jq -c -n --arg msg "$clone_count" \
+              '{schemaVersion: 1, label: "clones (14d)", message: $msg,
+                color: "informational"}' > stats/clones-badge.json
+          fi
 
       - name: Push snapshot
         run: |
