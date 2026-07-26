@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-07-26
+
+### Added
+- **Rustc-style annotated findings**: the default terminal report shows each
+  finding's source line with the symbol underlined and a per-finding
+  `= help:` pointing at `--explain`. The dense one-line view lives on
+  `--compact`.
+
 ## [0.6.0] - 2026-07-26
 
 ### Changed
