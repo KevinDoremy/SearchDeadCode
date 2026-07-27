@@ -513,6 +513,10 @@ name = "import_detekt_baseline"
 path = "tests/integration/import_detekt_baseline_tests.rs"
 
 [[test]]
+name = "wedge_precedence"
+path = "tests/integration/wedge_precedence_tests.rs"
+
+[[test]]
 name = "generated_mapping"
 path = "tests/integration/generated_mapping_tests.rs"
 
