@@ -383,6 +383,11 @@ struct Cli {
     #[arg(long)]
     by_module: bool,
 
+    /// Fail when code references a symbol the --baseline judged dead
+    /// (someone is resurrecting legacy), then exit
+    #[arg(long)]
+    necromancy: bool,
+
     /// Write the reference graph to this file (.json or .dot), then exit
     #[arg(long, value_name = "FILE")]
     export_graph: Option<PathBuf>,
@@ -780,6 +785,14 @@ fn main() -> Result<()> {
     if cli.baseline_prune && cli.baseline.is_none() {
         eprintln!(
             "{}: --baseline-prune needs --baseline <file>",
+            "Error".red()
+        );
+        std::process::exit(2);
+    }
+
+    if cli.necromancy && cli.baseline.is_none() {
+        eprintln!(
+            "{}: --necromancy needs --baseline <file> — the corpses are recorded there",
             "Error".red()
         );
         std::process::exit(2);
@@ -2546,6 +2559,65 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
             );
         }
         return Ok(());
+    }
+
+    // --necromancy short-circuits everything after the graph: does any
+    // live code reference a symbol the baseline judged dead?
+    if cli.necromancy {
+        let baseline_path = cli.baseline.as_ref().expect("guarded at startup");
+        let loaded = match baseline::Baseline::load(baseline_path) {
+            Ok(b) => b,
+            Err(e) => {
+                eprintln!("{}: cannot read baseline: {}", "Error".red(), e);
+                std::process::exit(2);
+            }
+        };
+        let mut resurrections: Vec<(String, String, String)> = Vec::new();
+        for entry in &loaded.issues {
+            for decl in graph.find_by_name(&entry.name) {
+                if let (Some(declared), Some(recorded)) =
+                    (decl.fully_qualified_name.as_deref(), entry.fqn.as_deref())
+                {
+                    if declared != recorded {
+                        continue;
+                    }
+                }
+                for (referencer, _) in graph.get_references_to(&decl.id) {
+                    let site = referencer
+                        .location
+                        .file
+                        .strip_prefix(&cli.path)
+                        .unwrap_or(&referencer.location.file);
+                    resurrections.push((
+                        entry.name.clone(),
+                        referencer.name.clone(),
+                        format!("{}:{}", site.display(), referencer.location.line),
+                    ));
+                }
+            }
+        }
+        if resurrections.is_empty() {
+            println!("{}", "✓ no resurrections — the dead stay dead".green());
+            return Ok(());
+        }
+        println!("{}", "Baselined symbols being referenced again:".bold());
+        resurrections.sort();
+        resurrections.dedup();
+        for (corpse, necromancer, site) in resurrections {
+            println!(
+                "  {} {}  raised by {}  {}",
+                "☠".red(),
+                corpse,
+                necromancer,
+                site.dimmed()
+            );
+        }
+        println!(
+            "{}",
+            "  (use the replacement instead, or remove the baseline entry if the symbol is back for good)"
+                .dimmed()
+        );
+        std::process::exit(3);
     }
 
     // --dead-keep-rules short-circuits everything after the graph

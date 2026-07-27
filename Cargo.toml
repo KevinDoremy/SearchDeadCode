@@ -399,6 +399,10 @@ name = "by_module"
 path = "tests/integration/by_module_tests.rs"
 
 [[test]]
+name = "necromancy"
+path = "tests/integration/necromancy_tests.rs"
+
+[[test]]
 name = "generated_mapping"
 path = "tests/integration/generated_mapping_tests.rs"
 
