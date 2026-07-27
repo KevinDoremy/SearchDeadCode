@@ -1151,8 +1151,8 @@ impl DeepAnalyzer {
             // Event handlers
             "Subscribe",
             "OnClick",
-            // Compose
-            "Composable",
+            // Compose — Composable deliberately absent (an uncalled
+            // composable is dead code); previews are IDE-invoked roots
             "Preview",
         ];
 

@@ -12,9 +12,9 @@ fn write_project(dir: &Path) {
         dir.join("Screens.kt"),
         concat!(
             "package sample\n\n",
-            "@Composable\nfun ScreenA() {}\n\n",
-            "@Composable\nfun ScreenB() {}\n\n",
-            "@Composable\nfun ScreenC() {}\n",
+            "@Preview\nfun ScreenA() {}\n\n",
+            "@Preview\nfun ScreenB() {}\n\n",
+            "@Preview\nfun ScreenC() {}\n",
         ),
     )
     .unwrap();
@@ -54,15 +54,15 @@ fn retained_annotations_are_counted_and_sorted() {
     write_project(temp.path());
 
     let stdout = stdout_of(&run(temp.path()));
-    let composable = stdout.find("Composable");
+    let preview = stdout.find("Preview");
     let subscribe = stdout.find("Subscribe");
     assert!(
-        composable.is_some() && subscribe.is_some(),
+        preview.is_some() && subscribe.is_some(),
         "both retainers appear, stdout was:\n{stdout}"
     );
     assert!(
-        composable < subscribe,
-        "Composable retains more, it ranks first, stdout was:\n{stdout}"
+        preview < subscribe,
+        "Preview retains more, it ranks first, stdout was:\n{stdout}"
     );
 }
 
@@ -74,7 +74,7 @@ fn a_broad_retainer_is_flagged() {
     let stdout = stdout_of(&run(temp.path()));
     assert!(
         stdout.contains("broad"),
-        "Composable holds a large share of declarations, stdout was:\n{stdout}"
+        "Preview holds a large share of declarations, stdout was:\n{stdout}"
     );
 }
 
