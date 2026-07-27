@@ -443,6 +443,11 @@ struct Cli {
     #[arg(long)]
     unscheduled_workers: bool,
 
+    /// Convert @Suppress("unused") annotations into entries of this
+    /// baseline file (migration from Detekt-style triage), then exit
+    #[arg(long, value_name = "FILE")]
+    import_suppressions: Option<PathBuf>,
+
     /// After --delete: run this command (a compile, a test suite) and
     /// restore every touched file automatically when it fails
     #[arg(long, value_name = "CMD")]
@@ -2770,6 +2775,54 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
                 std::process::exit(2);
             }
         }
+    }
+
+    // --import-suppressions short-circuits everything after the graph
+    if let Some(ref baseline_path) = cli.import_suppressions {
+        let mut baseline = if baseline_path.exists() {
+            match baseline::Baseline::load(baseline_path) {
+                Ok(b) => b,
+                Err(e) => {
+                    eprintln!("{}: cannot read baseline: {}", "Error".red(), e);
+                    std::process::exit(2);
+                }
+            }
+        } else {
+            baseline::Baseline::from_findings(&[], &cli.path)
+        };
+        let mut imported = 0usize;
+        for decl in graph.declarations() {
+            let suppressed_unused = decl
+                .annotations
+                .iter()
+                .any(|a| a.contains("Suppress") && a.to_lowercase().contains("unused"));
+            if !suppressed_unused {
+                continue;
+            }
+            let synthetic =
+                analysis::DeadCode::new(decl.clone(), analysis::DeadCodeIssue::Unreferenced);
+            if baseline.is_baselined(&synthetic, &cli.path) {
+                continue;
+            }
+            baseline
+                .issues
+                .push(baseline::IssueFingerprint::from_dead_code(
+                    &synthetic, &cli.path,
+                ));
+            imported += 1;
+        }
+        if imported > 0 {
+            if let Err(e) = baseline.save(baseline_path) {
+                eprintln!("{}: cannot write baseline: {}", "Error".red(), e);
+                std::process::exit(2);
+            }
+        }
+        println!(
+            "✅ Imported {imported} suppression(s) into {} ({} total entries)",
+            baseline_path.display(),
+            baseline.issues.len()
+        );
+        return Ok(());
     }
 
     // --unscheduled-workers short-circuits everything after the graph
