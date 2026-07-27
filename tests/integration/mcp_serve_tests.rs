@@ -140,6 +140,30 @@ fn is_dead_says_yes_for_the_ghost() {
 }
 
 #[test]
+fn dead_list_names_the_unreferenced_symbols() {
+    let temp = tempfile::tempdir().unwrap();
+    let graph = saved_graph(temp.path());
+
+    let responses = serve(
+        &graph,
+        &[
+            r#"{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"dead_list","arguments":{}}}"#,
+        ],
+    );
+    let text = responses[0]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(
+        text.contains("Ghost"),
+        "the unreferenced class is listed, text was:\n{text}"
+    );
+    assert!(
+        !text.contains("Engine"),
+        "a referenced class is not dead, text was:\n{text}"
+    );
+}
+
+#[test]
 fn an_unknown_method_gets_a_json_rpc_error() {
     let temp = tempfile::tempdir().unwrap();
     let graph = saved_graph(temp.path());

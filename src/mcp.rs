@@ -58,6 +58,11 @@ fn handle(graph: &SavedGraph, request: &Value, id: Value) -> Value {
                         }
                     },
                     {
+                        "name": "dead_list",
+                        "description": "Every symbol with zero incoming references in the graph",
+                        "inputSchema": { "type": "object", "properties": {} }
+                    },
+                    {
                         "name": "is_dead",
                         "description": "Is this symbol dead (zero incoming references)?",
                         "inputSchema": {
@@ -77,6 +82,7 @@ fn handle(graph: &SavedGraph, request: &Value, id: Value) -> Value {
             let text = match tool {
                 "refs_of" => refs_of_text(graph, symbol),
                 "is_dead" => is_dead_text(graph, symbol),
+                "dead_list" => dead_list_text(graph),
                 other => {
                     return json!({
                         "jsonrpc": "2.0",
@@ -128,4 +134,19 @@ fn is_dead_text(graph: &SavedGraph, symbol: &str) -> String {
             format!("'{symbol}' is alive: referenced {} time(s)", refs.len())
         }
     }
+}
+
+fn dead_list_text(graph: &SavedGraph) -> String {
+    let dead = graph.dead_symbols();
+    if dead.is_empty() {
+        return "no unreferenced symbols in the graph".to_string();
+    }
+    let mut out = format!("{} unreferenced symbol(s):\n", dead.len());
+    for node in dead {
+        out.push_str(&format!(
+            "- {} ({}) at {}:{}\n",
+            node.name, node.kind, node.file, node.line
+        ));
+    }
+    out
 }

@@ -66,6 +66,25 @@ impl SavedGraph {
         serde_json::from_str(&content).map_err(std::io::Error::other)
     }
 
+    /// Nodes with zero incoming edges, the whole-graph dead list.
+    pub fn dead_symbols(&self) -> Vec<&SavedNode> {
+        let referenced: std::collections::HashSet<&str> =
+            self.edges.iter().map(|e| e.to.as_str()).collect();
+        let mut dead: Vec<&SavedNode> = self
+            .nodes
+            .iter()
+            .filter(|n| {
+                !referenced.contains(n.id.as_str())
+                    && matches!(
+                        n.kind.as_str(),
+                        "class" | "interface" | "object" | "enum" | "function" | "method"
+                    )
+            })
+            .collect();
+        dead.sort_by(|a, b| a.file.cmp(&b.file).then(a.line.cmp(&b.line)));
+        dead
+    }
+
     /// Who references any declaration named `symbol`?
     pub fn refs_of(&self, symbol: &str) -> QueryAnswer<'_> {
         let targets: std::collections::HashSet<&str> = self
