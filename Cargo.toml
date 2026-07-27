@@ -242,6 +242,10 @@ name = "sarif"
 path = "tests/integration/sarif_tests.rs"
 
 [[test]]
+name = "gradle_out"
+path = "tests/integration/gradle_out_tests.rs"
+
+[[test]]
 name = "cli"
 path = "tests/integration/cli_tests.rs"
 
