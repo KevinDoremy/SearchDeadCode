@@ -126,3 +126,70 @@ fn uris_are_relative_to_the_analyzed_root() {
         );
     }
 }
+
+#[test]
+fn unreferenced_results_carry_a_deletion_fix() {
+    let temp = tempfile::tempdir().unwrap();
+    write_project(temp.path());
+
+    let doc = sarif(temp.path());
+    let dc001 = doc["runs"][0]["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["ruleId"] == "DC001")
+        .expect("an unreferenced finding exists");
+    let fix = &dc001["fixes"][0];
+    assert!(
+        fix["description"]["text"]
+            .as_str()
+            .unwrap()
+            .contains("delete"),
+        "the fix says what it does, fix was:\n{fix}"
+    );
+    let replacement = &fix["artifactChanges"][0]["replacements"][0];
+    let start = replacement["deletedRegion"]["startLine"].as_u64().unwrap();
+    let end = replacement["deletedRegion"]["endLine"].as_u64().unwrap();
+    assert!(
+        start >= 1 && end >= start,
+        "a real line range to delete, got {start}..{end}"
+    );
+    assert_eq!(
+        replacement["insertedContent"]["text"], "",
+        "a pure deletion inserts nothing"
+    );
+}
+
+#[test]
+fn synthetic_findings_offer_no_fix() {
+    // resource findings carry synthetic offsets — a deletedRegion built
+    // from them would point at the wrong lines
+    let temp = tempfile::tempdir().unwrap();
+    write_project(temp.path());
+    let res_dir = temp.path().join("src/main/res/drawable");
+    std::fs::create_dir_all(&res_dir).unwrap();
+    std::fs::write(
+        res_dir.join("zombie_icon.xml"),
+        "<vector xmlns:android=\"http://schemas.android.com/apk/res/android\"/>",
+    )
+    .unwrap();
+
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+        .arg(temp.path())
+        .args(["--unused-resources", "--format", "sarif"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let json_start = stdout.find('{').expect("sarif json");
+    let doc: serde_json::Value = serde_json::from_str(stdout[json_start..].trim()).unwrap();
+    let dc017 = doc["runs"][0]["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["ruleId"] == "DC017")
+        .expect("the resource finding exists");
+    assert!(
+        dc017["fixes"].is_null(),
+        "no fix on synthetic spans, result was:\n{dc017}"
+    );
+}
