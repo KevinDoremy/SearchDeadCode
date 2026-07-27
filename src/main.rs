@@ -277,6 +277,10 @@ struct Cli {
     #[arg(long)]
     ratchet: bool,
 
+    /// Rank files by deletable lines instead of reporting findings
+    #[arg(long, value_name = "N")]
+    top_files: Option<usize>,
+
     /// Enable unused Intent extra detection (enabled by default)
     /// Finds putExtra() keys that are never retrieved via getXxxExtra()
     #[arg(long, default_value = "true", action = clap::ArgAction::Set)]
@@ -782,6 +786,49 @@ fn synthetic_finding(
     analysis::DeadCode::new(decl, issue)
         .with_message(message)
         .with_confidence(confidence)
+}
+
+/// Rank files by deletable lines — the Monday-morning "where do I start"
+fn print_top_files(
+    graph: &graph::Graph,
+    dead_code: &[analysis::DeadCode],
+    base: &std::path::Path,
+    limit: usize,
+) {
+    use std::collections::BTreeMap;
+
+    let mut by_file: BTreeMap<std::path::PathBuf, Vec<graph::DeclarationId>> = BTreeMap::new();
+    for dc in dead_code {
+        by_file
+            .entry(dc.declaration.location.file.clone())
+            .or_default()
+            .push(dc.declaration.id.clone());
+    }
+
+    let mut rows: Vec<(usize, usize, std::path::PathBuf)> = by_file
+        .into_iter()
+        .map(|(file, ids)| {
+            let (_, lines) = outermost_entries(graph, &ids);
+            (lines, ids.len(), file)
+        })
+        .collect();
+    rows.sort_by_key(|row| std::cmp::Reverse(row.0));
+
+    if rows.is_empty() {
+        println!("{}", "✓ No deletable lines — nothing to rank".green());
+        return;
+    }
+
+    println!("{}", "Top files by deletable lines".bold());
+    for (lines, findings, file) in rows.into_iter().take(limit) {
+        let rel = file.strip_prefix(base).unwrap_or(&file);
+        println!(
+            "  {:>6}  {}  {}",
+            format!("~{lines}L").yellow(),
+            rel.display(),
+            format!("({findings} finding(s))").dimmed()
+        );
+    }
 }
 
 fn outermost_entries(graph: &graph::Graph, ids: &[graph::DeclarationId]) -> (Vec<String>, usize) {
@@ -2424,6 +2471,12 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     report_options.top_n = cli.top;
     report_options.files_count = Some(files.len());
     report_options.declarations_count = Some(graph.declarations().count());
+
+    // --top-files replaces the report with a per-file impact ranking
+    if let Some(limit) = cli.top_files {
+        print_top_files(&graph, &dead_code, &cli.path, limit.max(1));
+        return Ok(());
+    }
 
     // Interactive triage: fzf-style filtering with keyboard actions.
     // --delete --interactive keeps its historical confirm-each semantics.
