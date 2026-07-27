@@ -411,6 +411,10 @@ name = "dead_di_modules"
 path = "tests/integration/dead_di_modules_tests.rs"
 
 [[test]]
+name = "dead_serializables"
+path = "tests/integration/dead_serializables_tests.rs"
+
+[[test]]
 name = "generated_mapping"
 path = "tests/integration/generated_mapping_tests.rs"
 

@@ -397,6 +397,11 @@ struct Cli {
     #[arg(long)]
     dead_di_modules: bool,
 
+    /// List @Serializable classes with zero incoming references (kept
+    /// only by their annotation), then exit
+    #[arg(long)]
+    dead_serializables: bool,
+
     /// Write the reference graph to this file (.json or .dot), then exit
     #[arg(long, value_name = "FILE")]
     export_graph: Option<PathBuf>,
@@ -2556,6 +2561,57 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
                 std::process::exit(2);
             }
         }
+    }
+
+    // --dead-serializables short-circuits everything after the graph:
+    // kotlinx.serialization needs a static reference, so a DTO with
+    // zero incoming references survives only through its annotation
+    if cli.dead_serializables {
+        let mut corpses: Vec<&graph::Declaration> = graph
+            .declarations()
+            .filter(|decl| {
+                decl.kind.is_type()
+                    && decl.annotations.iter().any(|a| {
+                        a.contains("Serializable")
+                            || a.contains("JsonClass")
+                            || a.contains("SerialName")
+                    })
+                    && graph.get_references_to(&decl.id).is_empty()
+            })
+            .collect();
+        if corpses.is_empty() {
+            println!("{}", "✓ no dead serializables found".green());
+            return Ok(());
+        }
+        corpses.sort_by(|a, b| {
+            a.location
+                .file
+                .cmp(&b.location.file)
+                .then(a.location.line.cmp(&b.location.line))
+        });
+        println!(
+            "{}",
+            "Serializable classes kept alive only by their annotation:".bold()
+        );
+        for decl in corpses {
+            let rel = decl
+                .location
+                .file
+                .strip_prefix(&cli.path)
+                .unwrap_or(&decl.location.file);
+            println!(
+                "  {} {:<25} {}",
+                "○".dimmed(),
+                decl.name,
+                format!("{}:{}", rel.display(), decl.location.line).dimmed()
+            );
+        }
+        println!(
+            "{}",
+            "  (kotlinx.serialization needs a static reference — zero references means nothing (de)serializes it)"
+                .dimmed()
+        );
+        return Ok(());
     }
 
     // --dead-di-modules short-circuits everything after the graph
