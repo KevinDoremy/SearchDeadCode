@@ -164,6 +164,11 @@ struct Cli {
     #[arg(long, value_name = "OLD=NEW")]
     compare: Option<String>,
 
+    /// Attribute a shared module's symbols to their real consumers:
+    /// unreferenced, internal-only, or used by which directories
+    #[arg(long, value_name = "MODULE")]
+    module_usage: Option<String>,
+
     /// Generate a commented .deadcode.yml matching the project's shape
     /// (source sets, DI framework, exclusions) and exit
     #[arg(long)]
@@ -825,6 +830,73 @@ fn print_clusters(graph: &graph::Graph, clusters: Vec<Vec<graph::DeclarationId>>
     }
 }
 
+/// Print the module usage attribution report
+fn print_module_usage(graph: &graph::Graph, module: &str, root: &std::path::Path) {
+    use analysis::module_usage::Usage;
+
+    let usages = analysis::module_usage::module_usage(graph, module, root);
+    if usages.is_empty() {
+        println!("No symbols found in module '{}'.", module);
+        return;
+    }
+
+    let entry = |id: &graph::DeclarationId| -> String {
+        graph
+            .get_declaration(id)
+            .map(|d| {
+                let rel = d
+                    .location
+                    .file
+                    .strip_prefix(root)
+                    .unwrap_or(&d.location.file);
+                format!("{} — {}:{}", d.name, rel.display(), d.location.line)
+            })
+            .unwrap_or_default()
+    };
+
+    println!("📊 Module usage: {}", module);
+
+    let consumed: Vec<_> = usages
+        .iter()
+        .filter_map(|u| match &u.usage {
+            Usage::UsedBy(dirs) => Some((u, dirs)),
+            _ => None,
+        })
+        .collect();
+    if !consumed.is_empty() {
+        println!("\nUsed from outside ({}):", consumed.len());
+        for (u, dirs) in consumed {
+            let dirs: Vec<&str> = dirs.iter().map(|s| s.as_str()).collect();
+            println!("   - {}  ← {}", entry(&u.id), dirs.join(", "));
+        }
+    }
+
+    let internal: Vec<_> = usages
+        .iter()
+        .filter(|u| matches!(u.usage, Usage::InternalOnly))
+        .collect();
+    if !internal.is_empty() {
+        println!(
+            "\nUsed inside the module only ({}) — candidates for internal visibility:",
+            internal.len()
+        );
+        for u in internal {
+            println!("   - {}", entry(&u.id));
+        }
+    }
+
+    let unreferenced: Vec<_> = usages
+        .iter()
+        .filter(|u| matches!(u.usage, Usage::Unreferenced))
+        .collect();
+    if !unreferenced.is_empty() {
+        println!("\nUnreferenced ({}):", unreferenced.len());
+        for u in unreferenced {
+            println!("   - {}", entry(&u.id));
+        }
+    }
+}
+
 /// Print the migration diff between the old world and everything else
 fn print_migration_report(
     graph: &graph::Graph,
@@ -1405,6 +1477,12 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
                 }
             }
         }
+        return Ok(());
+    }
+
+    // --module-usage short-circuits the normal report
+    if let Some(module) = cli.module_usage.as_deref() {
+        print_module_usage(&graph, module, &cli.path);
         return Ok(());
     }
 

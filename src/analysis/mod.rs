@@ -12,6 +12,7 @@ pub mod keep_rules;
 pub mod kill_list;
 pub mod layouts;
 pub mod migration;
+pub mod module_usage;
 mod reachability;
 pub mod resources;
 pub mod risk;

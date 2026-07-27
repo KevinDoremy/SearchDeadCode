@@ -150,6 +150,10 @@ name = "changed_since"
 path = "tests/integration/changed_since_tests.rs"
 
 [[test]]
+name = "module_usage"
+path = "tests/integration/module_usage_tests.rs"
+
+[[test]]
 name = "detectors"
 path = "tests/integration/detector_tests.rs"
 
