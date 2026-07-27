@@ -142,6 +142,10 @@ name = "fix"
 path = "tests/integration/fix_tests.rs"
 
 [[test]]
+name = "keep_rules"
+path = "tests/integration/keep_tests.rs"
+
+[[test]]
 name = "detectors"
 path = "tests/integration/detector_tests.rs"
 

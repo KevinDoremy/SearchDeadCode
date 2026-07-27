@@ -8,6 +8,7 @@ mod enhanced;
 mod entry_points;
 pub mod flags;
 mod hybrid;
+pub mod keep_rules;
 pub mod kill_list;
 pub mod layouts;
 pub mod migration;
