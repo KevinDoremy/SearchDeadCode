@@ -300,7 +300,7 @@ impl SarifReport {
 
 /// djb2 — deliberately hand-rolled: std's DefaultHasher is not stable
 /// across Rust versions, and fingerprints must never drift
-fn stable_hash(input: &str) -> String {
+pub(crate) fn stable_hash(input: &str) -> String {
     let mut hash: u64 = 5381;
     for byte in input.bytes() {
         hash = hash.wrapping_mul(33) ^ u64::from(byte);

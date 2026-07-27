@@ -628,6 +628,7 @@ enum OutputFormat {
     Markdown,
     Reviewdog,
     Csv,
+    Gitlab,
 }
 
 #[derive(clap::ValueEnum, Clone, Copy, Debug, Default)]
@@ -677,6 +678,7 @@ fn determine_report_format(cli: &Cli, config: &Config) -> report::ReportFormat {
         OutputFormat::Markdown => report::ReportFormat::Markdown,
         OutputFormat::Reviewdog => report::ReportFormat::Reviewdog,
         OutputFormat::Csv => report::ReportFormat::Csv,
+        OutputFormat::Gitlab => report::ReportFormat::Gitlab,
     }
 }
 
@@ -1184,6 +1186,7 @@ fn run_analysis_internal(
         OutputFormat::Markdown => report::ReportFormat::Markdown,
         OutputFormat::Reviewdog => report::ReportFormat::Reviewdog,
         OutputFormat::Csv => report::ReportFormat::Csv,
+        OutputFormat::Gitlab => report::ReportFormat::Gitlab,
     };
     let reporter = Reporter::new(report_format, output);
     reporter.report(&dead_code)?;
