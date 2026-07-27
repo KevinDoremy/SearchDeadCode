@@ -281,6 +281,10 @@ struct Cli {
     #[arg(long, value_name = "N")]
     top_files: Option<usize>,
 
+    /// Report only symbols that became dead since this git reference
+    #[arg(long, value_name = "REF")]
+    diff_base: Option<String>,
+
     /// Enable unused Intent extra detection (enabled by default)
     /// Finds putExtra() keys that are never retrieved via getXxxExtra()
     #[arg(long, default_value = "true", action = clap::ArgAction::Set)]
@@ -2304,6 +2308,31 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     // Step 10b: ownership — after the filters, one git call per survivor
     if cli.blame {
         analysis::blame::annotate(&mut dead_code, &cli.path);
+    }
+
+    // Step 10c: --diff-base — drop everything already dead at the reference
+    if let Some(ref base_ref) = cli.diff_base {
+        match analysis::diff_base::reference_fingerprints(&cli.path, base_ref) {
+            Ok(old) => {
+                let before = dead_code.len();
+                dead_code.retain(|dc| {
+                    !old.contains(&analysis::diff_base::fingerprint_of(dc, &cli.path))
+                });
+                println!(
+                    "{}",
+                    format!(
+                        "🔀 Since {base_ref}: {} new finding(s) ({} already dead there)",
+                        dead_code.len(),
+                        before - dead_code.len()
+                    )
+                    .cyan()
+                );
+            }
+            Err(e) => {
+                eprintln!("{}: --diff-base {base_ref}: {e}", "Error".red());
+                std::process::exit(2);
+            }
+        }
     }
     let dead_code = dead_code;
 
