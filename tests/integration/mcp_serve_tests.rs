@@ -164,6 +164,57 @@ fn dead_list_names_the_unreferenced_symbols() {
 }
 
 #[test]
+fn the_export_records_the_entry_point_roots() {
+    let temp = tempfile::tempdir().unwrap();
+    let graph = saved_graph(temp.path());
+
+    let json: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&graph).unwrap()).unwrap();
+    let roots = json["roots"].as_array().expect("roots array present");
+    assert!(!roots.is_empty(), "main is a root, json was:\n{json}");
+}
+
+#[test]
+fn why_alive_walks_from_a_root_to_the_symbol() {
+    let temp = tempfile::tempdir().unwrap();
+    let graph = saved_graph(temp.path());
+
+    let responses = serve(
+        &graph,
+        &[
+            r#"{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"why_alive","arguments":{"symbol":"Engine"}}}"#,
+        ],
+    );
+    let text = responses[0]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(
+        text.contains("main") && text.contains("Engine"),
+        "the life path names the root and the symbol, text was:\n{text}"
+    );
+}
+
+#[test]
+fn why_alive_says_dead_for_the_ghost() {
+    let temp = tempfile::tempdir().unwrap();
+    let graph = saved_graph(temp.path());
+
+    let responses = serve(
+        &graph,
+        &[
+            r#"{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"why_alive","arguments":{"symbol":"Ghost"}}}"#,
+        ],
+    );
+    let text = responses[0]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(
+        text.to_lowercase().contains("not reachable") || text.to_lowercase().contains("dead"),
+        "no root reaches the ghost, text was:\n{text}"
+    );
+}
+
+#[test]
 fn an_unknown_method_gets_a_json_rpc_error() {
     let temp = tempfile::tempdir().unwrap();
     let graph = saved_graph(temp.path());

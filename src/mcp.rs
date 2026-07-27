@@ -63,6 +63,15 @@ fn handle(graph: &SavedGraph, request: &Value, id: Value) -> Value {
                         "inputSchema": { "type": "object", "properties": {} }
                     },
                     {
+                        "name": "why_alive",
+                        "description": "The shortest entry-point path keeping this symbol alive",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": { "symbol": { "type": "string" } },
+                            "required": ["symbol"]
+                        }
+                    },
+                    {
                         "name": "is_dead",
                         "description": "Is this symbol dead (zero incoming references)?",
                         "inputSchema": {
@@ -83,6 +92,7 @@ fn handle(graph: &SavedGraph, request: &Value, id: Value) -> Value {
                 "refs_of" => refs_of_text(graph, symbol),
                 "is_dead" => is_dead_text(graph, symbol),
                 "dead_list" => dead_list_text(graph),
+                "why_alive" => why_alive_text(graph, symbol),
                 other => {
                     return json!({
                         "jsonrpc": "2.0",
@@ -149,4 +159,24 @@ fn dead_list_text(graph: &SavedGraph) -> String {
         ));
     }
     out
+}
+
+fn why_alive_text(graph: &SavedGraph, symbol: &str) -> String {
+    if graph.roots.is_empty() {
+        return "this graph has no roots recorded — re-export it with a current build".to_string();
+    }
+    match graph.why_alive(symbol) {
+        None => format!("'{symbol}' is not in the graph"),
+        Some(path) if path.is_empty() => {
+            format!("'{symbol}' is not reachable from any entry point — dead")
+        }
+        Some(path) => {
+            let mut out = format!("life path for '{symbol}':\n");
+            for (i, node) in path.iter().enumerate() {
+                let arrow = if i == 0 { "root" } else { "  ->" };
+                out.push_str(&format!("{arrow} {} ({})\n", node.name, node.kind));
+            }
+            out
+        }
+    }
 }

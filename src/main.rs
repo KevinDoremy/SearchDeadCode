@@ -2700,8 +2700,8 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
             .map(|e| e.to_string_lossy().to_lowercase())
             .unwrap_or_default();
         let result = match extension.as_str() {
-            "json" => report::graph_export::export_json(&graph, export_path),
-            "dot" | "gv" => report::graph_export::export_dot(&graph, export_path),
+            "json" => report::graph_export::export_json(&graph, &entry_points, export_path),
+            "dot" | "gv" => report::graph_export::export_dot(&graph, &entry_points, export_path),
             other => {
                 eprintln!(
                     "{}: unknown graph format '.{other}' — use .json or .dot",

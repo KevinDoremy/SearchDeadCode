@@ -29,6 +29,8 @@ struct EdgeOut {
 struct GraphOut {
     nodes: Vec<NodeOut>,
     edges: Vec<EdgeOut>,
+    /// Entry-point declaration ids — the reasons anything is alive
+    roots: Vec<String>,
 }
 
 /// Owned mirror of the export format, for reading a saved graph back.
@@ -51,6 +53,9 @@ pub struct SavedEdge {
 pub struct SavedGraph {
     pub nodes: Vec<SavedNode>,
     pub edges: Vec<SavedEdge>,
+    /// Absent in old exports — why_alive then has nothing to walk from
+    #[serde(default)]
+    pub roots: Vec<String>,
 }
 
 pub enum QueryAnswer<'a> {
@@ -85,6 +90,63 @@ impl SavedGraph {
         dead
     }
 
+    /// Shortest root-to-symbol path, if any root reaches it.
+    pub fn why_alive(&self, symbol: &str) -> Option<Vec<&SavedNode>> {
+        use std::collections::{HashMap, VecDeque};
+        let by_id: HashMap<&str, &SavedNode> =
+            self.nodes.iter().map(|n| (n.id.as_str(), n)).collect();
+        let targets: std::collections::HashSet<&str> = self
+            .nodes
+            .iter()
+            .filter(|n| n.name == symbol)
+            .map(|n| n.id.as_str())
+            .collect();
+        if targets.is_empty() {
+            return None;
+        }
+        let mut adjacency: HashMap<&str, Vec<&str>> = HashMap::new();
+        for edge in &self.edges {
+            adjacency
+                .entry(edge.from.as_str())
+                .or_default()
+                .push(edge.to.as_str());
+        }
+        let mut predecessor: HashMap<&str, &str> = HashMap::new();
+        let mut queue: VecDeque<&str> = VecDeque::new();
+        for root in &self.roots {
+            if by_id.contains_key(root.as_str()) && !predecessor.contains_key(root.as_str()) {
+                predecessor.insert(root.as_str(), "");
+                queue.push_back(root.as_str());
+            }
+        }
+        while let Some(current) = queue.pop_front() {
+            if targets.contains(current) {
+                let mut path = vec![current];
+                let mut cursor = current;
+                while let Some(&prev) = predecessor.get(cursor) {
+                    if prev.is_empty() {
+                        break;
+                    }
+                    path.push(prev);
+                    cursor = prev;
+                }
+                path.reverse();
+                return Some(
+                    path.into_iter()
+                        .filter_map(|id| by_id.get(id).copied())
+                        .collect(),
+                );
+            }
+            for next in adjacency.get(current).into_iter().flatten() {
+                if !predecessor.contains_key(next) {
+                    predecessor.insert(next, current);
+                    queue.push_back(next);
+                }
+            }
+        }
+        Some(vec![]) // known symbol, but no root reaches it
+    }
+
     /// Who references any declaration named `symbol`?
     pub fn refs_of(&self, symbol: &str) -> QueryAnswer<'_> {
         let targets: std::collections::HashSet<&str> = self
@@ -110,7 +172,10 @@ impl SavedGraph {
     }
 }
 
-fn collect(graph: &Graph) -> GraphOut {
+fn collect(
+    graph: &Graph,
+    entry_points: &std::collections::HashSet<crate::graph::DeclarationId>,
+) -> GraphOut {
     let mut nodes = Vec::new();
     let mut edges = Vec::new();
     for decl in graph.declarations() {
@@ -130,17 +195,31 @@ fn collect(graph: &Graph) -> GraphOut {
     }
     nodes.sort_by(|a, b| a.id.cmp(&b.id));
     edges.sort_by(|a, b| a.from.cmp(&b.from).then(a.to.cmp(&b.to)));
-    GraphOut { nodes, edges }
+    let mut roots: Vec<String> = entry_points.iter().map(|id| id.to_string()).collect();
+    roots.sort();
+    GraphOut {
+        nodes,
+        edges,
+        roots,
+    }
 }
 
-pub fn export_json(graph: &Graph, path: &Path) -> std::io::Result<()> {
-    let out = collect(graph);
+pub fn export_json(
+    graph: &Graph,
+    entry_points: &std::collections::HashSet<crate::graph::DeclarationId>,
+    path: &Path,
+) -> std::io::Result<()> {
+    let out = collect(graph, entry_points);
     let file = std::fs::File::create(path)?;
     serde_json::to_writer_pretty(std::io::BufWriter::new(file), &out).map_err(std::io::Error::other)
 }
 
-pub fn export_dot(graph: &Graph, path: &Path) -> std::io::Result<()> {
-    let out = collect(graph);
+pub fn export_dot(
+    graph: &Graph,
+    entry_points: &std::collections::HashSet<crate::graph::DeclarationId>,
+    path: &Path,
+) -> std::io::Result<()> {
+    let out = collect(graph, entry_points);
     let mut writer = std::io::BufWriter::new(std::fs::File::create(path)?);
     writeln!(writer, "digraph references {{")?;
     for node in &out.nodes {
