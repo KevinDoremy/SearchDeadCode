@@ -257,3 +257,82 @@ fn an_unknown_method_gets_a_json_rpc_error() {
         responses[0]
     );
 }
+
+#[test]
+fn tools_list_advertises_health() {
+    let temp = tempfile::tempdir().unwrap();
+    let graph = saved_graph(temp.path());
+
+    let responses = serve(
+        &graph,
+        &[r#"{"jsonrpc":"2.0","id":7,"method":"tools/list","params":{}}"#],
+    );
+    let tools = responses[0]["result"]["tools"].as_array().unwrap();
+    assert!(
+        tools.iter().any(|t| t["name"] == "health"),
+        "health is advertised, tools were:\n{tools:?}"
+    );
+}
+
+#[test]
+fn health_grades_a_rotting_module_below_a() {
+    let temp = tempfile::tempdir().unwrap();
+    let graph = saved_graph(temp.path());
+
+    let responses = serve(
+        &graph,
+        &[
+            r#"{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"health","arguments":{}}}"#,
+        ],
+    );
+    let text = responses[0]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    // Ghost and haunt are dead in a ~6-declaration module: far above 1%
+    assert!(
+        text.contains("dead"),
+        "the ratio is spelled out, text was:\n{text}"
+    );
+    assert!(
+        !text.contains(" A ") && (text.contains(" D ") || text.contains(" F ")),
+        "two corpses in a tiny module cannot grade A, text was:\n{text}"
+    );
+}
+
+#[test]
+fn health_grades_a_clean_module_a() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = temp.path().join("clean");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(
+        project.join("Engine.kt"),
+        "package sample\n\nclass Engine {\n    fun run() {}\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        project.join("Main.kt"),
+        "package sample\n\nfun main() {\n    Engine().run()\n}\n",
+    )
+    .unwrap();
+    let graph = temp.path().join("clean-graph.json");
+    let out = Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+        .arg(&project)
+        .args(["--export-graph", graph.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+
+    let responses = serve(
+        &graph,
+        &[
+            r#"{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"health","arguments":{}}}"#,
+        ],
+    );
+    let text = responses[0]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(
+        text.contains(" A "),
+        "everything reachable grades A, text was:\n{text}"
+    );
+}

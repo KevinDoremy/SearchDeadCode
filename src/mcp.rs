@@ -6,8 +6,9 @@
 use crate::report::graph_export::{QueryAnswer, SavedGraph};
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
+use std::path::Path;
 
-pub fn serve(graph: &SavedGraph) -> std::io::Result<()> {
+pub fn serve(graph: &SavedGraph, project_root: &Path) -> std::io::Result<()> {
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
     for line in stdin.lock().lines() {
@@ -22,14 +23,14 @@ pub fn serve(graph: &SavedGraph) -> std::io::Result<()> {
         if id.is_null() {
             continue; // notification: no response owed
         }
-        let response = handle(graph, &request, id);
+        let response = handle(graph, project_root, &request, id);
         writeln!(stdout, "{response}")?;
         stdout.flush()?;
     }
     Ok(())
 }
 
-fn handle(graph: &SavedGraph, request: &Value, id: Value) -> Value {
+fn handle(graph: &SavedGraph, project_root: &Path, request: &Value, id: Value) -> Value {
     match request["method"].as_str() {
         Some("initialize") => json!({
             "jsonrpc": "2.0",
@@ -88,6 +89,11 @@ fn handle(graph: &SavedGraph, request: &Value, id: Value) -> Value {
                             "properties": { "symbol": { "type": "string" } },
                             "required": ["symbol"]
                         }
+                    },
+                    {
+                        "name": "health",
+                        "description": "A-F dead-code grade per module, worst first — where to clean up next",
+                        "inputSchema": { "type": "object", "properties": {} }
                     }
                 ]
             }
@@ -101,6 +107,7 @@ fn handle(graph: &SavedGraph, request: &Value, id: Value) -> Value {
                 "refs_of" => refs_of_text(graph, symbol),
                 "is_dead" => is_dead_text(graph, symbol),
                 "dead_list" => dead_list_text(graph),
+                "health" => health_text(graph, project_root),
                 "why_alive" => why_alive_text(graph, symbol),
                 "search" => {
                     let query = request["params"]["arguments"]["query"]
@@ -171,6 +178,50 @@ fn dead_list_text(graph: &SavedGraph) -> String {
         out.push_str(&format!(
             "- {} ({}) at {}:{}\n",
             node.name, node.kind, node.file, node.line
+        ));
+    }
+    out
+}
+
+/// A-F grade per module, worst first — same thresholds as --health.
+fn health_text(graph: &SavedGraph, project_root: &Path) -> String {
+    use std::collections::{HashMap, HashSet};
+    let mut totals: HashMap<String, usize> = HashMap::new();
+    for node in &graph.nodes {
+        let module = crate::analysis::strings_dup::module_of(project_root, Path::new(&node.file));
+        *totals.entry(module).or_default() += 1;
+    }
+    let mut dead: HashMap<String, HashSet<String>> = HashMap::new();
+    for node in graph.dead_symbols() {
+        let module = crate::analysis::strings_dup::module_of(project_root, Path::new(&node.file));
+        dead.entry(module)
+            .or_default()
+            .insert(format!("{}:{}", node.file, node.line));
+    }
+    let mut rows: Vec<(String, usize, usize)> = totals
+        .into_iter()
+        .map(|(module, total)| {
+            let corpses = dead.get(&module).map(HashSet::len).unwrap_or(0);
+            (module, corpses, total)
+        })
+        .collect();
+    rows.sort_by(|a, b| {
+        let ratio_a = a.1 as f64 / a.2.max(1) as f64;
+        let ratio_b = b.1 as f64 / b.2.max(1) as f64;
+        ratio_b.partial_cmp(&ratio_a).unwrap().then(a.0.cmp(&b.0))
+    });
+    let mut out = String::from("module health (dead/total declarations), worst first:\n");
+    for (module, corpses, total) in rows {
+        let percent = corpses as f64 * 100.0 / total.max(1) as f64;
+        let grade = match percent {
+            p if p <= 1.0 => "A",
+            p if p <= 3.0 => "B",
+            p if p <= 8.0 => "C",
+            p if p <= 15.0 => "D",
+            _ => "F",
+        };
+        out.push_str(&format!(
+            "- {grade} {module}: {corpses}/{total} dead ({percent:.1}%)\n"
         ));
     }
     out
