@@ -267,6 +267,10 @@ name = "verify_cmd"
 path = "tests/integration/verify_cmd_tests.rs"
 
 [[test]]
+name = "remote_config"
+path = "tests/integration/remote_config_tests.rs"
+
+[[test]]
 name = "cli"
 path = "tests/integration/cli_tests.rs"
 

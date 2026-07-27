@@ -2341,6 +2341,21 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         }
     }
 
+    // Step 9f4: Remote Config keys declared in defaults but never read
+    {
+        for (key, file, line) in analysis::remote_config::dead_keys(&cli.path, &files) {
+            dead_code.push(synthetic_finding(
+                &file,
+                line,
+                &key,
+                graph::DeclarationKind::Property,
+                analysis::DeadCodeIssue::DeadConfigKey,
+                format!("Remote Config key \"{key}\" is declared in defaults but never read"),
+                analysis::Confidence::High,
+            ));
+        }
+    }
+
     // Step 9g: Unused Intent extras — through the standard report (DC019)
     if cli.unused_extras {
         let intent_detector = UnusedIntentExtraDetector::new();
