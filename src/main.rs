@@ -1466,6 +1466,29 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         }
     }
 
+    // Step 9f2: Dead layouts (ViewBinding-aware, cheap string scan)
+    {
+        let dead_layouts = analysis::layouts::find_dead_layouts(&files);
+        if !dead_layouts.is_empty() && !cli.quiet {
+            println!();
+            println!(
+                "{}",
+                "📐 Unused layouts (no Binding usage, no R.layout, no include):"
+                    .yellow()
+                    .bold()
+            );
+            for layout in &dead_layouts {
+                let rel = layout.strip_prefix(&cli.path).unwrap_or(layout);
+                println!("  {} {}", "○".dimmed(), rel.display());
+            }
+            println!(
+                "{}",
+                "  (check for getIdentifier()-style dynamic inflation before deleting)".dimmed()
+            );
+            println!();
+        }
+    }
+
     // Step 9g: Detect unused Intent extras (Phase 11)
     if cli.unused_extras {
         let intent_detector = UnusedIntentExtraDetector::new();

@@ -134,6 +134,10 @@ name = "quickwins"
 path = "tests/integration/quickwins_tests.rs"
 
 [[test]]
+name = "layouts"
+path = "tests/integration/layout_tests.rs"
+
+[[test]]
 name = "detectors"
 path = "tests/integration/detector_tests.rs"
 

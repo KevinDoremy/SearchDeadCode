@@ -9,6 +9,7 @@ mod entry_points;
 pub mod flags;
 mod hybrid;
 pub mod kill_list;
+pub mod layouts;
 pub mod migration;
 mod reachability;
 pub mod resources;
