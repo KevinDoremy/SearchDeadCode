@@ -111,3 +111,64 @@ fn a_clean_project_is_all_a() {
         "nothing dead, everything A, stdout was:\n{stdout}"
     );
 }
+
+#[test]
+fn health_json_is_machine_readable() {
+    let temp = tempfile::tempdir().unwrap();
+    write_file(
+        temp.path(),
+        "app/src/main/kotlin/Ghost.kt",
+        "package sample\n\nclass Ghost {\n    fun haunt() {}\n}\n",
+    );
+    write_file(
+        temp.path(),
+        "app/src/main/kotlin/Main.kt",
+        "package sample\n\nfun main() {\n    println(\"alive\")\n}\n",
+    );
+
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+        .arg(temp.path())
+        .args(["--health", "--format", "json"])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let json: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("valid JSON on stdout");
+    let modules = json["modules"].as_array().expect("a modules array");
+    let app = modules
+        .iter()
+        .find(|m| m["module"].as_str().unwrap_or("").contains("app"))
+        .expect("the app module is graded");
+    assert!(app["grade"].is_string());
+    assert!(app["dead"].is_u64() && app["total"].is_u64());
+    assert!(
+        app["dead"].as_u64().unwrap() > 0,
+        "Ghost counts as dead, got:\n{app}"
+    );
+}
+
+#[test]
+fn health_json_carries_no_ansi_noise() {
+    let temp = tempfile::tempdir().unwrap();
+    write_file(
+        temp.path(),
+        "app/src/main/kotlin/Main.kt",
+        "package sample\n\nfun main() {\n    println(\"alive\")\n}\n",
+    );
+
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+        .arg(temp.path())
+        .args(["--health", "--format", "json"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        !stdout.contains('\u{1b}'),
+        "a dashboard parses this — no escape codes, stdout was:\n{stdout}"
+    );
+    assert!(
+        serde_json::from_str::<serde_json::Value>(stdout.trim()).is_ok(),
+        "nothing but JSON on stdout"
+    );
+}
