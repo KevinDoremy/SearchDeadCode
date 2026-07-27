@@ -130,6 +130,10 @@ name = "interactive"
 path = "tests/integration/interactive_tests.rs"
 
 [[test]]
+name = "quickwins"
+path = "tests/integration/quickwins_tests.rs"
+
+[[test]]
 name = "detectors"
 path = "tests/integration/detector_tests.rs"
 
