@@ -183,7 +183,17 @@ impl EnhancedAnalyzer {
                 }
 
                 let issue = self.determine_issue_type(decl);
-                Some(DeadCode::new((*decl).clone(), issue))
+                let mut finding = DeadCode::new((*decl).clone(), issue);
+                // "is never used" would be false for a zombie: it IS
+                // referenced, but only from code that is itself dead
+                if !graph.get_references_to(&decl.id).is_empty() {
+                    finding = finding.with_message(format!(
+                        "{} '{}' is only referenced from dead code — unreachable from any entry point",
+                        decl.kind.display_name(),
+                        decl.name
+                    ));
+                }
+                Some(finding)
             })
             .collect()
     }

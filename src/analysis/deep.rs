@@ -440,7 +440,7 @@ impl DeepAnalyzer {
                         return None;
                     }
                     let issue = self.determine_issue_type(decl);
-                    Some(DeadCode::new((*decl).clone(), issue))
+                    Some(zombie_aware_finding(graph, decl, issue))
                 })
                 .collect()
         } else {
@@ -454,7 +454,7 @@ impl DeepAnalyzer {
                         return None;
                     }
                     let issue = self.determine_issue_type(decl);
-                    Some(DeadCode::new((*decl).clone(), issue))
+                    Some(zombie_aware_finding(graph, decl, issue))
                 })
                 .collect()
         };
@@ -1190,6 +1190,27 @@ impl DeepAnalyzer {
 impl Default for DeepAnalyzer {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// "is never used" would be false for a zombie: it IS referenced, but
+/// only from code that is itself dead. Name the real condition.
+fn zombie_aware_finding(
+    graph: &Graph,
+    decl: &Declaration,
+    issue: super::DeadCodeIssue,
+) -> super::DeadCode {
+    let finding = super::DeadCode::new(decl.clone(), issue);
+    if matches!(issue, super::DeadCodeIssue::Unreferenced)
+        && !graph.get_references_to(&decl.id).is_empty()
+    {
+        finding.with_message(format!(
+            "{} '{}' is only referenced from dead code — unreachable from any entry point",
+            decl.kind.display_name(),
+            decl.name
+        ))
+    } else {
+        finding
     }
 }
 
