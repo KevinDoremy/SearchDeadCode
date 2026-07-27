@@ -129,8 +129,8 @@ fn precision_and_recall_hold_their_floors() {
         "precision floor: no living symbol may be reported dead.\nreported: {reported:?}"
     );
     assert!(
-        recall >= 0.75,
-        "recall floor: at least 3 of the 4 known corpses are found (got {true_positives}/4).\nreported: {reported:?}"
+        recall >= 1.0,
+        "recall floor: every known corpse is found, zombie pair included (got {true_positives}/4).\nreported: {reported:?}"
     );
 }
 
@@ -154,4 +154,66 @@ fn deep_mode_keeps_the_precision_floor() {
             "'{alive}' is reachable and must not be reported, reported: {reported:?}"
         );
     }
+}
+
+#[test]
+fn a_zombie_symbol_names_its_real_condition() {
+    // ZombieLeaf HAS an incoming reference (from dead GhostMapper);
+    // "is never used" is factually wrong and sends the reader checking
+    // call sites that do exist. The message must name the condition.
+    let temp = tempfile::tempdir().unwrap();
+    write_file(
+        temp.path(),
+        "src/main/kotlin/Main.kt",
+        "package sample\n\nfun main() {\n    Engine().start()\n}\n",
+    );
+    write_file(
+        temp.path(),
+        "src/main/kotlin/Engine.kt",
+        "package sample\n\nclass Engine {\n    fun start() {}\n}\n",
+    );
+    write_file(
+        temp.path(),
+        "src/main/kotlin/GhostMapper.kt",
+        "package sample\n\nclass GhostMapper {\n    fun map() {\n        ZombieLeaf().rot()\n    }\n}\n",
+    );
+    write_file(
+        temp.path(),
+        "src/main/kotlin/ZombieLeaf.kt",
+        "package sample\n\nclass ZombieLeaf {\n    fun rot() {}\n}\n",
+    );
+
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+        .arg(temp.path())
+        .args(["--format", "json"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let json: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    let zombie = json["issues"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| i["declaration"]["name"] == "ZombieLeaf")
+        .expect("ZombieLeaf is reported");
+    let message = zombie["message"].as_str().unwrap();
+    assert!(
+        message.contains("dead code") || message.contains("unreachable"),
+        "the message names the zombie condition, was:\n{message}"
+    );
+    assert!(
+        !message.contains("never used"),
+        "'never used' is false — it IS used, by a corpse, was:\n{message}"
+    );
+    // the root of the cluster keeps the plain diagnosis
+    let root = json["issues"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| i["declaration"]["name"] == "GhostMapper")
+        .expect("GhostMapper is reported");
+    assert!(
+        root["message"].as_str().unwrap().contains("never used"),
+        "a truly unreferenced symbol keeps the plain message"
+    );
 }
