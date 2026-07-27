@@ -293,6 +293,7 @@ Generated from `--help`; every flag the binary accepts, alphabetically.
 | `--incremental` | Enable incremental analysis with caching (enabled by default) Skips re-parsing unchanged files for faster subsequent runs [default: true] [possible values: true, false] |
 | `--health` | Replace the report with an A-F health grade per module |
 | `--import-suppressions` | Convert @Suppress(\"unused\") annotations into entries of this baseline file (migration from Detekt-style triage), then exit |
+| `--import-detekt-baseline` | Convert the Unused* entries of a detekt-baseline.xml into the baseline given by --baseline, then exit |
 | `--init` | Generate a commented .deadcode.yml matching the project's shape (source sets, DI framework, exclusions) and exit |
 | `--install-hook` | Install a pre-commit hook running the fast diff mode, then exit |
 | `--interactive` | Interactive mode for deletions (confirm each) |

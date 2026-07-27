@@ -462,6 +462,11 @@ struct Cli {
     #[arg(long, value_name = "FILE")]
     import_suppressions: Option<PathBuf>,
 
+    /// Convert the Unused* entries of a detekt-baseline.xml into the
+    /// baseline given by --baseline, then exit
+    #[arg(long, value_name = "XML", requires = "baseline")]
+    import_detekt_baseline: Option<PathBuf>,
+
     /// List cache keys written but never read back, then exit
     #[arg(long)]
     write_only_caches: bool,
@@ -2988,6 +2993,114 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         }
         println!(
             "✅ Imported {imported} suppression(s) into {} ({} total entries)",
+            baseline_path.display(),
+            baseline.issues.len()
+        );
+        return Ok(());
+    }
+
+    // --import-detekt-baseline short-circuits everything after the graph
+    if let Some(ref xml_path) = cli.import_detekt_baseline {
+        let baseline_path = cli.baseline.as_ref().expect("clap requires --baseline");
+        let xml = match std::fs::read_to_string(xml_path) {
+            Ok(content) => content,
+            Err(e) => {
+                eprintln!(
+                    "{}: cannot read {}: {}",
+                    "Error".red(),
+                    xml_path.display(),
+                    e
+                );
+                std::process::exit(2);
+            }
+        };
+        let mut baseline = if baseline_path.exists() {
+            match baseline::Baseline::load(baseline_path) {
+                Ok(b) => b,
+                Err(e) => {
+                    eprintln!("{}: cannot read baseline: {}", "Error".red(), e);
+                    std::process::exit(2);
+                }
+            }
+        } else {
+            baseline::Baseline::from_findings(&[], &cli.path)
+        };
+        let mut imported = 0usize;
+        let mut skipped = 0usize;
+        for id in xml
+            .split("<ID>")
+            .skip(1)
+            .filter_map(|chunk| chunk.split("</ID>").next())
+        {
+            // Detekt IDs read RuleId:FileName.kt$Signature
+            let Some((rule, rest)) = id.split_once(':') else {
+                continue;
+            };
+            if !rule.starts_with("Unused") {
+                continue;
+            }
+            let Some((file_name, signature)) = rest.split_once('$') else {
+                skipped += 1;
+                continue;
+            };
+            // the signature quotes the declaration; its last keyword-led
+            // identifier is the symbol name
+            let symbol = signature
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .windows(2)
+                .rev()
+                .find(|w| {
+                    matches!(
+                        w[0],
+                        "fun" | "class" | "object" | "interface" | "val" | "var"
+                    )
+                })
+                .map(|w| {
+                    w[1].trim_end_matches(|c: char| !c.is_alphanumeric() && c != '_')
+                        .split('(')
+                        .next()
+                        .unwrap_or("")
+                        .to_string()
+                });
+            let Some(symbol) = symbol.filter(|s| !s.is_empty()) else {
+                skipped += 1;
+                continue;
+            };
+            let matched = graph.declarations().find(|decl| {
+                decl.name == symbol
+                    && decl
+                        .id
+                        .file
+                        .file_name()
+                        .map(|f| f.to_string_lossy() == file_name)
+                        .unwrap_or(false)
+            });
+            let Some(decl) = matched else {
+                skipped += 1;
+                continue;
+            };
+            let synthetic =
+                analysis::DeadCode::new(decl.clone(), analysis::DeadCodeIssue::Unreferenced);
+            if baseline.is_baselined(&synthetic, &cli.path) {
+                continue;
+            }
+            baseline
+                .issues
+                .push(baseline::IssueFingerprint::from_dead_code(
+                    &synthetic, &cli.path,
+                ));
+            imported += 1;
+        }
+        if imported > 0 {
+            if let Err(e) = baseline.save(baseline_path) {
+                eprintln!("{}: cannot write baseline: {}", "Error".red(), e);
+                std::process::exit(2);
+            }
+        }
+        println!(
+            "✅ Imported {imported} Detekt entr{} into {} ({} total entries, {skipped} skipped)",
+            if imported == 1 { "y" } else { "ies" },
             baseline_path.display(),
             baseline.issues.len()
         );
