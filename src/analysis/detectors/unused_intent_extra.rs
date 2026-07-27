@@ -119,8 +119,9 @@ impl UnusedIntentExtraDetector {
             }
 
             // Skip test files
-            let path_str = path.to_string_lossy();
-            if path_str.contains("/test/") || path_str.contains("/androidTest/") {
+            if crate::analysis::deep::path_has_segment(path, "test")
+                || crate::analysis::deep::path_has_segment(path, "androidTest")
+            {
                 continue;
             }
 
