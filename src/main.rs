@@ -429,6 +429,20 @@ struct Cli {
     #[arg(long, value_name = "FILE")]
     generate_baseline: Option<PathBuf>,
 
+    /// List the entries of the --baseline file, then exit
+    #[arg(long)]
+    baseline_show: bool,
+
+    /// Remove entries matching this name (or FQN) from the --baseline
+    /// file, then exit
+    #[arg(long, value_name = "NAME")]
+    baseline_rm: Option<String>,
+
+    /// Drop baseline entries whose finding no longer exists (resolved),
+    /// rewriting the --baseline file
+    #[arg(long)]
+    baseline_prune: bool,
+
     /// Watch mode - continuously monitor for changes
     #[arg(long)]
     watch: bool,
@@ -572,6 +586,60 @@ fn main() -> Result<()> {
                 std::process::exit(2);
             }
         }
+    }
+
+    if cli.baseline_prune && cli.baseline.is_none() {
+        eprintln!(
+            "{}: --baseline-prune needs --baseline <file>",
+            "Error".red()
+        );
+        std::process::exit(2);
+    }
+
+    // Baseline management (show/rm) needs only the file, not an analysis
+    if cli.baseline_show || cli.baseline_rm.is_some() {
+        let Some(ref baseline_path) = cli.baseline else {
+            eprintln!(
+                "{}: baseline management needs --baseline <file>",
+                "Error".red()
+            );
+            std::process::exit(2);
+        };
+        let mut loaded = match baseline::Baseline::load(baseline_path) {
+            Ok(b) => b,
+            Err(e) => {
+                eprintln!("{}: cannot read baseline: {}", "Error".red(), e);
+                std::process::exit(2);
+            }
+        };
+        if let Some(ref target) = cli.baseline_rm {
+            let before = loaded.issues.len();
+            loaded
+                .issues
+                .retain(|fp| fp.name != *target && fp.fqn.as_deref() != Some(target.as_str()));
+            let removed = before - loaded.issues.len();
+            if removed == 0 {
+                println!("no entry named '{target}' in the baseline — file untouched");
+            } else {
+                loaded.save(baseline_path).map_err(|e| miette::miette!(e))?;
+                println!("removed {removed} entrie(s) named '{target}'");
+            }
+            return Ok(());
+        }
+        println!(
+            "{}",
+            format!("Baseline: {} entrie(s)", loaded.issues.len()).bold()
+        );
+        for fp in &loaded.issues {
+            println!(
+                "  {} {:<30} {:<10} {}",
+                "○".dimmed(),
+                fp.name,
+                fp.kind,
+                format!("{}:{}", fp.file, fp.line).dimmed()
+            );
+        }
+        return Ok(());
     }
 
     // Initialize logging
@@ -3091,6 +3159,37 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     let dead_code = if let Some(ref baseline_path) = cli.baseline {
         match baseline::Baseline::load(baseline_path) {
             Ok(baseline) => {
+                // --baseline-prune: entries no finding matches anymore are
+                // resolved — drop them and rewrite the file
+                let baseline = if cli.baseline_prune {
+                    let mut pruned = baseline;
+                    let before = pruned.issues.len();
+                    pruned
+                        .issues
+                        .retain(|fp| dead_code.iter().any(|dc| fp.matches(dc, &cli.path)));
+                    let dropped = before - pruned.issues.len();
+                    if dropped > 0 {
+                        match pruned.save(baseline_path) {
+                            Ok(_) => println!(
+                                "{}",
+                                format!("🧹 Pruned {dropped} resolved entrie(s) from the baseline")
+                                    .green()
+                            ),
+                            Err(e) => {
+                                eprintln!(
+                                    "{}: failed to rewrite baseline: {}",
+                                    "Warning".yellow(),
+                                    e
+                                )
+                            }
+                        }
+                    } else {
+                        println!("nothing to prune — every baseline entry still matches a finding");
+                    }
+                    pruned
+                } else {
+                    baseline
+                };
                 let stats = baseline.stats(&dead_code, &cli.path);
                 println!("{}", format!("📋 Baseline: {}", stats).cyan());
 
