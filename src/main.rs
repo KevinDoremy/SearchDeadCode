@@ -1786,6 +1786,50 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         }
     }
 
+    // Step 9f3: Event-bus orphans (cheap regex pass over the sources)
+    {
+        let mut corpus = String::new();
+        for file in &files {
+            if matches!(
+                file.file_type,
+                discovery::FileType::Kotlin | discovery::FileType::Java
+            ) {
+                if let Ok(content) = std::fs::read_to_string(&file.path) {
+                    corpus.push_str(&content);
+                    corpus.push('\n');
+                }
+            }
+        }
+        let bus_report = analysis::bus::analyze(&corpus);
+        if !bus_report.is_empty() && !cli.quiet {
+            println!();
+            println!("{}", "🚌 Event bus orphans:".yellow().bold());
+            if !bus_report.posted_never_subscribed.is_empty() {
+                println!("  posted but never subscribed:");
+                for event in &bus_report.posted_never_subscribed {
+                    println!("    {} {}", "○".dimmed(), event);
+                }
+            }
+            if !bus_report.subscribed_never_posted.is_empty() {
+                println!("  subscribed but never posted:");
+                for event in &bus_report.subscribed_never_posted {
+                    println!("    {} {}", "○".dimmed(), event);
+                }
+                if bus_report.dynamic_posts > 0 {
+                    println!(
+                        "{}",
+                        format!(
+                            "    ({} dynamic post(s) found — some of these may be posted through variables)",
+                            bus_report.dynamic_posts
+                        )
+                        .dimmed()
+                    );
+                }
+            }
+            println!();
+        }
+    }
+
     // Step 9g: Detect unused Intent extras (Phase 11)
     if cli.unused_extras {
         let intent_detector = UnusedIntentExtraDetector::new();

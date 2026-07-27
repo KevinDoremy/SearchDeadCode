@@ -154,6 +154,10 @@ name = "module_usage"
 path = "tests/integration/module_usage_tests.rs"
 
 [[test]]
+name = "bus"
+path = "tests/integration/bus_tests.rs"
+
+[[test]]
 name = "detectors"
 path = "tests/integration/detector_tests.rs"
 
