@@ -239,7 +239,7 @@ struct Cli {
     report_package: Option<String>,
 
     /// Enable parallel processing for faster analysis (enabled by default)
-    #[arg(long, default_value = "true", action = clap::ArgAction::Set)]
+    #[arg(long, default_value = "true", default_missing_value = "true", num_args = 0..=1, action = clap::ArgAction::Set)]
     parallel: bool,
 
     /// Enable enhanced detection mode with ProGuard cross-validation
@@ -249,7 +249,7 @@ struct Cli {
     /// Enable deep analysis mode - more aggressive detection (enabled by default)
     /// Does not auto-mark class members as reachable
     /// Detects unused members even in reachable classes
-    #[arg(long, default_value = "true", action = clap::ArgAction::Set)]
+    #[arg(long, default_value = "true", default_missing_value = "true", num_args = 0..=1, action = clap::ArgAction::Set)]
     deep: bool,
 
     /// Enable unused parameter detection (enabled by default)
@@ -545,7 +545,7 @@ struct Cli {
 
     /// Enable incremental analysis with caching (enabled by default)
     /// Skips re-parsing unchanged files for faster subsequent runs
-    #[arg(long, default_value = "true", action = clap::ArgAction::Set)]
+    #[arg(long, default_value = "true", default_missing_value = "true", num_args = 0..=1, action = clap::ArgAction::Set)]
     incremental: bool,
 
     /// Clear the analysis cache before running
