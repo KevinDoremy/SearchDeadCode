@@ -386,6 +386,10 @@ struct Cli {
     #[arg(long)]
     by_module: bool,
 
+    /// Replace the report with an A-F health grade per module
+    #[arg(long)]
+    health: bool,
+
     /// Fail when code references a symbol the --baseline judged dead
     /// (someone is resurrecting legacy), then exit
     #[arg(long)]
@@ -1574,6 +1578,64 @@ fn write_badge(
     );
     std::fs::write(path, svg)?;
     Ok(percent)
+}
+
+/// A-F report card per module from the dead/total declaration ratio —
+/// the light gamification that lands in a team review.
+fn print_health(graph: &graph::Graph, dead_code: &[analysis::DeadCode], root: &Path) {
+    use std::collections::{HashMap, HashSet};
+    let mut totals: HashMap<String, usize> = HashMap::new();
+    for decl in graph.declarations() {
+        *totals
+            .entry(analysis::strings_dup::module_of(root, &decl.location.file))
+            .or_default() += 1;
+    }
+    let mut dead: HashMap<String, HashSet<String>> = HashMap::new();
+    for dc in dead_code {
+        // health measures death, not advice: info-level findings
+        // (visibility hints, style) do not rot a module
+        if dc.severity == analysis::Severity::Info {
+            continue;
+        }
+        dead.entry(analysis::strings_dup::module_of(
+            root,
+            &dc.declaration.location.file,
+        ))
+        .or_default()
+        .insert(dc.declaration.id.to_string());
+    }
+    let mut rows: Vec<(String, usize, usize)> = totals
+        .into_iter()
+        .map(|(module, total)| {
+            let corpses = dead.get(&module).map(HashSet::len).unwrap_or(0);
+            (module, corpses, total)
+        })
+        .collect();
+    rows.sort_by(|a, b| {
+        let ratio_a = a.1 as f64 / a.2.max(1) as f64;
+        let ratio_b = b.1 as f64 / b.2.max(1) as f64;
+        ratio_b.partial_cmp(&ratio_a).unwrap().then(a.0.cmp(&b.0))
+    });
+    println!("{}", "Module health (dead/total declarations):".bold());
+    for (module, corpses, total) in rows {
+        let percent = corpses as f64 * 100.0 / total.max(1) as f64;
+        let grade = match percent {
+            p if p <= 1.0 => "A",
+            p if p <= 3.0 => "B",
+            p if p <= 8.0 => "C",
+            p if p <= 15.0 => "D",
+            _ => "F",
+        };
+        let colored_grade = match grade {
+            "A" => grade.green().bold().to_string(),
+            "B" | "C" => grade.yellow().bold().to_string(),
+            _ => grade.red().bold().to_string(),
+        };
+        println!(
+            "  {colored_grade} {:<30} {corpses}/{total} dead ({percent:.1}%)",
+            module
+        );
+    }
 }
 
 /// Findings aggregated per Gradle module: count and dominant rule —
@@ -4363,6 +4425,12 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     // --by-module replaces the report with a per-module summary
     if cli.by_module {
         print_by_module(&dead_code, &cli.path);
+        return Ok(());
+    }
+
+    // --health replaces the report with the module report card
+    if cli.health {
+        print_health(&graph, &dead_code, &cli.path);
         return Ok(());
     }
 
