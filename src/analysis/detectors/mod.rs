@@ -84,7 +84,7 @@ pub use redundant_public::RedundantPublicDetector;
 pub use redundant_this::RedundantThisDetector;
 pub use sealed_variant::UnusedSealedVariantDetector;
 pub use unused_class::UnusedClassDetector;
-pub use unused_enum_case::UnusedEnumCaseDetector;
+pub use unused_enum_case::{reflectively_iterated_enum_ids, UnusedEnumCaseDetector};
 pub use unused_import::UnusedImportDetector;
 pub use unused_intent_extra::{ExtraLocation, IntentExtraAnalysis, UnusedIntentExtraDetector};
 pub use unused_method::UnusedMethodDetector;
