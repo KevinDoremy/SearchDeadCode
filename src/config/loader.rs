@@ -284,9 +284,50 @@ impl Config {
         Ok(Self::default())
     }
 
+    /// Merge module-level .deadcode.yml overrides into this config:
+    /// their exclude patterns apply scoped to their own directory. The
+    /// root config file itself is skipped (already loaded).
+    pub fn merge_module_overrides(&mut self, root: &Path) {
+        let mut stack: Vec<(std::path::PathBuf, usize)> = vec![(root.to_path_buf(), 0)];
+        while let Some((dir, depth)) = stack.pop() {
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let name = entry.file_name();
+                let name = name.to_string_lossy().to_string();
+                if path.is_dir() {
+                    if depth < 4
+                        && !name.starts_with('.')
+                        && !matches!(name.as_str(), "build" | "node_modules")
+                    {
+                        stack.push((path, depth + 1));
+                    }
+                } else if depth > 0 && (name == ".deadcode.yml" || name == ".deadcode.yaml") {
+                    let Ok(module_config) = Self::from_file(&path) else {
+                        continue;
+                    };
+                    let Some(module_dir) = path.parent() else {
+                        continue;
+                    };
+                    let module_rel = module_dir
+                        .strip_prefix(root)
+                        .unwrap_or(module_dir)
+                        .to_string_lossy()
+                        .replace('\\', "/");
+                    for pattern in module_config.exclude {
+                        self.exclude.push(format!("**/{module_rel}/{pattern}"));
+                    }
+                }
+            }
+        }
+    }
+
     /// Check if a pattern matches for exclusion
     pub fn should_exclude(&self, path: &Path) -> bool {
-        let path_str = path.to_string_lossy();
+        // patterns are written with forward slashes; Windows paths are not
+        let path_str = path.to_string_lossy().replace('\\', "/");
         self.exclude
             .iter()
             .any(|pattern| glob_match(pattern, &path_str))
