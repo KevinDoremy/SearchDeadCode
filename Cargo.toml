@@ -206,6 +206,10 @@ name = "file_resources"
 path = "tests/integration/file_resource_tests.rs"
 
 [[test]]
+name = "inline_ignore"
+path = "tests/integration/inline_ignore_tests.rs"
+
+[[test]]
 name = "cli"
 path = "tests/integration/cli_tests.rs"
 
