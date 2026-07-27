@@ -60,8 +60,11 @@ fn handle(graph: &SavedGraph, project_root: &Path, request: &Value, id: Value) -
                     },
                     {
                         "name": "dead_list",
-                        "description": "Every symbol with zero incoming references in the graph",
-                        "inputSchema": { "type": "object", "properties": {} }
+                        "description": "Symbols with zero incoming references, 50 per page (offset to continue)",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": { "offset": { "type": "integer" } }
+                        }
                     },
                     {
                         "name": "why_alive",
@@ -106,7 +109,12 @@ fn handle(graph: &SavedGraph, project_root: &Path, request: &Value, id: Value) -
             let text = match tool {
                 "refs_of" => refs_of_text(graph, symbol),
                 "is_dead" => is_dead_text(graph, symbol),
-                "dead_list" => dead_list_text(graph),
+                "dead_list" => {
+                    let offset = request["params"]["arguments"]["offset"]
+                        .as_u64()
+                        .unwrap_or(0) as usize;
+                    dead_list_text(graph, offset)
+                }
                 "health" => health_text(graph, project_root),
                 "why_alive" => why_alive_text(graph, symbol),
                 "search" => {
@@ -168,17 +176,32 @@ fn is_dead_text(graph: &SavedGraph, symbol: &str) -> String {
     }
 }
 
-fn dead_list_text(graph: &SavedGraph) -> String {
-    let dead = graph.dead_symbols();
+/// An agent context is finite: 50 rows per page, deterministic order.
+const DEAD_LIST_PAGE: usize = 50;
+
+fn dead_list_text(graph: &SavedGraph, offset: usize) -> String {
+    let mut dead = graph.dead_symbols();
     if dead.is_empty() {
         return "no unreferenced symbols in the graph".to_string();
     }
-    let mut out = format!("{} unreferenced symbol(s):\n", dead.len());
-    for node in dead {
+    dead.sort_by(|a, b| a.name.cmp(&b.name).then(a.file.cmp(&b.file)));
+    let total = dead.len();
+    if offset >= total {
+        return format!(
+            "no symbols at offset {offset} — the graph has {total} unreferenced symbol(s)"
+        );
+    }
+    let page: Vec<_> = dead.into_iter().skip(offset).take(DEAD_LIST_PAGE).collect();
+    let last = offset + page.len();
+    let mut out = format!("unreferenced symbols {}-{last} of {total}:\n", offset + 1);
+    for node in &page {
         out.push_str(&format!(
             "- {} ({}) at {}:{}\n",
             node.name, node.kind, node.file, node.line
         ));
+    }
+    if last < total {
+        out.push_str(&format!("pass offset={last} for the next page\n"));
     }
     out
 }
