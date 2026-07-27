@@ -4,7 +4,7 @@ mod compact;
 mod grouped;
 mod json;
 mod sarif;
-mod summary;
+pub(crate) mod summary;
 mod terminal;
 
 pub use compact::CompactReporter;
@@ -154,7 +154,8 @@ impl Reporter {
                 reporter.report(dead_code)
             }
             ReportFormat::Sarif => {
-                let reporter = SarifReporter::new(self.options.output_path.clone());
+                let reporter = SarifReporter::new(self.options.output_path.clone())
+                    .with_base_path(self.options.base_path.clone());
                 reporter.report(dead_code)
             }
         }
