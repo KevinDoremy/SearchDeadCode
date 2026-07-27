@@ -13,6 +13,7 @@ mod coverage;
 mod discovery;
 mod graph;
 mod interactive;
+mod mcp;
 mod parser;
 mod proguard;
 mod refactor;
@@ -414,6 +415,10 @@ struct Cli {
     #[arg(long, value_name = "NAME")]
     refs_of: Option<String>,
 
+    /// Serve MCP tools (refs_of, is_dead) over stdio from --graph-file
+    #[arg(long)]
+    mcp_serve: bool,
+
     /// After --delete: run this command (a compile, a test suite) and
     /// restore every touched file automatically when it fails
     #[arg(long, value_name = "CMD")]
@@ -751,6 +756,26 @@ fn main() -> Result<()> {
                 std::process::exit(2);
             }
         }
+    }
+
+    // --mcp-serve: MCP stdio server over the saved graph — no scan
+    if cli.mcp_serve {
+        let Some(ref graph_path) = cli.graph_file else {
+            eprintln!(
+                "{}: --mcp-serve needs --graph-file <file> (from --export-graph)",
+                "Error".red()
+            );
+            std::process::exit(2);
+        };
+        let saved = match report::graph_export::SavedGraph::load(graph_path) {
+            Ok(saved) => saved,
+            Err(e) => {
+                eprintln!("{}: cannot read graph file: {}", "Error".red(), e);
+                std::process::exit(2);
+            }
+        };
+        mcp::serve(&saved).map_err(|e| miette::miette!(e))?;
+        return Ok(());
     }
 
     // Graph queries answer from a saved file — no scan, no analysis
@@ -2675,8 +2700,8 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
             .map(|e| e.to_string_lossy().to_lowercase())
             .unwrap_or_default();
         let result = match extension.as_str() {
-            "json" => report::graph_export::export_json(&graph, export_path),
-            "dot" | "gv" => report::graph_export::export_dot(&graph, export_path),
+            "json" => report::graph_export::export_json(&graph, &entry_points, export_path),
+            "dot" | "gv" => report::graph_export::export_dot(&graph, &entry_points, export_path),
             other => {
                 eprintln!(
                     "{}: unknown graph format '.{other}' — use .json or .dot",
