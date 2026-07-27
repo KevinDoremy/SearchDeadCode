@@ -21,6 +21,7 @@ pub enum Outcome {
 enum Mode {
     Normal,
     Filter,
+    Help,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -177,6 +178,10 @@ impl TuiApp {
             }
             return Outcome::Continue;
         }
+        if self.mode == Mode::Help {
+            self.mode = Mode::Normal; // any key closes the overlay
+            return Outcome::Continue;
+        }
         match key {
             'q' => return Outcome::Quit,
             '/' => {
@@ -196,6 +201,9 @@ impl TuiApp {
                 self.sort = self.sort.next();
                 self.apply_sort();
             }
+            '?' => {
+                self.mode = Mode::Help;
+            }
             'b' => {
                 let visible = self.visible();
                 if let Some(&row) = visible.get(self.selected.min(visible.len().saturating_sub(1)))
@@ -209,6 +217,14 @@ impl TuiApp {
     }
 
     pub fn render(&self, frame: &mut Frame) {
+        if self.mode == Mode::Help {
+            let help = Paragraph::new(
+                "keys\n\nj/k  move\n/    filter (esc leaves)\ns    cycle sort\nb    mark for baseline\n?    this help\nq    quit\n\npress any key to close",
+            )
+            .block(Block::default().borders(Borders::ALL).title(" help "));
+            frame.render_widget(help, frame.area());
+            return;
+        }
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
@@ -631,6 +647,49 @@ mod tests {
         assert_eq!(added, 1);
         let json = std::fs::read_to_string(&baseline_path).unwrap();
         assert!(json.contains("GhostA") && json.contains("GhostB"));
+    }
+
+    #[test]
+    fn question_mark_opens_the_help_and_any_key_closes_it() {
+        let findings = vec![finding("GhostA", 3)];
+        let mut app = TuiApp::new(&findings, Path::new("/repo"));
+
+        app.on_key('?');
+        let screen = rendered(&app);
+        assert!(
+            screen.contains("help") || screen.contains("keys"),
+            "the help overlay is visible:\n{screen}"
+        );
+        assert!(
+            screen.contains("b ") && screen.contains("mark"),
+            "the keys are explained:\n{screen}"
+        );
+
+        assert_eq!(
+            app.on_key('q'),
+            Outcome::Continue,
+            "any key closes the help instead of acting"
+        );
+        let screen = rendered(&app);
+        assert!(
+            !screen.contains("j/k  move"),
+            "the overlay is gone:\n{screen}"
+        );
+        // and q now quits again from normal mode
+        assert_eq!(app.on_key('q'), Outcome::Quit);
+    }
+
+    #[test]
+    fn question_mark_inside_filter_mode_is_just_a_character() {
+        let findings = vec![finding("GhostA", 3)];
+        let mut app = TuiApp::new(&findings, Path::new("/repo"));
+        app.on_key('/');
+        app.on_key('?');
+        let screen = rendered(&app);
+        assert!(
+            screen.contains("filter: ?"),
+            "? lands in the query, no overlay:\n{screen}"
+        );
     }
 
     #[test]
