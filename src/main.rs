@@ -198,9 +198,15 @@ struct Cli {
     #[arg(long, value_name = "FILE")]
     coverage: Vec<PathBuf>,
 
-    /// Minimum confidence level to report (low, medium, high, confirmed)
-    #[arg(long, default_value = "medium")]
-    min_confidence: String,
+    /// Minimum confidence level to report (low, medium, high, confirmed).
+    /// Defaults to medium, or to the --profile choice
+    #[arg(long)]
+    min_confidence: Option<String>,
+
+    /// Preset for an audience: ci (strict, high confidence only) or
+    /// explore (everything down to low)
+    #[arg(long, value_enum)]
+    profile: Option<Profile>,
 
     /// Only show findings confirmed by runtime coverage
     #[arg(long)]
@@ -401,6 +407,26 @@ struct Cli {
     top: usize,
 }
 
+#[derive(clap::ValueEnum, Clone, Copy, Debug)]
+enum Profile {
+    /// Strict: high-confidence findings only — for pipelines
+    Ci,
+    /// Everything down to low confidence — for humans digging
+    Explore,
+}
+
+/// Explicit flag first, then the profile preset, then medium
+fn resolve_min_confidence(cli: &Cli) -> String {
+    cli.min_confidence.clone().unwrap_or_else(|| {
+        match cli.profile {
+            Some(Profile::Ci) => "high",
+            Some(Profile::Explore) => "low",
+            None => "medium",
+        }
+        .to_string()
+    })
+}
+
 #[derive(clap::ValueEnum, Clone, Debug, Default)]
 enum OutputFormat {
     #[default]
@@ -516,7 +542,7 @@ fn run_watch_mode(config: &Config, cli: &Cli) -> Result<()> {
     let cli_parallel = cli.parallel;
     let cli_enhanced = cli.enhanced;
     let cli_detect_cycles = cli.detect_cycles;
-    let cli_min_confidence = cli.min_confidence.clone();
+    let cli_min_confidence = resolve_min_confidence(cli);
     let cli_baseline = cli.baseline.clone();
     let cli_coverage = cli.coverage.clone();
     let cli_proguard_usage = cli.proguard_usage.clone();
@@ -2391,7 +2417,7 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     }
 
     // Step 10: Filter by confidence level
-    let min_confidence = parse_confidence(&cli.min_confidence);
+    let min_confidence = parse_confidence(&resolve_min_confidence(cli));
     let mut dead_code: Vec<_> = dead_code
         .into_iter()
         .filter(|dc| dc.confidence >= min_confidence)

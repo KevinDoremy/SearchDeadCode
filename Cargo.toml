@@ -226,6 +226,10 @@ name = "soft_refs"
 path = "tests/integration/soft_refs_tests.rs"
 
 [[test]]
+name = "profiles"
+path = "tests/integration/profile_tests.rs"
+
+[[test]]
 name = "cli"
 path = "tests/integration/cli_tests.rs"
 
