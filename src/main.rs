@@ -57,6 +57,7 @@ use analysis::detectors::{
     NullabilityOverloadDetector,
     ObjectAllocationInLoopDetector,
     RedundantOverrideDetector,
+    RedundantPublicDetector,
     ReflectionOveruseDetector,
     ScopeFunctionChainingDetector,
     SingleImplInterfaceDetector,
@@ -1744,6 +1745,20 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         if !branch_issues.is_empty() {
             info!("Found {} dead branches", branch_issues.len());
             dead_code.extend(branch_issues);
+        }
+        // DC006: public but only used in its own module. Entry points stay
+        // public — the framework reaches them from outside the graph.
+        let public_issues: Vec<_> = RedundantPublicDetector::new()
+            .detect(&graph)
+            .into_iter()
+            .filter(|dc| !entry_points.contains(&dc.declaration.id))
+            .collect();
+        if !public_issues.is_empty() {
+            info!(
+                "Found {} redundant public declarations",
+                public_issues.len()
+            );
+            dead_code.extend(public_issues);
         }
     }
 
