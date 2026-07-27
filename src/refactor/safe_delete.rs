@@ -197,8 +197,17 @@ impl SafeDeleter {
         }
 
         let lines: Vec<&str> = contents.lines().collect();
-        let start_idx = item.declaration.location.line.saturating_sub(1);
-        let end_idx = self.find_declaration_end(&lines, start_idx);
+        // The parser recorded the exact byte span of the declaration —
+        // braces inside strings or comments cannot fool it. Character
+        // counting is only the fallback for stale offsets (file edited
+        // since the analysis).
+        let (start_idx, end_idx) = match Self::span_line_range(&contents, &item.declaration) {
+            Some(range) => range,
+            None => {
+                let start = item.declaration.location.line.saturating_sub(1);
+                (start, self.find_declaration_end(&lines, start))
+            }
+        };
 
         let new_lines: Vec<&str> = lines
             .iter()
@@ -294,6 +303,23 @@ impl SafeDeleter {
     }
 
     /// Find the end line of a declaration (simple brace matching)
+    /// Zero-based line range covered by the declaration's tree-sitter
+    /// byte span, when that span is still consistent with the file.
+    fn span_line_range(contents: &str, decl: &crate::graph::Declaration) -> Option<(usize, usize)> {
+        let (start, end) = (decl.id.start, decl.id.end);
+        if start >= end || end > contents.len() {
+            return None;
+        }
+        let start_line = contents[..start].matches('\n').count();
+        // A stale span whose start no longer sits on the recorded line
+        // is not trusted
+        if start_line != decl.location.line.saturating_sub(1) {
+            return None;
+        }
+        let end_line = contents[..end].matches('\n').count();
+        Some((start_line, end_line))
+    }
+
     pub(crate) fn find_declaration_end(&self, lines: &[&str], start_line: usize) -> usize {
         let mut brace_count = 0;
         let mut found_open = false;
@@ -394,6 +420,68 @@ mod tests {
         assert!(!remaining.contains("Alpha"));
         assert!(remaining.contains("Beta"), "the neighbor survives");
         assert_eq!(undo.as_ref().unwrap().file_count(), 1);
+    }
+
+    #[test]
+    fn a_brace_inside_a_string_does_not_truncate_the_deletion() {
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("Tricky.kt");
+        let source = "class Tricky {\n    val stray = \"}\"\n    fun logic() {\n        println(stray)\n    }\n}\n\nclass Neighbor {\n    fun ok() {}\n}\n";
+        std::fs::write(&file, source).unwrap();
+        let tricky_end = source.find("\n\nclass Neighbor").unwrap();
+        let item = finding_at(&file, "Tricky", 1, 0, tricky_end);
+        let deleter = SafeDeleter::new(false, false, None);
+        let mut undo = None;
+
+        deleter.delete_one(&item, &mut undo).unwrap();
+
+        let remaining = std::fs::read_to_string(&file).unwrap();
+        assert!(
+            !remaining.contains("stray") && !remaining.contains("logic"),
+            "the string brace must not truncate the block, remaining:\n{remaining}"
+        );
+        assert!(
+            remaining.contains("Neighbor"),
+            "the neighbor survives, remaining:\n{remaining}"
+        );
+    }
+
+    #[test]
+    fn a_brace_inside_a_comment_does_not_truncate_the_deletion() {
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("Commented.kt");
+        let source = "class Commented {\n    // legacy brace } left in a comment\n    fun logic() {\n        println(1)\n    }\n}\n\nclass Neighbor {\n    fun ok() {}\n}\n";
+        std::fs::write(&file, source).unwrap();
+        let end = source.find("\n\nclass Neighbor").unwrap();
+        let item = finding_at(&file, "Commented", 1, 0, end);
+        let deleter = SafeDeleter::new(false, false, None);
+        let mut undo = None;
+
+        deleter.delete_one(&item, &mut undo).unwrap();
+
+        let remaining = std::fs::read_to_string(&file).unwrap();
+        assert!(
+            !remaining.contains("logic"),
+            "the commented brace must not truncate the block, remaining:\n{remaining}"
+        );
+        assert!(remaining.contains("Neighbor"));
+    }
+
+    #[test]
+    fn inconsistent_offsets_fall_back_to_brace_matching() {
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("Stale.kt");
+        std::fs::write(&file, TWO_CLASSES).unwrap();
+        // Offsets from a stale analysis: end beyond the file
+        let item = finding_at(&file, "Alpha", 1, 0, 10_000);
+        let deleter = SafeDeleter::new(false, false, None);
+        let mut undo = None;
+
+        deleter.delete_one(&item, &mut undo).unwrap();
+
+        let remaining = std::fs::read_to_string(&file).unwrap();
+        assert!(!remaining.contains("Alpha"), "remaining:\n{remaining}");
+        assert!(remaining.contains("Beta"), "remaining:\n{remaining}");
     }
 
     #[test]
