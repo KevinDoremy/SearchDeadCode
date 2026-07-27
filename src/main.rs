@@ -329,6 +329,11 @@ struct Cli {
     #[arg(long)]
     yes: bool,
 
+    /// With --delete --dry-run: write the would-be deletion as a
+    /// unified diff, reviewable and applicable with git apply
+    #[arg(long, value_name = "FILE")]
+    patch: Option<std::path::PathBuf>,
+
     /// Report only symbols that became dead since this git reference
     #[arg(long, value_name = "REF")]
     diff_base: Option<String>,
@@ -3051,6 +3056,29 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     // Print timing
     let elapsed = start_time.elapsed();
     info!("Analysis completed in {:.2}s", elapsed.as_secs_f64());
+
+    // --patch describes a dry-run: it needs one
+    if cli.patch.is_some() && !(cli.delete && cli.dry_run) {
+        eprintln!("{}: --patch requires --delete --dry-run", "Error".red());
+        std::process::exit(2);
+    }
+    if let Some(ref patch_path) = cli.patch {
+        if cli.delete && cli.dry_run && !dead_code.is_empty() {
+            let patch = refactor::patch::unified_patch(&dead_code, &cli.path);
+            if let Err(e) = std::fs::write(patch_path, &patch) {
+                eprintln!("{}: cannot write patch: {e}", "Error".red());
+                std::process::exit(2);
+            }
+            println!(
+                "{}",
+                format!(
+                    "📄 Patch written to {} — review, then git apply",
+                    patch_path.display()
+                )
+                .green()
+            );
+        }
+    }
 
     // A check command with nothing to check is a config mistake
     if cli.verify_cmd.is_some() && !cli.delete {
