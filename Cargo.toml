@@ -218,6 +218,10 @@ name = "diff_base"
 path = "tests/integration/diff_base_tests.rs"
 
 [[test]]
+name = "why_alive"
+path = "tests/integration/why_alive_tests.rs"
+
+[[test]]
 name = "cli"
 path = "tests/integration/cli_tests.rs"
 
