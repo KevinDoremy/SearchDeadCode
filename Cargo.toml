@@ -146,6 +146,10 @@ name = "keep_rules"
 path = "tests/integration/keep_tests.rs"
 
 [[test]]
+name = "changed_since"
+path = "tests/integration/changed_since_tests.rs"
+
+[[test]]
 name = "detectors"
 path = "tests/integration/detector_tests.rs"
 

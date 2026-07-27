@@ -154,6 +154,11 @@ struct Cli {
     #[arg(long)]
     fix: bool,
 
+    /// PR-scoped analysis: judge only files changed since this git ref,
+    /// reporting only symbols provably unreferenced project-wide
+    #[arg(long, value_name = "REF")]
+    changed_since: Option<String>,
+
     /// Migration diff: OLD=NEW worlds (package prefix or path fragment).
     /// Lists old-world symbols deletable at the flip and the blockers.
     #[arg(long, value_name = "OLD=NEW")]
@@ -945,6 +950,137 @@ fn explain_symbol(
     }
 }
 
+/// PR-scoped analysis: parse only the files changed since `base_ref` and
+/// report a symbol only when its name appears nowhere else in the project —
+/// the one verdict a partial subgraph can make honestly. Any other mention
+/// (even a comment) means silence.
+fn run_changed_since(files: &[discovery::SourceFile], cli: &Cli, base_ref: &str) -> Result<()> {
+    use discovery::FileType;
+    use miette::IntoDiagnostic;
+    use std::collections::HashSet;
+
+    let diff = std::process::Command::new("git")
+        .arg("-C")
+        .arg(&cli.path)
+        .args(["diff", "--name-only", base_ref])
+        .output()
+        .into_diagnostic()?;
+    if !diff.status.success() {
+        return Err(miette::miette!(
+            "git diff against '{}' failed — is {} a git repository with that ref?",
+            base_ref,
+            cli.path.display()
+        ));
+    }
+    let repo_root = std::process::Command::new("git")
+        .arg("-C")
+        .arg(&cli.path)
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .into_diagnostic()?;
+    let repo_root = PathBuf::from(String::from_utf8_lossy(&repo_root.stdout).trim());
+
+    let changed: HashSet<PathBuf> = String::from_utf8_lossy(&diff.stdout)
+        .lines()
+        .map(|l| repo_root.join(l.trim()))
+        .collect();
+
+    let changed_sources: Vec<&discovery::SourceFile> = files
+        .iter()
+        .filter(|f| matches!(f.file_type, FileType::Kotlin | FileType::Java))
+        .filter(|f| {
+            f.path
+                .canonicalize()
+                .map(|p| changed.contains(&p))
+                .unwrap_or(false)
+                || changed.contains(&f.path)
+        })
+        .collect();
+
+    if changed_sources.is_empty() {
+        println!("No changed source files since {}.", base_ref);
+        return Ok(());
+    }
+    phase_line(
+        cli.quiet,
+        "pr-scope",
+        &format!(
+            "{} changed file(s) since {}",
+            changed_sources.len(),
+            base_ref
+        ),
+    );
+
+    // Parse only the changed files
+    let mut builder = GraphBuilder::new();
+    for file in &changed_sources {
+        builder.process_file(file)?;
+    }
+    let graph = builder.build();
+
+    // Keep rules still apply in PR scope
+    let keep_patterns = analysis::keep_rules::collect_keep_patterns(&cli.path);
+
+    // One project-wide text corpus per changed file (its own text excluded)
+    let mut findings = Vec::new();
+    for decl in graph.declarations() {
+        if decl.parent.is_some() {
+            continue; // judge outermost symbols only: members follow their owner
+        }
+        if decl.is_android_entry_point() {
+            continue;
+        }
+        if let Some(fqn) = &decl.fully_qualified_name {
+            if keep_patterns.iter().any(|p| p.matches(fqn)) {
+                continue;
+            }
+        }
+        let Ok(name_re) = regex::Regex::new(&format!(r"\b{}\b", regex::escape(&decl.name))) else {
+            continue;
+        };
+        let mentioned_elsewhere = files.iter().any(|f| {
+            if f.path == decl.location.file {
+                return false;
+            }
+            // Cheap prefilter then regex: read only when the name might be there
+            std::fs::read_to_string(&f.path)
+                .map(|content| name_re.is_match(&content))
+                .unwrap_or(false)
+        });
+        if !mentioned_elsewhere {
+            findings.push(decl.clone());
+        }
+    }
+
+    if findings.is_empty() {
+        println!(
+            "✓ No stable findings — nothing in the diff is provably unreferenced project-wide."
+        );
+        return Ok(());
+    }
+
+    println!(
+        "\n{} stable finding(s) in the diff (name absent from the rest of the project):",
+        findings.len()
+    );
+    for decl in &findings {
+        let rel = decl
+            .location
+            .file
+            .strip_prefix(&cli.path)
+            .unwrap_or(&decl.location.file);
+        println!(
+            "  ⚠ {} '{}' — {}:{}",
+            decl.kind.display_name(),
+            decl.name,
+            rel.display(),
+            decl.location.line
+        );
+    }
+    println!("\nPR scope stays silent on anything mentioned elsewhere — run a full analysis for the complete picture.");
+    Ok(())
+}
+
 /// Apply zero-risk fixes: remove unused imports across the project.
 /// --dry-run lists without touching; otherwise an undo script is written.
 fn run_fix(files: &[discovery::SourceFile], cli: &Cli) -> Result<()> {
@@ -1162,6 +1298,11 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     // --fix: zero-risk cleanup (unused imports), no graph needed
     if cli.fix {
         return run_fix(&files, cli);
+    }
+
+    // --changed-since: PR scope, stable verdicts only
+    if let Some(base_ref) = cli.changed_since.as_deref() {
+        return run_changed_since(&files, cli, base_ref);
     }
 
     // Step 2: Parse files and build graph
