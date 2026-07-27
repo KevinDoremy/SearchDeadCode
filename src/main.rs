@@ -305,6 +305,11 @@ struct Cli {
     #[arg(long)]
     doctor: bool,
 
+    /// List Gradle modules nobody depends on (whole-module deletion
+    /// candidates) and exit
+    #[arg(long)]
+    dead_modules: bool,
+
     /// After --delete: run this command (a compile, a test suite) and
     /// restore every touched file automatically when it fails
     #[arg(long, value_name = "CMD")]
@@ -1878,6 +1883,33 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     let entry_points = entry_points;
 
     info!("Found {} entry points", entry_points.len());
+
+    // --dead-modules short-circuits everything: build files only
+    if cli.dead_modules {
+        match analysis::dead_modules::dead_modules(&cli.path) {
+            None => println!(
+                "{}",
+                "no settings.gradle(.kts) — single-module repo, nothing to check".dimmed()
+            ),
+            Some(dead) if dead.is_empty() => {
+                println!("{}", "✓ every included module has a consumer".green())
+            }
+            Some(dead) => {
+                println!(
+                    "{}",
+                    "Dead module candidates (no incoming dependency):".bold()
+                );
+                for module in dead {
+                    println!("  {} {}", "○".dimmed(), module.gradle_path);
+                }
+                println!(
+                    "{}",
+                    "  (check reflection/manifest usage before deleting a whole module)".dimmed()
+                );
+            }
+        }
+        return Ok(());
+    }
 
     // --doctor short-circuits everything: checkup, verdict, exit
     if cli.doctor {

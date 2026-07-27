@@ -275,6 +275,10 @@ name = "test_refs"
 path = "tests/integration/test_refs_tests.rs"
 
 [[test]]
+name = "dead_modules"
+path = "tests/integration/dead_modules_tests.rs"
+
+[[test]]
 name = "cli"
 path = "tests/integration/cli_tests.rs"
 
