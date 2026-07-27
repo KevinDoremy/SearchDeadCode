@@ -688,7 +688,7 @@ impl<'a> EntryPointDetector<'a> {
 /// the provider itself, nor another provider returning the same type, nor a
 /// subtype implementing it (an interface's implementations are not users).
 /// Providers without return-type information stay conservative roots.
-fn di_binding_is_consumed(graph: &Graph, provider: &Declaration) -> bool {
+pub(crate) fn di_binding_is_consumed(graph: &Graph, provider: &Declaration) -> bool {
     let Some(produced) = provider.type_name.as_deref() else {
         return true;
     };
