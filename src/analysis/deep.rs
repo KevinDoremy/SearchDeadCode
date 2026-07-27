@@ -61,7 +61,7 @@ impl DeepAnalyzer {
 
         // Step 3: Find unused members in reachable classes
         if self.detect_unused_members {
-            let unused_members = self.find_unused_members(graph, &reachable);
+            let unused_members = self.find_unused_members(graph, &reachable, entry_points);
             info!(
                 "Found {} unused members in reachable classes",
                 unused_members.len()
@@ -467,12 +467,19 @@ impl DeepAnalyzer {
         &self,
         graph: &Graph,
         reachable: &HashSet<DeclarationId>,
+        entry_points: &HashSet<DeclarationId>,
     ) -> Vec<DeadCode> {
         let mut unused = Vec::new();
 
         for decl in graph.declarations() {
             // Skip if already marked unreachable
             if !reachable.contains(&decl.id) {
+                continue;
+            }
+
+            // An entry point is invoked from outside the graph (static
+            // main, Lombok-accessor-reached fields, framework hooks)
+            if entry_points.contains(&decl.id) {
                 continue;
             }
 

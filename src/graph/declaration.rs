@@ -317,8 +317,12 @@ impl Declaration {
             }
         }
 
-        // Check for main function
-        if self.kind == DeclarationKind::Function && self.name == "main" {
+        // Check for main function — Kotlin top-level, or Java's
+        // public static void main (a Method, not a Function)
+        if self.name == "main"
+            && (self.kind == DeclarationKind::Function
+                || (self.kind == DeclarationKind::Method && self.is_static))
+        {
             return true;
         }
 

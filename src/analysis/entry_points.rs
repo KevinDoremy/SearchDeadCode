@@ -200,6 +200,11 @@ impl<'a> EntryPointDetector<'a> {
         // classes by FQN (custom tags, targetClass, app:fragment)
         self.detect_res_xml_roots(graph, root, &mut entry_points);
 
+        // 10. Lombok fields: @Getter/@Setter/@Data generate accessors
+        // the graph cannot see — a generated-accessor call in the
+        // corpus keeps the field alive
+        self.detect_lombok_accessor_roots(graph, root, &mut entry_points);
+
         info!("Detected {} entry points", entry_points.len());
 
         Ok(entry_points)
@@ -243,8 +248,12 @@ impl<'a> EntryPointDetector<'a> {
             }
         }
 
-        // Check for main functions
-        if decl.kind == DeclarationKind::Function && decl.name == "main" {
+        // Check for main functions — Kotlin top-level, or Java's
+        // public static void main (a Method, not a Function)
+        if decl.name == "main"
+            && (decl.kind == DeclarationKind::Function
+                || (decl.kind == DeclarationKind::Method && decl.is_static))
+        {
             return true;
         }
 
@@ -677,6 +686,77 @@ impl<'a> EntryPointDetector<'a> {
                     debug!("res/xml root: {}", decl.name);
                     entry_points.insert(decl.id.clone());
                 }
+            }
+        }
+    }
+
+    /// Fields of Lombok-annotated classes reached through generated
+    /// accessors: getX()/setX()/isX()/builder().x() calls resolve to
+    /// nothing (the methods only exist post-annotation-processing) but
+    /// prove the field is alive. A Lombok field nobody touches through
+    /// any accessor stays reportable.
+    fn detect_lombok_accessor_roots(
+        &self,
+        graph: &Graph,
+        root: &Path,
+        entry_points: &mut HashSet<DeclarationId>,
+    ) {
+        const LOMBOK_CLASS_ANNOTATIONS: &[&str] = &["Getter", "Setter", "Data", "Value", "Builder"];
+        let lombok_fields: Vec<&Declaration> = graph
+            .declarations()
+            .filter(|decl| decl.kind == DeclarationKind::Field)
+            .filter(|decl| {
+                decl.parent
+                    .as_ref()
+                    .and_then(|parent| graph.get_declaration(parent))
+                    .map(|class| {
+                        class
+                            .annotations
+                            .iter()
+                            .any(|a| LOMBOK_CLASS_ANNOTATIONS.iter().any(|l| a.contains(l)))
+                    })
+                    .unwrap_or(false)
+            })
+            .collect();
+        if lombok_fields.is_empty() {
+            return;
+        }
+
+        let mut corpus = String::new();
+        for entry in walkdir::WalkDir::new(root)
+            .into_iter()
+            .filter_entry(|e| {
+                if e.depth() == 0 {
+                    return true;
+                }
+                let name = e.file_name().to_string_lossy();
+                !(name.starts_with('.') || name == "build" || name == "node_modules")
+            })
+            .filter_map(Result::ok)
+            .filter(|e| {
+                let name = e.file_name().to_string_lossy();
+                e.file_type().is_file() && (name.ends_with(".kt") || name.ends_with(".java"))
+            })
+        {
+            if let Ok(content) = std::fs::read_to_string(entry.path()) {
+                corpus.push_str(&content);
+                corpus.push('\n');
+            }
+        }
+
+        for field in lombok_fields {
+            let mut chars = field.name.chars();
+            let capitalized = match chars.next() {
+                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                None => continue,
+            };
+            let accessor_called = corpus.contains(&format!("get{capitalized}("))
+                || corpus.contains(&format!("set{capitalized}("))
+                || corpus.contains(&format!("is{capitalized}("))
+                || corpus.contains(&format!(".{}(", field.name));
+            if accessor_called {
+                debug!("Lombok accessor root: {}", field.name);
+                entry_points.insert(field.id.clone());
             }
         }
     }
