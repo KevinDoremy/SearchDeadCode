@@ -331,6 +331,10 @@ name = "dead_composables"
 path = "tests/integration/dead_composables_tests.rs"
 
 [[test]]
+name = "baseline_cli"
+path = "tests/integration/baseline_cli_tests.rs"
+
+[[test]]
 name = "generated_mapping"
 path = "tests/integration/generated_mapping_tests.rs"
 
