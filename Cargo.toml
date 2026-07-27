@@ -303,6 +303,10 @@ name = "patch_output"
 path = "tests/integration/patch_output_tests.rs"
 
 [[test]]
+name = "twins"
+path = "tests/integration/twins_tests.rs"
+
+[[test]]
 name = "cli"
 path = "tests/integration/cli_tests.rs"
 

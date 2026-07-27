@@ -320,6 +320,11 @@ struct Cli {
     #[arg(long)]
     stale_flags: bool,
 
+    /// Show Xxx/XxxV2-style pairs side by side with reference counts,
+    /// then exit
+    #[arg(long)]
+    twins: bool,
+
     /// After --delete: run this command (a compile, a test suite) and
     /// restore every touched file automatically when it fails
     #[arg(long, value_name = "CMD")]
@@ -1922,6 +1927,45 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
                     "  (check reflection/manifest usage before deleting a whole module)".dimmed()
                 );
             }
+        }
+        return Ok(());
+    }
+
+    // --twins short-circuits everything after the graph
+    if cli.twins {
+        let pairs = analysis::twins::version_twins(&graph);
+        if pairs.is_empty() {
+            println!("{}", "✓ no version twins found".green());
+            return Ok(());
+        }
+        println!("{}", "Version twins (side by side)".bold());
+        for pair in pairs {
+            for side in [&pair.base, &pair.variant] {
+                let verdict = if side.refs == 0 {
+                    "  ← unreferenced".yellow().to_string()
+                } else {
+                    String::new()
+                };
+                println!(
+                    "  {:<30} {:>3} ref(s)  {}{verdict}",
+                    side.name,
+                    side.refs,
+                    format!(
+                        "{}:{}",
+                        side.id
+                            .file
+                            .strip_prefix(&cli.path)
+                            .unwrap_or(&side.id.file)
+                            .display(),
+                        graph
+                            .get_declaration(&side.id)
+                            .map(|d| d.location.line)
+                            .unwrap_or(0)
+                    )
+                    .dimmed()
+                );
+            }
+            println!();
         }
         return Ok(());
     }
