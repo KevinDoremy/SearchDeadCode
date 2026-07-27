@@ -325,6 +325,11 @@ struct Cli {
     #[arg(long)]
     twins: bool,
 
+    /// Split @Deprecated symbols into ready-to-delete (no references)
+    /// and unfinished migrations (still referenced), then exit
+    #[arg(long)]
+    deprecated: bool,
+
     /// After --delete: run this command (a compile, a test suite) and
     /// restore every touched file automatically when it fails
     #[arg(long, value_name = "CMD")]
@@ -1929,6 +1934,62 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
                     "{}",
                     "  (check reflection/manifest usage before deleting a whole module)".dimmed()
                 );
+            }
+        }
+        return Ok(());
+    }
+
+    // --deprecated short-circuits everything after the graph
+    if cli.deprecated {
+        let mut ready: Vec<String> = Vec::new();
+        let mut lingering: Vec<String> = Vec::new();
+        for decl in graph.declarations() {
+            if !decl.annotations.iter().any(|a| a.contains("Deprecated")) {
+                continue;
+            }
+            let refs = graph.get_references_to(&decl.id).len();
+            let rel = decl
+                .location
+                .file
+                .strip_prefix(&cli.path)
+                .unwrap_or(&decl.location.file);
+            if refs == 0 {
+                ready.push(format!(
+                    "  {} {}  {}",
+                    "○".dimmed(),
+                    decl.name,
+                    format!("{}:{}", rel.display(), decl.location.line).dimmed()
+                ));
+            } else {
+                lingering.push(format!(
+                    "  {} {}  {} ref(s)  {}",
+                    "○".dimmed(),
+                    decl.name,
+                    refs,
+                    format!("{}:{}", rel.display(), decl.location.line).dimmed()
+                ));
+            }
+        }
+        if ready.is_empty() && lingering.is_empty() {
+            println!("{}", "✓ no deprecated symbols".green());
+            return Ok(());
+        }
+        if !ready.is_empty() {
+            println!(
+                "{}",
+                "Deprecated, ready to delete (no references left):".bold()
+            );
+            for line in ready {
+                println!("{line}");
+            }
+        }
+        if !lingering.is_empty() {
+            println!(
+                "{}",
+                "Deprecated, still referenced (migration unfinished):".bold()
+            );
+            for line in lingering {
+                println!("{line}");
             }
         }
         return Ok(());
