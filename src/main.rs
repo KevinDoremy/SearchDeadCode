@@ -2223,6 +2223,37 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         .filter(|dc| !cli.runtime_only || dc.runtime_confirmed)
         .collect();
 
+    // Step 10a: inline `deadcode:ignore(reason)` directives
+    {
+        let outcome = analysis::ignore::apply(&mut dead_code);
+        if !outcome.ignored.is_empty() && !cli.quiet {
+            let reasons: Vec<String> = outcome
+                .ignored
+                .iter()
+                .map(|(name, reason)| format!("{name} ({reason})"))
+                .collect();
+            println!(
+                "{}",
+                format!(
+                    "🤫 {} ignored inline: {}",
+                    outcome.ignored.len(),
+                    reasons.join(", ")
+                )
+                .dimmed()
+            );
+        }
+        if outcome.missing_reason > 0 {
+            eprintln!(
+                "{}",
+                format!(
+                    "{} deadcode:ignore directive(s) refused — a reason is mandatory: deadcode:ignore(<why>)",
+                    outcome.missing_reason
+                )
+                .yellow()
+            );
+        }
+    }
+
     // Step 10b: ownership — after the filters, one git call per survivor
     if cli.blame {
         analysis::blame::annotate(&mut dead_code, &cli.path);
