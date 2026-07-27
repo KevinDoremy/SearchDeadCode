@@ -120,6 +120,92 @@ fn twins_inside_the_same_file_are_out_of_scope() {
 }
 
 #[test]
+fn renamed_variables_do_not_hide_a_twin() {
+    // type-2 clone: same structure and same calls, different local names
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(
+        temp.path().join("V1Cleaner.kt"),
+        concat!(
+            "package sample.v1\n\n",
+            "fun sanitize(input: String): String? {\n",
+            "    val cleaned = input.trim()\n",
+            "    if (cleaned.isEmpty()) {\n",
+            "        return null\n",
+            "    }\n",
+            "    return cleaned.lowercase()\n",
+            "}\n",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("V2Cleaner.kt"),
+        concat!(
+            "package sample.v2\n\n",
+            "fun sanitize(raw: String): String? {\n",
+            "    val stripped = raw.trim()\n",
+            "    if (stripped.isEmpty()) {\n",
+            "        return null\n",
+            "    }\n",
+            "    return stripped.lowercase()\n",
+            "}\n",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("Main.kt"),
+        "package sample\n\nfun main() {\n    println(\"alive\")\n}\n",
+    )
+    .unwrap();
+
+    let stdout = stdout_of(&run(temp.path()));
+    assert!(
+        stdout.contains("sanitize"),
+        "a rename is not a rewrite — the twin survives it, stdout was:\n{stdout}"
+    );
+}
+
+#[test]
+fn same_shape_but_different_calls_are_not_twins() {
+    // identifier abstraction must NOT erase what the code actually does
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(
+        temp.path().join("TextA.kt"),
+        concat!(
+            "package sample.a\n\n",
+            "fun shape(input: String): String {\n",
+            "    val a = input.trim()\n",
+            "    val b = a.uppercase()\n",
+            "    return b.reversed()\n",
+            "}\n",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("TextB.kt"),
+        concat!(
+            "package sample.b\n\n",
+            "fun shape(input: String): String {\n",
+            "    val a = input.padEnd(8)\n",
+            "    val b = a.lowercase()\n",
+            "    return b.repeat(2)\n",
+            "}\n",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("Main.kt"),
+        "package sample\n\nfun main() {\n    println(\"alive\")\n}\n",
+    )
+    .unwrap();
+
+    let stdout = stdout_of(&run(temp.path()));
+    assert!(
+        !stdout.contains("shape"),
+        "different calls mean different behavior, stdout was:\n{stdout}"
+    );
+}
+
+#[test]
 fn no_twins_is_a_clean_answer() {
     let temp = tempfile::tempdir().unwrap();
     fs::write(
