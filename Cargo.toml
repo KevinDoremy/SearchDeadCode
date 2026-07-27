@@ -299,6 +299,10 @@ name = "orphan_translations"
 path = "tests/integration/orphan_translation_tests.rs"
 
 [[test]]
+name = "patch_output"
+path = "tests/integration/patch_output_tests.rs"
+
+[[test]]
 name = "cli"
 path = "tests/integration/cli_tests.rs"
 

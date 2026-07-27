@@ -4,6 +4,7 @@
 
 mod editor;
 pub(crate) mod fix_imports;
+pub(crate) mod patch;
 pub(crate) mod safe_delete;
 mod undo;
 
