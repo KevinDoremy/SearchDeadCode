@@ -359,6 +359,10 @@ name = "unused_assets"
 path = "tests/integration/unused_assets_tests.rs"
 
 [[test]]
+name = "duplicate_strings"
+path = "tests/integration/duplicate_strings_tests.rs"
+
+[[test]]
 name = "generated_mapping"
 path = "tests/integration/generated_mapping_tests.rs"
 
