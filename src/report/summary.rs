@@ -343,6 +343,7 @@ pub fn rule_label(rule: &str) -> &'static str {
             "DC017" => "Unused resources",
             "DC018" => "Unused layouts",
             "DC019" => "Unused Intent extras",
+            "DC020" => "Dead Remote Config keys",
             "AP001" => "Global mutable state",
             "AP002" => "Deep inheritance",
             "AP003" => "Single-impl interface",

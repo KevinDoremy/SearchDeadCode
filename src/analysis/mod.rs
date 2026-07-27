@@ -18,6 +18,7 @@ pub mod layouts;
 pub mod migration;
 pub mod module_usage;
 mod reachability;
+pub mod remote_config;
 pub mod resources;
 pub mod risk;
 
@@ -197,6 +198,9 @@ pub enum DeadCodeIssue {
     /// Intent extra put but never retrieved
     UnusedIntentExtra,
 
+    /// Remote Config key declared in defaults but never read
+    DeadConfigKey,
+
     /// Android resource defined but never referenced
     UnusedResource,
 
@@ -354,6 +358,7 @@ impl DeadCodeIssue {
             DeadCodeIssue::WriteOnlyPreference => Severity::Warning,
             DeadCodeIssue::WriteOnlyDao => Severity::Warning,
             DeadCodeIssue::UnusedIntentExtra => Severity::Warning,
+            DeadCodeIssue::DeadConfigKey => Severity::Warning,
             DeadCodeIssue::UnusedResource => Severity::Warning,
             DeadCodeIssue::UnusedLayout => Severity::Warning,
             DeadCodeIssue::DuplicateImport => Severity::Warning,
@@ -450,6 +455,9 @@ impl DeadCodeIssue {
             }
             DeadCodeIssue::UnusedIntentExtra => {
                 format!("putExtra(\"{}\") is never retrieved", decl.name)
+            }
+            DeadCodeIssue::DeadConfigKey => {
+                format!("Remote Config key \"{}\" is never read", decl.name)
             }
             DeadCodeIssue::UnusedResource => {
                 format!("Resource '{}' is defined but never referenced", decl.name)
@@ -706,6 +714,7 @@ impl DeadCodeIssue {
             DeadCodeIssue::WriteOnlyPreference => "DC010",
             DeadCodeIssue::WriteOnlyDao => "DC011",
             DeadCodeIssue::UnusedIntentExtra => "DC019",
+            DeadCodeIssue::DeadConfigKey => "DC020",
             DeadCodeIssue::UnusedResource => "DC017",
             DeadCodeIssue::UnusedLayout => "DC018",
             DeadCodeIssue::DuplicateImport => "DC012",
