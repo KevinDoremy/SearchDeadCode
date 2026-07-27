@@ -110,24 +110,36 @@ impl ResourceDetector {
         dirs
     }
 
+    /// Directories whose files ARE the resources (name = file stem)
+    const FILE_RESOURCE_TYPES: [&'static str; 10] = [
+        "drawable",
+        "mipmap",
+        "anim",
+        "animator",
+        "raw",
+        "menu",
+        "font",
+        "xml",
+        "color",
+        "navigation",
+    ];
+
     /// Parse all resource files in a res directory
     fn parse_resource_dir(&self, res_dir: &Path, analysis: &mut ResourceAnalysis) {
-        // Check common resource subdirectories
-        let subdirs = [
-            "values",
-            "values-en",
-            "values-fr",
-            "values-es",
-            "values-de",
-            "values-night",
-            "values-v21",
-            "values-w600dp",
-        ];
+        let Ok(subdirs) = fs::read_dir(res_dir) else {
+            return;
+        };
+        for subdir in subdirs.flatten() {
+            let dir_path = subdir.path();
+            if !dir_path.is_dir() {
+                continue;
+            }
+            let dir_name = subdir.file_name().to_string_lossy().into_owned();
+            // qualifier suffixes (-hdpi, -night, -v21…) do not change the type
+            let base_type = dir_name.split('-').next().unwrap_or(&dir_name);
 
-        for subdir in subdirs {
-            let values_dir = res_dir.join(subdir);
-            if values_dir.exists() && values_dir.is_dir() {
-                if let Ok(entries) = fs::read_dir(&values_dir) {
+            if base_type == "values" {
+                if let Ok(entries) = fs::read_dir(&dir_path) {
                     for entry in entries.flatten() {
                         let path = entry.path();
                         if path.extension().map(|e| e == "xml").unwrap_or(false) {
@@ -135,7 +147,44 @@ impl ResourceDetector {
                         }
                     }
                 }
+            } else if Self::FILE_RESOURCE_TYPES.contains(&base_type) {
+                self.collect_file_resources(&dir_path, base_type, analysis);
             }
+            // layout/ is intentionally absent: dead layouts are DC018
+        }
+    }
+
+    /// Every file in a drawable/mipmap/raw/… directory is one resource,
+    /// named by its stem (9-patch loses the trailing ".9")
+    fn collect_file_resources(
+        &self,
+        dir: &Path,
+        resource_type: &str,
+        analysis: &mut ResourceAnalysis,
+    ) {
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            let Some(stem) = path.file_stem().map(|s| s.to_string_lossy().into_owned()) else {
+                continue;
+            };
+            let name = stem.strip_suffix(".9").unwrap_or(&stem).to_string();
+            let resource = AndroidResource {
+                name: name.clone(),
+                resource_type: resource_type.to_string(),
+                file: path.clone(),
+                line: 1,
+            };
+            analysis
+                .defined
+                .entry(resource_type.to_string())
+                .or_default()
+                .insert(name, resource);
         }
     }
 
