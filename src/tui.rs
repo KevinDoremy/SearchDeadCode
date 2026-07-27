@@ -23,16 +23,46 @@ enum Mode {
     Filter,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SortMode {
+    File,
+    Rule,
+    Confidence,
+}
+
+impl SortMode {
+    fn next(self) -> Self {
+        match self {
+            SortMode::File => SortMode::Rule,
+            SortMode::Rule => SortMode::Confidence,
+            SortMode::Confidence => SortMode::File,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            SortMode::File => "file",
+            SortMode::Rule => "rule",
+            SortMode::Confidence => "confidence",
+        }
+    }
+}
+
 pub struct TuiApp {
     rows: Vec<RowData>,
     pub selected: usize,
     mode: Mode,
     query: String,
+    sort: SortMode,
 }
 
 struct RowData {
     label: String,
     detail: String,
+    sort_file: String,
+    sort_rule: String,
+    /// higher confidence first
+    sort_confidence: std::cmp::Reverse<u32>,
 }
 
 impl TuiApp {
@@ -61,15 +91,38 @@ impl TuiApp {
                         dc.confidence,
                         dc.risk
                     ),
+                    sort_file: format!("{}:{:08}", rel.display(), dc.declaration.location.line),
+                    sort_rule: dc.issue.code().to_string(),
+                    sort_confidence: std::cmp::Reverse((dc.confidence.score() * 100.0) as u32),
                 }
             })
             .collect();
-        Self {
+        let mut app = Self {
             rows,
             selected: 0,
             mode: Mode::Normal,
             query: String::new(),
+            sort: SortMode::File,
+        };
+        app.apply_sort();
+        app
+    }
+
+    fn apply_sort(&mut self) {
+        match self.sort {
+            SortMode::File => self.rows.sort_by(|a, b| a.sort_file.cmp(&b.sort_file)),
+            SortMode::Rule => self.rows.sort_by(|a, b| {
+                a.sort_rule
+                    .cmp(&b.sort_rule)
+                    .then(a.sort_file.cmp(&b.sort_file))
+            }),
+            SortMode::Confidence => self.rows.sort_by(|a, b| {
+                a.sort_confidence
+                    .cmp(&b.sort_confidence)
+                    .then(a.sort_file.cmp(&b.sort_file))
+            }),
         }
+        self.selected = 0;
     }
 
     /// Indices of the rows the current filter lets through.
@@ -121,6 +174,10 @@ impl TuiApp {
             'k' => {
                 self.selected = self.selected.saturating_sub(1);
             }
+            's' => {
+                self.sort = self.sort.next();
+                self.apply_sort();
+            }
             _ => {}
         }
         Outcome::Continue
@@ -141,8 +198,9 @@ impl TuiApp {
             format!(" findings ({}) — filter: {} ", visible.len(), self.query)
         } else {
             format!(
-                " findings ({}) — j/k move, / filter, q quit ",
-                visible.len()
+                " findings ({}) — sort: {} — j/k move, / filter, s sort, q quit ",
+                visible.len(),
+                self.sort.label()
             )
         };
         let list = List::new(items)
@@ -341,6 +399,59 @@ mod tests {
         assert!(
             screen.contains("GhostAlpha"),
             "one backspace back to 'ghost', screen was:\n{screen}"
+        );
+    }
+
+    #[test]
+    fn s_cycles_the_sort_order() {
+        // two files, codes chosen so file-order and code-order differ
+        let mut zz = finding("ZzLate", 2);
+        zz.declaration.location.file = std::path::PathBuf::from("/repo/src/Zz.kt");
+        zz.declaration.id.file = std::path::PathBuf::from("/repo/src/Zz.kt");
+        let aa = finding("AaEarly", 8);
+        let findings = vec![zz, aa];
+        let mut app = TuiApp::new(&findings, Path::new("/repo"));
+
+        // default: file order — Zz.kt was given first but A.kt sorts first
+        let screen = rendered(&app);
+        let a_pos = screen.find("AaEarly").unwrap();
+        let z_pos = screen.find("ZzLate").unwrap();
+        assert!(a_pos < z_pos, "file order puts A.kt first:\n{screen}");
+
+        app.on_key('s');
+        let screen = rendered(&app);
+        assert!(
+            screen.contains("sort: rule") || screen.contains("sort: code"),
+            "the sort mode is visible after s:\n{screen}"
+        );
+
+        app.on_key('s');
+        let screen = rendered(&app);
+        assert!(
+            screen.contains("sort: confidence"),
+            "second s reaches confidence:\n{screen}"
+        );
+
+        app.on_key('s');
+        let screen = rendered(&app);
+        assert!(
+            screen.contains("sort: file"),
+            "third s cycles back to file:\n{screen}"
+        );
+    }
+
+    #[test]
+    fn typing_s_in_filter_mode_filters_instead_of_sorting() {
+        let findings = vec![finding("Session", 3), finding("Ghost", 9)];
+        let mut app = TuiApp::new(&findings, Path::new("/repo"));
+        app.on_key('/');
+        for c in "sess".chars() {
+            app.on_key(c);
+        }
+        let screen = rendered(&app);
+        assert!(
+            screen.contains("Session") && !screen.contains("Ghost"),
+            "'sess' narrows to Session inside the filter (and did not sort):\n{screen}"
         );
     }
 
