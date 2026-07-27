@@ -2420,6 +2420,21 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         }
     }
 
+    // Step 9f5: serialized DTO fields nobody reads (DC021)
+    {
+        for (name, file, line) in analysis::dto_fields::dead_fields(&files) {
+            dead_code.push(synthetic_finding(
+                &file,
+                line,
+                &name,
+                graph::DeclarationKind::Property,
+                analysis::DeadCodeIssue::DeadDtoField,
+                format!("DTO field '{name}' is deserialized but never read by the code"),
+                analysis::Confidence::Medium,
+            ));
+        }
+    }
+
     // Step 9g: Unused Intent extras — through the standard report (DC019)
     if cli.unused_extras {
         let intent_detector = UnusedIntentExtraDetector::new();
