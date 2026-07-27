@@ -291,6 +291,10 @@ name = "dto_fields"
 path = "tests/integration/dto_field_tests.rs"
 
 [[test]]
+name = "stale_flags"
+path = "tests/integration/stale_flag_tests.rs"
+
+[[test]]
 name = "cli"
 path = "tests/integration/cli_tests.rs"
 

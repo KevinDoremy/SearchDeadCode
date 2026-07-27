@@ -315,6 +315,11 @@ struct Cli {
     #[arg(long)]
     retention_audit: bool,
 
+    /// List boolean Remote Config flags with their defaults and the
+    /// ready-made --flag probe for each, then exit
+    #[arg(long)]
+    stale_flags: bool,
+
     /// After --delete: run this command (a compile, a test suite) and
     /// restore every touched file automatically when it fails
     #[arg(long, value_name = "CMD")]
@@ -1910,6 +1915,35 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
                 println!(
                     "{}",
                     "  (check reflection/manifest usage before deleting a whole module)".dimmed()
+                );
+            }
+        }
+        return Ok(());
+    }
+
+    // --stale-flags short-circuits everything: the Piranha inventory
+    if cli.stale_flags {
+        match analysis::remote_config::boolean_flags(&cli.path) {
+            None => println!(
+                "{}",
+                "no remote_config_defaults.xml — nothing to inventory".dimmed()
+            ),
+            Some(flags) if flags.is_empty() => {
+                println!("{}", "✓ defaults exist but hold no boolean flags".green())
+            }
+            Some(flags) => {
+                println!("{}", "Feature flags in defaults".bold());
+                for (key, default) in flags {
+                    println!(
+                        "  {} = {:<5}  {}",
+                        key,
+                        default,
+                        format!("searchdeadcode --flag {key} --behavior enabled").dimmed()
+                    );
+                }
+                println!(
+                    "{}",
+                    "  (run the suggested command to see what dies under each flag)".dimmed()
                 );
             }
         }

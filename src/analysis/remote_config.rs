@@ -13,6 +13,11 @@ use std::sync::LazyLock;
 static KEY_ENTRY: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"<key>\s*([^<]+?)\s*</key>").expect("Invalid key regex"));
 
+static KEY_VALUE_ENTRY: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"<key>\s*([^<]+?)\s*</key>\s*<value>\s*([^<]*?)\s*</value>")
+        .expect("Invalid key/value regex")
+});
+
 /// (key, defaults file, line of the <key> entry)
 pub fn dead_keys(root: &Path, files: &[SourceFile]) -> Vec<(String, PathBuf, usize)> {
     let defaults_files: Vec<PathBuf> = walkdir::WalkDir::new(root)
@@ -60,6 +65,42 @@ pub fn dead_keys(root: &Path, files: &[SourceFile]) -> Vec<(String, PathBuf, usi
         }
     }
     dead
+}
+
+/// Boolean defaults are feature flags — the Piranha inventory.
+/// None when no defaults file exists at all.
+pub fn boolean_flags(root: &Path) -> Option<Vec<(String, bool)>> {
+    let defaults_files: Vec<PathBuf> = walkdir::WalkDir::new(root)
+        .into_iter()
+        .filter_entry(|e| {
+            if e.depth() == 0 {
+                return true;
+            }
+            let name = e.file_name().to_string_lossy();
+            !name.starts_with('.') && name != "build" && name != "generated"
+        })
+        .flatten()
+        .filter(|e| e.file_name() == "remote_config_defaults.xml")
+        .map(|e| e.path().to_path_buf())
+        .collect();
+    if defaults_files.is_empty() {
+        return None;
+    }
+
+    let mut flags = Vec::new();
+    for defaults in defaults_files {
+        let Ok(content) = std::fs::read_to_string(&defaults) else {
+            continue;
+        };
+        for captures in KEY_VALUE_ENTRY.captures_iter(&content) {
+            let value = captures[2].trim().to_lowercase();
+            if value == "true" || value == "false" {
+                flags.push((captures[1].to_string(), value == "true"));
+            }
+        }
+    }
+    flags.sort();
+    Some(flags)
 }
 
 #[cfg(test)]
