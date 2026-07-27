@@ -25,6 +25,7 @@ pub mod resources;
 pub mod risk;
 pub mod test_refs;
 pub mod translations;
+pub mod twins;
 
 pub use cycles::CycleDetector;
 pub use deep::DeepAnalyzer;
