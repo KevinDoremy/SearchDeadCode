@@ -215,6 +215,34 @@ fn why_alive_says_dead_for_the_ghost() {
 }
 
 #[test]
+fn search_finds_symbols_by_case_insensitive_substring() {
+    let temp = tempfile::tempdir().unwrap();
+    let graph = saved_graph(temp.path());
+
+    let responses = serve(
+        &graph,
+        &[
+            r#"{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"search","arguments":{"query":"eng"}}}"#,
+            r#"{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"search","arguments":{"query":"zzz"}}}"#,
+        ],
+    );
+    let hit = responses[0]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(
+        hit.contains("Engine") && hit.contains("class"),
+        "substring match with kind, text was:\n{hit}"
+    );
+    let miss = responses[1]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(
+        miss.to_lowercase().contains("no symbol"),
+        "an empty result is explicit, text was:\n{miss}"
+    );
+}
+
+#[test]
 fn an_unknown_method_gets_a_json_rpc_error() {
     let temp = tempfile::tempdir().unwrap();
     let graph = saved_graph(temp.path());

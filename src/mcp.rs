@@ -72,6 +72,15 @@ fn handle(graph: &SavedGraph, request: &Value, id: Value) -> Value {
                         }
                     },
                     {
+                        "name": "search",
+                        "description": "Find symbols by case-insensitive substring of their name",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": { "query": { "type": "string" } },
+                            "required": ["query"]
+                        }
+                    },
+                    {
                         "name": "is_dead",
                         "description": "Is this symbol dead (zero incoming references)?",
                         "inputSchema": {
@@ -93,6 +102,12 @@ fn handle(graph: &SavedGraph, request: &Value, id: Value) -> Value {
                 "is_dead" => is_dead_text(graph, symbol),
                 "dead_list" => dead_list_text(graph),
                 "why_alive" => why_alive_text(graph, symbol),
+                "search" => {
+                    let query = request["params"]["arguments"]["query"]
+                        .as_str()
+                        .unwrap_or("");
+                    search_text(graph, query)
+                }
                 other => {
                     return json!({
                         "jsonrpc": "2.0",
@@ -179,4 +194,26 @@ fn why_alive_text(graph: &SavedGraph, symbol: &str) -> String {
             out
         }
     }
+}
+
+fn search_text(graph: &SavedGraph, query: &str) -> String {
+    let needle = query.to_lowercase();
+    let mut hits: Vec<_> = graph
+        .nodes
+        .iter()
+        .filter(|n| !needle.is_empty() && n.name.to_lowercase().contains(&needle))
+        .collect();
+    hits.sort_by(|a, b| a.name.cmp(&b.name).then(a.file.cmp(&b.file)));
+    hits.truncate(50);
+    if hits.is_empty() {
+        return format!("no symbol matches '{query}'");
+    }
+    let mut out = format!("{} match(es) for '{query}':\n", hits.len());
+    for node in hits {
+        out.push_str(&format!(
+            "- {} ({}) at {}:{}\n",
+            node.name, node.kind, node.file, node.line
+        ));
+    }
+    out
 }
