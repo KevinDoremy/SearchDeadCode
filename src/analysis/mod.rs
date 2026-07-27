@@ -28,6 +28,7 @@ pub mod test_refs;
 pub mod translations;
 pub mod twins;
 pub mod unobserved;
+pub mod variant_scope;
 
 pub use cycles::CycleDetector;
 pub use deep::DeepAnalyzer;
