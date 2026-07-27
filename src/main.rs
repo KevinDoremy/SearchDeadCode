@@ -2660,6 +2660,10 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         }
     }
 
+    // Step 10a2: a dead symbol still named by a test file — the test
+    // outlived its target, delete them together
+    analysis::test_refs::annotate(&mut dead_code, &cli.path);
+
     // Step 10b: ownership — after the filters, one git call per survivor
     if cli.blame {
         analysis::blame::annotate(&mut dead_code, &cli.path);
