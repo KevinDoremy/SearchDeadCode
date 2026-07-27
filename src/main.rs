@@ -2,7 +2,7 @@ use clap::{CommandFactory, Parser};
 use clap_complete::{generate, Shell};
 use colored::Colorize;
 use miette::Result;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tracing::info;
 
 mod analysis;
@@ -561,6 +561,48 @@ fn determine_report_format(cli: &Cli, config: &Config) -> report::ReportFormat {
         OutputFormat::Html => report::ReportFormat::Html,
         OutputFormat::Markdown => report::ReportFormat::Markdown,
     }
+}
+
+/// Find build/outputs/mapping/<variant>/usage.txt without descending
+/// into build/ trees: walk shallow directories and probe the well-known
+/// suffix from each. Release variants win (the shrunk build teams care
+/// about), most-recent mtime breaks ties.
+fn discover_usage_txt(root: &Path) -> Option<PathBuf> {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    for entry in walkdir::WalkDir::new(root)
+        .max_depth(3)
+        .into_iter()
+        .filter_entry(|e| {
+            if e.depth() == 0 {
+                return true;
+            }
+            let name = e.file_name().to_string_lossy();
+            !(name.starts_with('.') || name == "node_modules" || name == "build")
+        })
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_dir())
+    {
+        let mapping = entry.path().join("build/outputs/mapping");
+        let Ok(variants) = std::fs::read_dir(&mapping) else {
+            continue;
+        };
+        for variant in variants.filter_map(Result::ok) {
+            let candidate = variant.path().join("usage.txt");
+            if candidate.is_file() {
+                candidates.push(candidate);
+            }
+        }
+    }
+    candidates.sort_by_key(|path| {
+        let is_release = path
+            .parent()
+            .and_then(|v| v.file_name())
+            .map(|n| n.to_string_lossy().to_lowercase().contains("release"))
+            .unwrap_or(false);
+        let mtime = std::fs::metadata(path).and_then(|m| m.modified()).ok();
+        (is_release, mtime)
+    });
+    candidates.pop()
 }
 
 fn main() -> Result<()> {
@@ -2322,7 +2364,19 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     }
 
     // Step 4: Load ProGuard data early if available (needed for enhanced mode)
-    let proguard_data = if let Some(ref usage_path) = cli.proguard_usage {
+    // R8 writes usage.txt at a well-known path; when the flag is absent,
+    // go look there instead of making every run pass it by hand
+    let proguard_usage_path = cli.proguard_usage.clone().or_else(|| {
+        let found = discover_usage_txt(&cli.path);
+        if let Some(ref path) = found {
+            println!(
+                "{}",
+                format!("📋 Auto-discovered R8 usage.txt: {}", path.display()).cyan()
+            );
+        }
+        found
+    });
+    let proguard_data = if let Some(ref usage_path) = proguard_usage_path {
         info!("Loading ProGuard usage.txt from {:?}...", usage_path);
         match ProguardUsage::parse(usage_path) {
             Ok(data) => {
