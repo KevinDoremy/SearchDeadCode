@@ -19,6 +19,7 @@ mod parser;
 mod proguard;
 mod refactor;
 mod report;
+mod tui;
 mod watch;
 
 use proguard::{ProguardUsage, ReportGenerator};
@@ -423,6 +424,10 @@ struct Cli {
     /// Serve LSP diagnostics over stdio from --graph-file
     #[arg(long)]
     lsp_serve: bool,
+
+    /// Full-screen findings triage (needs a terminal)
+    #[arg(long)]
+    tui: bool,
 
     /// After --delete: run this command (a compile, a test suite) and
     /// restore every touched file automatically when it fails
@@ -4197,6 +4202,17 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     if cli.by_module {
         print_by_module(&dead_code, &cli.path);
         return Ok(());
+    }
+
+    // --tui replaces the report with the full-screen triage
+    if cli.tui {
+        use std::io::IsTerminal;
+        if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
+            tui::run(&dead_code, &cli.path).map_err(|e| miette::miette!(e))?;
+            return Ok(());
+        }
+        eprintln!("--tui requires a terminal; printing the standard report instead.");
+        // fall through to the normal report
     }
 
     // --batch-branches replaces the report with branch surgery

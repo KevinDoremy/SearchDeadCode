@@ -67,6 +67,8 @@ notify-debouncer-mini = "0.7"
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+ratatui = "0.29"
+crossterm = "0.28"
 
 [dev-dependencies]
 tempfile = "3.9"
@@ -445,6 +447,10 @@ path = "tests/integration/action_tests.rs"
 [[test]]
 name = "lsp_serve"
 path = "tests/integration/lsp_serve_tests.rs"
+
+[[test]]
+name = "tui"
+path = "tests/integration/tui_tests.rs"
 
 [[test]]
 name = "generated_mapping"
