@@ -374,6 +374,11 @@ struct Cli {
     #[arg(long)]
     unused_permissions: bool,
 
+    /// List classes whose every method forwards to the same delegate,
+    /// then exit
+    #[arg(long)]
+    middlemen: bool,
+
     /// After --delete: run this command (a compile, a test suite) and
     /// restore every touched file automatically when it fails
     #[arg(long, value_name = "CMD")]
@@ -2355,6 +2360,35 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
             "{}",
             "  (the upstream computation runs for nobody — wire a collector or delete the chain)"
                 .dimmed()
+        );
+        return Ok(());
+    }
+
+    // --middlemen short-circuits everything after the graph
+    if cli.middlemen {
+        let findings = analysis::middlemen::middlemen(&graph);
+        if findings.is_empty() {
+            println!("{}", "✓ no middleman classes found".green());
+            return Ok(());
+        }
+        println!("{}", "Classes that only forward to a delegate:".bold());
+        for finding in findings {
+            let rel = finding
+                .file
+                .strip_prefix(&cli.path)
+                .unwrap_or(&finding.file);
+            println!(
+                "  {} {:<25} {} method(s), all → {}  {}",
+                "○".dimmed(),
+                finding.class,
+                finding.methods,
+                finding.receiver,
+                format!("{}:{}", rel.display(), finding.line).dimmed()
+            );
+        }
+        println!(
+            "{}",
+            "  (callers can talk to the delegate directly — inline the façade)".dimmed()
         );
         return Ok(());
     }
