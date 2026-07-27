@@ -4,6 +4,7 @@
 pub mod blame;
 pub mod bus;
 mod cycles;
+pub mod dead_modules;
 mod deep;
 pub mod detectors;
 pub mod diff_base;
