@@ -323,6 +323,10 @@ name = "unused_deps"
 path = "tests/integration/unused_deps_tests.rs"
 
 [[test]]
+name = "unobserved"
+path = "tests/integration/unobserved_tests.rs"
+
+[[test]]
 name = "cli"
 path = "tests/integration/cli_tests.rs"
 
