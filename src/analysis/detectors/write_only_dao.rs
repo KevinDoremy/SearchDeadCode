@@ -285,6 +285,26 @@ impl WriteOnlyDaoDetector {
             }
         }
 
+        // Java: `ReturnType name(args)` — the identifier right before the
+        // paren, requiring a type token before it so bare calls and
+        // annotation lines (@Query("…")) stay out
+        if !trimmed.starts_with('@') {
+            if let Some(paren) = trimmed.find('(') {
+                let before = trimmed[..paren].trim_end();
+                if before.contains(char::is_whitespace) {
+                    if let Some(name) = before
+                        .rsplit(|c: char| c.is_whitespace() || c == '>')
+                        .next()
+                    {
+                        if !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || c == '_')
+                        {
+                            return Some(name.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
         None
     }
 
