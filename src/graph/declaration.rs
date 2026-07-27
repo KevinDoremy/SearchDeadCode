@@ -292,9 +292,10 @@ impl Declaration {
             }
         }
 
-        // Check annotations
+        // Check annotations — Composable deliberately absent: an
+        // uncalled composable is dead code; @Preview roots are handled
+        // by the entry-point detector
         let entry_annotations = [
-            "Composable",
             "Test",
             "Before",
             "After",

@@ -31,8 +31,9 @@ const ENTRY_ANNOTATIONS: &[&str] = &[
     "ParameterizedTest",
     "RunWith",
     "Ignore",
-    // Compose
-    "Composable",
+    // Compose — Composable deliberately absent: an uncalled composable
+    // is dead code like any other function. Previews are IDE-invoked
+    // roots and keep whatever they render transitively alive.
     "Preview",
     "PreviewParameter",
     // Dagger/Hilt — Provides/Binds are handled conditionally in
@@ -665,8 +666,10 @@ mod tests {
         let detector = EntryPointDetector::new(&config);
 
         assert!(detector.is_entry_point_annotation("@Test"));
-        assert!(detector.is_entry_point_annotation("@Composable"));
+        assert!(detector.is_entry_point_annotation("@Preview"));
         assert!(detector.is_entry_point_annotation("@HiltViewModel"));
         assert!(!detector.is_entry_point_annotation("@Override"));
+        // an uncalled composable is dead code — no blanket retention
+        assert!(!detector.is_entry_point_annotation("@Composable"));
     }
 }
