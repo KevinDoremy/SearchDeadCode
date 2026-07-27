@@ -21,6 +21,7 @@ mod reachability;
 pub mod remote_config;
 pub mod resources;
 pub mod risk;
+pub mod test_refs;
 
 pub use cycles::CycleDetector;
 pub use deep::DeepAnalyzer;
