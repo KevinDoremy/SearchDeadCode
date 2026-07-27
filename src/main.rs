@@ -345,6 +345,10 @@ struct Cli {
     #[arg(long)]
     debug_only: bool,
 
+    /// Install a pre-commit hook running the fast diff mode, then exit
+    #[arg(long)]
+    install_hook: bool,
+
     /// After --delete: run this command (a compile, a test suite) and
     /// restore every touched file automatically when it fails
     #[arg(long, value_name = "CMD")]
@@ -568,6 +572,43 @@ fn determine_report_format(cli: &Cli, config: &Config) -> report::ReportFormat {
     }
 }
 
+const HOOK_MARKER: &str = "installed by searchdeadcode --install-hook";
+
+/// Write .git/hooks/pre-commit running the fast diff mode. Refuses to
+/// clobber a hook it did not write; reinstalling over our own is fine.
+fn install_pre_commit_hook(root: &Path) -> std::result::Result<PathBuf, String> {
+    let git_dir = root.join(".git");
+    if !git_dir.is_dir() {
+        return Err(format!(
+            "{} is not a git repository — nowhere to hang the hook",
+            root.display()
+        ));
+    }
+    let hooks_dir = git_dir.join("hooks");
+    let hook_path = hooks_dir.join("pre-commit");
+    if hook_path.exists() {
+        let existing = std::fs::read_to_string(&hook_path).unwrap_or_default();
+        if !existing.contains(HOOK_MARKER) {
+            return Err(format!(
+                "{} already exists and was not written by us — remove it first",
+                hook_path.display()
+            ));
+        }
+    }
+    let script = format!(
+        "#!/bin/sh\n# {HOOK_MARKER}\n# Fast diff mode: only files changed since HEAD are analyzed.\nsearchdeadcode . --changed-since HEAD --quiet\n"
+    );
+    std::fs::create_dir_all(&hooks_dir).map_err(|e| e.to_string())?;
+    std::fs::write(&hook_path, script).map_err(|e| e.to_string())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook_path, std::fs::Permissions::from_mode(0o755))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(hook_path)
+}
+
 /// Find build/outputs/mapping/<variant>/usage.txt without descending
 /// into build/ trees: walk shallow directories and probe the well-known
 /// suffix from each. Release variants win (the shrunk build teams care
@@ -630,6 +671,20 @@ fn main() -> Result<()> {
             }
             Err(message) => {
                 eprintln!("{}", message);
+                std::process::exit(2);
+            }
+        }
+    }
+
+    // Install the packaged pre-commit hook and exit
+    if cli.install_hook {
+        match install_pre_commit_hook(&cli.path) {
+            Ok(path) => {
+                println!("✅ Installed pre-commit hook: {}", path.display());
+                return Ok(());
+            }
+            Err(message) => {
+                eprintln!("{}: {}", "Error".red(), message);
                 std::process::exit(2);
             }
         }

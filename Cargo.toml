@@ -347,6 +347,10 @@ name = "variant_scope"
 path = "tests/integration/variant_scope_tests.rs"
 
 [[test]]
+name = "install_hook"
+path = "tests/integration/install_hook_tests.rs"
+
+[[test]]
 name = "generated_mapping"
 path = "tests/integration/generated_mapping_tests.rs"
 
