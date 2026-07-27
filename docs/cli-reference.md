@@ -309,6 +309,7 @@ Generated from `--help`; every flag the binary accepts, alphabetically.
 | `--parallel` | Enable parallel processing for faster analysis (enabled by default) [default: true] [possible values: true, false] |
 | `--patch` | With --delete --dry-run: write the would-be deletion as a unified diff, reviewable and applicable with git apply |
 | `--performance-patterns` | Enable performance anti-pattern detectors (AP011-AP015) Detects: memory leaks, long methods, large classes, collection inefficiencies, loop allocations |
+| `--pr-description` | Replace the report with a paste-ready cleanup-PR description (stats, proof of death, residual risks) |
 | `--profile` | Preset for an audience: ci (strict, high confidence only) or explore (everything down to low) Possible values: - ci:      Strict: high-confidence findings only — for pipelines - explore: Everything down to low confidence — for humans digging |
 | `--proguard-usage` | ProGuard/R8 usage.txt file for enhanced detection This file lists code that R8 determined is unused |
 | `--promises` | Cross TODO remove / FIXME delete comments with the symbol's real reference count, then exit |
