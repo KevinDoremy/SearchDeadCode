@@ -259,6 +259,10 @@ name = "html_report"
 path = "tests/integration/html_report_tests.rs"
 
 [[test]]
+name = "nav_graphs"
+path = "tests/integration/nav_graph_tests.rs"
+
+[[test]]
 name = "cli"
 path = "tests/integration/cli_tests.rs"
 
