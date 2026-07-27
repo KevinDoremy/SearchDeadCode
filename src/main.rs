@@ -1607,28 +1607,30 @@ fn write_badge(
 /// The cleanup PR body, ready to paste: stats, per-symbol proof of
 /// death, and a residual-risks section for what static analysis
 /// cannot fully vouch for.
-fn print_pr_description(dead_code: &[analysis::DeadCode], root: &Path) {
+fn pr_description_text(dead_code: &[analysis::DeadCode], root: &Path) -> String {
+    use std::fmt::Write as _;
     let corpses: Vec<&analysis::DeadCode> = dead_code
         .iter()
         .filter(|dc| dc.severity != analysis::Severity::Info)
         .collect();
     if corpses.is_empty() {
-        println!("nothing to clean — no PR to describe");
-        return;
+        return "nothing to clean — no PR to describe\n".to_string();
     }
     let files: std::collections::BTreeSet<_> = corpses
         .iter()
         .map(|dc| dc.declaration.location.file.clone())
         .collect();
-    println!(
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
         "## Remove dead code ({} finding(s) across {} file(s))\n",
         corpses.len(),
         files.len()
     );
-    println!("Every symbol below has no incoming references in the whole reference graph (0 incoming references), as verified by searchdeadcode.\n");
-    println!("## Findings\n");
-    println!("| Code | Symbol | Kind | Location |");
-    println!("|------|--------|------|----------|");
+    out.push_str("Every symbol below has no incoming references in the whole reference graph (0 incoming references), as verified by searchdeadcode.\n\n");
+    out.push_str("## Findings\n\n");
+    out.push_str("| Code | Symbol | Kind | Location |\n");
+    out.push_str("|------|--------|------|----------|\n");
     for dc in &corpses {
         let rel = dc
             .declaration
@@ -1636,7 +1638,8 @@ fn print_pr_description(dead_code: &[analysis::DeadCode], root: &Path) {
             .file
             .strip_prefix(root)
             .unwrap_or(&dc.declaration.location.file);
-        println!(
+        let _ = writeln!(
+            out,
             "| {} | {} | {} | {}:{} |",
             dc.issue.code(),
             dc.declaration.name,
@@ -1649,20 +1652,24 @@ fn print_pr_description(dead_code: &[analysis::DeadCode], root: &Path) {
         .iter()
         .filter(|dc| dc.risk != analysis::RiskLevel::Low)
         .collect();
-    println!("\n## Residual risks\n");
+    out.push_str("\n## Residual risks\n\n");
     if risky.is_empty() {
-        println!("None flagged: no string references, reflection or bus signals on any finding.");
+        out.push_str(
+            "None flagged: no string references, reflection or bus signals on any finding.\n",
+        );
     } else {
         for dc in risky {
-            println!(
+            let _ = writeln!(
+                out,
                 "- **{}** ({} risk): {}",
                 dc.declaration.name, dc.risk, dc.message
             );
         }
-        println!(
-            "\nDouble-check these before merging — static analysis cannot fully vouch for them."
+        out.push_str(
+            "\nDouble-check these before merging — static analysis cannot fully vouch for them.\n",
         );
     }
+    out
 }
 
 /// A-F report card per module from the dead/total declaration ratio —
@@ -4757,7 +4764,17 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
 
     // --pr-description replaces the report with a paste-ready PR body
     if cli.pr_description {
-        print_pr_description(&dead_code, &cli.path);
+        let body = pr_description_text(&dead_code, &cli.path);
+        match &cli.output {
+            Some(path) => {
+                if let Err(e) = std::fs::write(path, &body) {
+                    eprintln!("{}: cannot write {}: {}", "Error".red(), path.display(), e);
+                    std::process::exit(2);
+                }
+                println!("✅ PR description written to {}", path.display());
+            }
+            None => print!("{body}"),
+        }
         return Ok(());
     }
 

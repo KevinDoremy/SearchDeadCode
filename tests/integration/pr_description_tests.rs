@@ -101,3 +101,63 @@ fn a_clean_project_says_nothing_to_clean() {
         "the verdict is explicit, stdout was:\n{stdout}"
     );
 }
+
+#[test]
+fn output_flag_writes_the_body_to_a_file() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(
+        temp.path().join("GhostA.kt"),
+        "package sample\n\nclass GhostA {\n    fun a() {}\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("Main.kt"),
+        "package sample\n\nfun main() {\n    println(\"alive\")\n}\n",
+    )
+    .unwrap();
+    let body = temp.path().join("pr-body.md");
+
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+        .arg(temp.path())
+        .args(["--pr-description", "-o", body.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "write failed:\n{out:?}");
+
+    let written = fs::read_to_string(&body).unwrap();
+    assert!(
+        written.contains("GhostA") && written.contains("## "),
+        "the file holds the whole markdown body, got:\n{written}"
+    );
+    let stdout = stdout_of(&out);
+    assert!(
+        !stdout.contains("| Code |"),
+        "the body goes to the file, not to stdout, stdout was:\n{stdout}"
+    );
+}
+
+#[test]
+fn an_unwritable_output_path_is_a_clear_error() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(
+        temp.path().join("Ghost.kt"),
+        "package sample\n\nclass Ghost {\n    fun g() {}\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("Main.kt"),
+        "package sample\n\nfun main() {\n    println(\"alive\")\n}\n",
+    )
+    .unwrap();
+    let body = temp.path().join("no-such-dir").join("pr-body.md");
+
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+        .arg(temp.path())
+        .args(["--pr-description", "-o", body.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        !out.status.success(),
+        "a missing parent directory cannot pass silently"
+    );
+}
