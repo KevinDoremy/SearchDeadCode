@@ -13,6 +13,7 @@ mod coverage;
 mod discovery;
 mod graph;
 mod interactive;
+mod lsp;
 mod mcp;
 mod parser;
 mod proguard;
@@ -419,6 +420,10 @@ struct Cli {
     #[arg(long)]
     mcp_serve: bool,
 
+    /// Serve LSP diagnostics over stdio from --graph-file
+    #[arg(long)]
+    lsp_serve: bool,
+
     /// After --delete: run this command (a compile, a test suite) and
     /// restore every touched file automatically when it fails
     #[arg(long, value_name = "CMD")]
@@ -756,6 +761,26 @@ fn main() -> Result<()> {
                 std::process::exit(2);
             }
         }
+    }
+
+    // --lsp-serve: LSP stdio server over the saved graph — no scan
+    if cli.lsp_serve {
+        let Some(ref graph_path) = cli.graph_file else {
+            eprintln!(
+                "{}: --lsp-serve needs --graph-file <file> (from --export-graph)",
+                "Error".red()
+            );
+            std::process::exit(2);
+        };
+        let saved = match report::graph_export::SavedGraph::load(graph_path) {
+            Ok(saved) => saved,
+            Err(e) => {
+                eprintln!("{}: cannot read graph file: {}", "Error".red(), e);
+                std::process::exit(2);
+            }
+        };
+        lsp::serve(&saved).map_err(|e| miette::miette!(e))?;
+        return Ok(());
     }
 
     // --mcp-serve: MCP stdio server over the saved graph — no scan
