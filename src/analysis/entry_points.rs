@@ -190,6 +190,11 @@ impl<'a> EntryPointDetector<'a> {
         // 7. Apply retain patterns
         self.apply_retain_patterns(graph, &mut entry_points);
 
+        // 8. Generated-code naming conventions: a reference to
+        // PriceCatalog_Factory or CheckoutStepDirections lives in build/
+        // (never parsed), but proves the source class is alive
+        self.detect_generated_convention_roots(graph, root, &mut entry_points);
+
         info!("Detected {} entry points", entry_points.len());
 
         Ok(entry_points)
@@ -535,6 +540,66 @@ impl<'a> EntryPointDetector<'a> {
                         entry_points.insert(decl.id.clone());
                     }
                 }
+            }
+        }
+    }
+
+    /// Map references to generated classes back to their source: a call
+    /// to PriceCatalog_Factory, OrderStore_Impl or CheckoutStepDirections
+    /// resolves to nothing (build/ is never parsed) yet proves the base
+    /// class is alive. Only kicks in when the generated name has no
+    /// declaration of its own — a real class named DaggerTool says
+    /// nothing about a class named Tool.
+    fn detect_generated_convention_roots(
+        &self,
+        graph: &Graph,
+        root: &Path,
+        entry_points: &mut HashSet<DeclarationId>,
+    ) {
+        use regex::Regex;
+        use std::sync::LazyLock;
+        static GENERATED_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
+            vec![
+                Regex::new(r"\bDagger([A-Z]\w*)\b").unwrap(),
+                Regex::new(r"\b([A-Z]\w*?)_(?:Factory|MembersInjector|Impl)\b").unwrap(),
+                Regex::new(r"\b([A-Z]\w*?)(?:Directions|Args)\b").unwrap(),
+            ]
+        });
+
+        let mut bases: HashSet<String> = HashSet::new();
+        for entry in walkdir::WalkDir::new(root)
+            .into_iter()
+            .filter_entry(|e| {
+                if e.depth() == 0 {
+                    return true;
+                }
+                let name = e.file_name().to_string_lossy();
+                !(name.starts_with('.') || name == "build" || name == "node_modules")
+            })
+            .filter_map(Result::ok)
+            .filter(|e| {
+                let name = e.file_name().to_string_lossy();
+                e.file_type().is_file() && (name.ends_with(".kt") || name.ends_with(".java"))
+            })
+        {
+            let Ok(content) = std::fs::read_to_string(entry.path()) else {
+                continue;
+            };
+            for pattern in GENERATED_PATTERNS.iter() {
+                for cap in pattern.captures_iter(&content) {
+                    let generated_name = cap.get(0).unwrap().as_str();
+                    if !graph.find_by_name(generated_name).is_empty() {
+                        continue;
+                    }
+                    bases.insert(cap[1].to_string());
+                }
+            }
+        }
+
+        for base in bases {
+            for decl in graph.find_by_name(&base) {
+                debug!("Generated-convention root: {}", decl.name);
+                entry_points.insert(decl.id.clone());
             }
         }
     }

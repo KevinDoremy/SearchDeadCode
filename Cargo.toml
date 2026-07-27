@@ -327,6 +327,10 @@ name = "unobserved"
 path = "tests/integration/unobserved_tests.rs"
 
 [[test]]
+name = "generated_mapping"
+path = "tests/integration/generated_mapping_tests.rs"
+
+[[test]]
 name = "cli"
 path = "tests/integration/cli_tests.rs"
 
