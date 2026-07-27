@@ -283,6 +283,10 @@ name = "retention_audit"
 path = "tests/integration/retention_audit_tests.rs"
 
 [[test]]
+name = "ctor_annotations"
+path = "tests/integration/ctor_annotation_tests.rs"
+
+[[test]]
 name = "cli"
 path = "tests/integration/cli_tests.rs"
 
