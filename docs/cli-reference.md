@@ -296,6 +296,7 @@ Generated from `--help`; every flag the binary accepts, alphabetically.
 | `--kill-list` | Show everything that falls if this symbol is deleted (exclusive dependents) |
 | `--kotlin-patterns` | Enable Kotlin anti-pattern detectors (AP007-AP010, AP021-AP025) Detects: GlobalScope, heavy ViewModel, lateinit abuse, scope function chaining, nullability overload, reflection overuse, long parameter lists, complex conditions |
 | `--library-mode` | Treat the public API as alive (its consumers live outside this repo) — report internal deadness only |
+| `--lsp-serve` | Serve LSP diagnostics over stdio from --graph-file |
 | `--mcp-serve` | Serve MCP tools (refs_of, is_dead) over stdio from --graph-file |
 | `--middlemen` | List classes whose every method forwards to the same delegate, then exit |
 | `--min-confidence` | Minimum confidence level to report (low, medium, high, confirmed). Defaults to medium, or to the --profile choice |
