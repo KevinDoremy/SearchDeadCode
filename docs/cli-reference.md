@@ -348,5 +348,6 @@ Generated from `--help`; every flag the binary accepts, alphabetically.
 | `--write-only` | Enable write-only variable detection (enabled by default) Finds variables that are assigned but never read [default: true] [possible values: true, false] |
 | `--write-only-dao` | Enable write-only Room DAO detection (enabled by default) Finds Room DAOs that have @Insert but no @Query methods [default: true] [possible values: true, false] |
 | `--write-only-prefs` | Enable write-only SharedPreferences detection (enabled by default) Finds SharedPreferences keys that are written but never read [default: true] [possible values: true, false] |
+| `--write-only-caches` | List cache keys written but never read back, then exit |
 | `--yes` | With --delete: skip confirmation prompts (the CI path) |
 
