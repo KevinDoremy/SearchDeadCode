@@ -715,8 +715,9 @@ impl DeepAnalyzer {
         }
 
         // Check if in debug source set
-        let file_path = decl.location.file.to_string_lossy();
-        if file_path.contains("/debug/") || file_path.contains("/staging/") {
+        if path_has_segment(&decl.location.file, "debug")
+            || path_has_segment(&decl.location.file, "staging")
+        {
             return true;
         }
 
@@ -737,8 +738,9 @@ impl DeepAnalyzer {
         ];
 
         // Only flag if in main source (not in test directories)
-        let file_path = decl.location.file.to_string_lossy();
-        if file_path.contains("/test/") || file_path.contains("/androidTest/") {
+        if path_has_segment(&decl.location.file, "test")
+            || path_has_segment(&decl.location.file, "androidTest")
+        {
             return false;
         }
 
@@ -1191,6 +1193,13 @@ impl Default for DeepAnalyzer {
     }
 }
 
+/// Does the path contain this directory segment? Separator-agnostic:
+/// Windows backslash paths name the same source sets.
+pub(crate) fn path_has_segment(path: &std::path::Path, segment: &str) -> bool {
+    let normalized = path.to_string_lossy().replace('\\', "/");
+    normalized.contains(&format!("/{segment}/"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1203,5 +1212,20 @@ mod tests {
 
         let (dead_code, _) = analyzer.analyze(&graph, &entry_points);
         assert!(dead_code.is_empty());
+    }
+
+    #[test]
+    fn path_segments_match_windows_separators_too() {
+        use std::path::Path;
+        assert!(path_has_segment(Path::new("src/debug/Hook.kt"), "debug"));
+        assert!(
+            path_has_segment(Path::new("src\\debug\\Hook.kt"), "debug"),
+            "a backslash path is the same source set"
+        );
+        assert!(
+            !path_has_segment(Path::new("src/debugging/Hook.kt"), "debug"),
+            "segment match, not substring match"
+        );
+        assert!(!path_has_segment(Path::new("Debug.kt"), "debug"));
     }
 }
