@@ -3,6 +3,7 @@
 #![allow(unused_imports)]
 
 mod editor;
+pub(crate) mod fix_imports;
 pub(crate) mod safe_delete;
 mod undo;
 
