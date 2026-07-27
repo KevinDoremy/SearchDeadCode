@@ -194,6 +194,10 @@ name = "outputs_in_json_2"
 path = "tests/integration/outputs_in_json_2_tests.rs"
 
 [[test]]
+name = "blame"
+path = "tests/integration/blame_tests.rs"
+
+[[test]]
 name = "cli"
 path = "tests/integration/cli_tests.rs"
 
