@@ -105,6 +105,8 @@ impl Aggregator {
             DeadCodeIssue::UnusedSealedVariant => "Unused sealed variants".to_string(),
             DeadCodeIssue::WriteOnlyPreference => "Write-only preferences".to_string(),
             DeadCodeIssue::WriteOnlyDao => "Write-only DAOs".to_string(),
+            DeadCodeIssue::UnusedResource => "Unused resources".to_string(),
+            DeadCodeIssue::UnusedLayout => "Unused layouts".to_string(),
             DeadCodeIssue::DuplicateImport => "Duplicate imports".to_string(),
             DeadCodeIssue::RedundantNullInit => "Redundant null init".to_string(),
             DeadCodeIssue::RedundantThis => "Redundant this".to_string(),
@@ -173,6 +175,8 @@ impl Aggregator {
             | DeadCodeIssue::UnusedSealedVariant
             | DeadCodeIssue::WriteOnlyPreference
             | DeadCodeIssue::WriteOnlyDao
+            | DeadCodeIssue::UnusedResource
+            | DeadCodeIssue::UnusedLayout
             | DeadCodeIssue::DuplicateImport
             | DeadCodeIssue::RedundantNullInit
             | DeadCodeIssue::RedundantThis

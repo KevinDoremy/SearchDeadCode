@@ -191,6 +191,12 @@ pub enum DeadCodeIssue {
     /// Room DAO method writes data but the DAO has no read queries
     WriteOnlyDao,
 
+    /// Android resource defined but never referenced
+    UnusedResource,
+
+    /// Layout XML with no inflate/binding/include reference
+    UnusedLayout,
+
     /// Import statement appears multiple times
     DuplicateImport,
 
@@ -341,6 +347,8 @@ impl DeadCodeIssue {
             DeadCodeIssue::RedundantOverride => Severity::Info,
             DeadCodeIssue::WriteOnlyPreference => Severity::Warning,
             DeadCodeIssue::WriteOnlyDao => Severity::Warning,
+            DeadCodeIssue::UnusedResource => Severity::Warning,
+            DeadCodeIssue::UnusedLayout => Severity::Warning,
             DeadCodeIssue::DuplicateImport => Severity::Warning,
             DeadCodeIssue::RedundantNullInit => Severity::Info,
             DeadCodeIssue::RedundantThis => Severity::Info,
@@ -430,6 +438,15 @@ impl DeadCodeIssue {
             DeadCodeIssue::WriteOnlyDao => {
                 format!(
                     "DAO method '{}' writes data but the DAO has no read queries",
+                    decl.name
+                )
+            }
+            DeadCodeIssue::UnusedResource => {
+                format!("Resource '{}' is defined but never referenced", decl.name)
+            }
+            DeadCodeIssue::UnusedLayout => {
+                format!(
+                    "Layout '{}' has no inflate, binding or include reference",
                     decl.name
                 )
             }
@@ -678,6 +695,8 @@ impl DeadCodeIssue {
             DeadCodeIssue::RedundantOverride => "DC009",
             DeadCodeIssue::WriteOnlyPreference => "DC010",
             DeadCodeIssue::WriteOnlyDao => "DC011",
+            DeadCodeIssue::UnusedResource => "DC017",
+            DeadCodeIssue::UnusedLayout => "DC018",
             DeadCodeIssue::DuplicateImport => "DC012",
             DeadCodeIssue::RedundantNullInit => "DC013",
             DeadCodeIssue::RedundantThis => "DC014",
