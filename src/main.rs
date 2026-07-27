@@ -144,6 +144,11 @@ struct Cli {
     #[arg(long)]
     clusters: bool,
 
+    /// Only the findings safe to delete blind: whole cluster dead, every
+    /// member low risk
+    #[arg(long)]
+    quick_wins: bool,
+
     /// Migration diff: OLD=NEW worlds (package prefix or path fragment).
     /// Lists old-world symbols deletable at the flip and the blockers.
     #[arg(long, value_name = "OLD=NEW")]
@@ -732,6 +737,56 @@ fn outermost_entries(graph: &graph::Graph, ids: &[graph::DeclarationId]) -> (Vec
     }
 
     (entries, estimated_lines)
+}
+
+/// Print only the findings safe to delete blind: their whole connected
+/// cluster is dead and every clustered finding carries low risk — one risky
+/// member poisons its cluster, since deleting the root drags it down too.
+fn print_quick_wins(graph: &graph::Graph, dead_code: &[analysis::DeadCode]) {
+    use std::collections::HashMap;
+
+    let dead_ids: std::collections::HashSet<graph::DeclarationId> =
+        dead_code.iter().map(|d| d.declaration.id.clone()).collect();
+    let risk_by_id: HashMap<&graph::DeclarationId, analysis::RiskLevel> = dead_code
+        .iter()
+        .map(|d| (&d.declaration.id, d.risk))
+        .collect();
+
+    let clusters = analysis::kill_list::dead_clusters(graph, &dead_ids);
+    let mut wins: Vec<(Vec<String>, usize, usize)> = clusters
+        .into_iter()
+        .filter(|cluster| {
+            cluster.iter().all(|id| {
+                risk_by_id
+                    .get(id)
+                    .map(|r| *r == analysis::RiskLevel::Low)
+                    .unwrap_or(true) // expanded members without findings carry no signal
+            })
+        })
+        .map(|ids| {
+            let (entries, lines) = outermost_entries(graph, &ids);
+            (entries, lines, ids.len())
+        })
+        .filter(|(entries, _, _)| !entries.is_empty())
+        .collect();
+    wins.sort_by_key(|win| std::cmp::Reverse(win.1));
+
+    if wins.is_empty() {
+        println!("No quick wins — every dead cluster carries some risk. Try --clusters for the full picture.");
+        return;
+    }
+
+    println!(
+        "⚡ {} quick win(s) — whole cluster dead, all low risk:",
+        wins.len()
+    );
+    for (entries, lines, count) in &wins {
+        println!("\n{} declaration(s), ~{} lines:", count, lines);
+        for entry in entries {
+            println!("{entry}");
+        }
+    }
+    println!("\nDelete them: searchdeadcode --delete --dry-run  (preview first)");
 }
 
 /// Print dead code grouped into connected clusters, biggest first
@@ -1798,6 +1853,11 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
             return Ok(());
         }
         eprintln!("--interactive requires a terminal; printing the standard report instead.");
+    }
+
+    if cli.quick_wins {
+        print_quick_wins(&graph, &dead_code);
+        return Ok(());
     }
 
     if cli.clusters {
