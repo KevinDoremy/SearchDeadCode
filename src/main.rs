@@ -2900,19 +2900,45 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
                     .sum::<usize>(),
                 resource_analysis.referenced.len()
             );
+            // getIdentifier() resolves resources by runtime-built names:
+            // findings of a reachable type stay reported but high-risk
+            let dynamic_probe = analysis::resources::dynamic_resource_probe(&cli.path);
             for resource in &resource_analysis.unused {
-                dead_code.push(synthetic_finding(
+                let at_risk = dynamic_probe
+                    .as_ref()
+                    .map(|p| p.puts_at_risk(&resource.resource_type))
+                    .unwrap_or(false);
+                let message = if at_risk {
+                    format!(
+                        "{} '{}' is defined but never referenced — getIdentifier() in this codebase may resolve it dynamically",
+                        resource.resource_type, resource.name
+                    )
+                } else {
+                    format!(
+                        "{} '{}' is defined but never referenced",
+                        resource.resource_type, resource.name
+                    )
+                };
+                let mut finding = synthetic_finding(
                     &resource.file,
                     resource.line,
                     &resource.name,
                     graph::DeclarationKind::Property,
                     analysis::DeadCodeIssue::UnusedResource,
-                    format!(
-                        "{} '{}' is defined but never referenced",
-                        resource.resource_type, resource.name
-                    ),
-                    analysis::Confidence::High,
-                ));
+                    message,
+                    // Medium, not Low: dropping below the default
+                    // confidence floor would hide the finding instead
+                    // of flagging it risky
+                    if at_risk {
+                        analysis::Confidence::Medium
+                    } else {
+                        analysis::Confidence::High
+                    },
+                );
+                if at_risk {
+                    finding.risk = analysis::RiskLevel::High;
+                }
+                dead_code.push(finding);
             }
         }
     }

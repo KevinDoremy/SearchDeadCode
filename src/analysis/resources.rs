@@ -362,6 +362,66 @@ impl Default for ResourceDetector {
     }
 }
 
+/// What getIdentifier() calls in the codebase can reach.
+#[derive(Debug, Default)]
+pub struct DynamicResourceProbe {
+    /// A call passes the resource type as a non-literal — any type may
+    /// be resolved at runtime
+    pub any_type: bool,
+    /// Types named by literal second arguments ("drawable", "string"…)
+    pub literal_types: std::collections::HashSet<String>,
+}
+
+impl DynamicResourceProbe {
+    pub fn puts_at_risk(&self, resource_type: &str) -> bool {
+        self.any_type || self.literal_types.contains(resource_type)
+    }
+}
+
+/// None when no source calls getIdentifier at all.
+pub fn dynamic_resource_probe(root: &Path) -> Option<DynamicResourceProbe> {
+    use std::sync::LazyLock;
+    static LITERAL_RE: LazyLock<regex::Regex> =
+        LazyLock::new(|| regex::Regex::new(r#"getIdentifier\s*\(\s*[^,)]+,\s*"(\w+)""#).unwrap());
+
+    let mut probe = DynamicResourceProbe::default();
+    let mut seen_any = false;
+    for entry in walkdir::WalkDir::new(root)
+        .into_iter()
+        .filter_entry(|e| {
+            if e.depth() == 0 {
+                return true;
+            }
+            let name = e.file_name().to_string_lossy();
+            !(name.starts_with('.') || name == "build" || name == "node_modules")
+        })
+        .filter_map(Result::ok)
+        .filter(|e| {
+            let name = e.file_name().to_string_lossy();
+            e.file_type().is_file() && (name.ends_with(".kt") || name.ends_with(".java"))
+        })
+    {
+        let Ok(content) = std::fs::read_to_string(entry.path()) else {
+            continue;
+        };
+        for call in content.match_indices("getIdentifier") {
+            seen_any = true;
+            let after = &content[call.0..];
+            match LITERAL_RE.captures(after) {
+                Some(cap) if cap.get(0).is_some_and(|m| m.start() == 0) => {
+                    probe.literal_types.insert(cap[1].to_string());
+                }
+                _ => probe.any_type = true,
+            }
+        }
+    }
+    if seen_any {
+        Some(probe)
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
