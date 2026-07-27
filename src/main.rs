@@ -564,6 +564,7 @@ enum OutputFormat {
     Sarif,
     Html,
     Markdown,
+    Reviewdog,
 }
 
 #[derive(clap::ValueEnum, Clone, Copy, Debug, Default)]
@@ -611,6 +612,7 @@ fn determine_report_format(cli: &Cli, config: &Config) -> report::ReportFormat {
         OutputFormat::Sarif => report::ReportFormat::Sarif,
         OutputFormat::Html => report::ReportFormat::Html,
         OutputFormat::Markdown => report::ReportFormat::Markdown,
+        OutputFormat::Reviewdog => report::ReportFormat::Reviewdog,
     }
 }
 
@@ -1046,6 +1048,7 @@ fn run_analysis_internal(
         OutputFormat::Sarif => report::ReportFormat::Sarif,
         OutputFormat::Html => report::ReportFormat::Html,
         OutputFormat::Markdown => report::ReportFormat::Markdown,
+        OutputFormat::Reviewdog => report::ReportFormat::Reviewdog,
     };
     let reporter = Reporter::new(report_format, output);
     reporter.report(&dead_code)?;

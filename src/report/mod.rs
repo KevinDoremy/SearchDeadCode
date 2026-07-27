@@ -6,6 +6,7 @@ mod grouped;
 mod html;
 mod json;
 mod markdown;
+mod reviewdog;
 mod sarif;
 pub(crate) mod summary;
 mod terminal;
@@ -37,6 +38,8 @@ pub enum ReportFormat {
     Html,
     /// Paste-ready Markdown table for PRs and tickets
     Markdown,
+    /// Reviewdog Diagnostic JSON Lines (rdjsonl)
+    Reviewdog,
     /// JSON machine-readable format
     Json,
     /// SARIF format for IDE integration
@@ -162,6 +165,11 @@ impl Reporter {
             }
             ReportFormat::Markdown => {
                 let reporter = markdown::MarkdownReporter::new(self.options.output_path.clone())
+                    .with_base_path(self.options.base_path.clone());
+                reporter.report(dead_code)
+            }
+            ReportFormat::Reviewdog => {
+                let reporter = reviewdog::ReviewdogReporter::new(self.options.output_path.clone())
                     .with_base_path(self.options.base_path.clone());
                 reporter.report(dead_code)
             }
