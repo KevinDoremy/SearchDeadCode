@@ -9,6 +9,7 @@ mod cycles;
 pub mod dead_modules;
 mod deep;
 pub mod detectors;
+pub mod di_modules;
 pub mod diff_base;
 pub mod dto_fields;
 mod enhanced;

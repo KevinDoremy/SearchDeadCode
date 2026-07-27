@@ -392,6 +392,11 @@ struct Cli {
     #[arg(long, value_name = "FILE")]
     badge: Option<PathBuf>,
 
+    /// List DI modules whose every binding produces an unconsumed type,
+    /// then exit
+    #[arg(long)]
+    dead_di_modules: bool,
+
     /// Write the reference graph to this file (.json or .dot), then exit
     #[arg(long, value_name = "FILE")]
     export_graph: Option<PathBuf>,
@@ -2551,6 +2556,34 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
                 std::process::exit(2);
             }
         }
+    }
+
+    // --dead-di-modules short-circuits everything after the graph
+    if cli.dead_di_modules {
+        let findings = analysis::di_modules::dead_di_modules(&graph);
+        if findings.is_empty() {
+            println!("{}", "✓ no dead DI modules found".green());
+            return Ok(());
+        }
+        println!("{}", "DI modules whose bindings nobody consumes:".bold());
+        for finding in findings {
+            let rel = finding
+                .file
+                .strip_prefix(&cli.path)
+                .unwrap_or(&finding.file);
+            println!(
+                "  {} {:<25} {} unconsumed binding(s)  {}",
+                "○".dimmed(),
+                finding.name,
+                finding.bindings,
+                format!("{}:{}", rel.display(), finding.line).dimmed()
+            );
+        }
+        println!(
+            "{}",
+            "  (delete the module and its providers together — a whole DI cluster)".dimmed()
+        );
+        return Ok(());
     }
 
     // --middlemen short-circuits everything after the graph
