@@ -178,6 +178,10 @@ name = "wire_imports"
 path = "tests/integration/wire_imports_tests.rs"
 
 [[test]]
+name = "config_effective"
+path = "tests/integration/config_effective_tests.rs"
+
+[[test]]
 name = "cli"
 path = "tests/integration/cli_tests.rs"
 

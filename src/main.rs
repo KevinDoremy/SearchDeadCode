@@ -111,9 +111,9 @@ struct Cli {
     #[arg(short, long)]
     retain: Vec<String>,
 
-    /// Output format
-    #[arg(short, long, value_enum, default_value = "terminal")]
-    format: OutputFormat,
+    /// Output format (defaults to report.format from .deadcode.yml, else terminal)
+    #[arg(short, long, value_enum)]
+    format: Option<OutputFormat>,
 
     /// Output file (for json/sarif formats)
     #[arg(short, long)]
@@ -396,8 +396,20 @@ enum FlagBehavior {
     Disabled,
 }
 
+/// CLI flag first, then report.format from .deadcode.yml, then terminal
+fn resolve_output_format(cli: &Cli, config: &Config) -> OutputFormat {
+    cli.format
+        .clone()
+        .unwrap_or(match config.report.format.as_str() {
+            "compact" => OutputFormat::Compact,
+            "json" => OutputFormat::Json,
+            "sarif" => OutputFormat::Sarif,
+            _ => OutputFormat::Terminal,
+        })
+}
+
 /// Determine the report format from CLI options
-fn determine_report_format(cli: &Cli) -> report::ReportFormat {
+fn determine_report_format(cli: &Cli, config: &Config) -> report::ReportFormat {
     // Explicit format flags take precedence
     if cli.summary {
         return report::ReportFormat::Summary;
@@ -414,8 +426,8 @@ fn determine_report_format(cli: &Cli) -> report::ReportFormat {
         return report::ReportFormat::Grouped(mode);
     }
 
-    // Fall back to --format option
-    match cli.format {
+    // Fall back to --format, then to the config file
+    match resolve_output_format(cli, config) {
         OutputFormat::Terminal => report::ReportFormat::Terminal,
         OutputFormat::Compact => report::ReportFormat::Compact,
         OutputFormat::Json => report::ReportFormat::Json,
@@ -475,7 +487,7 @@ fn run_watch_mode(config: &Config, cli: &Cli) -> Result<()> {
     // Clone what we need for the closure
     let config = config.clone();
     let cli_path = cli.path.clone();
-    let cli_format = cli.format.clone();
+    let cli_format = resolve_output_format(cli, &config);
     let cli_output = cli.output.clone();
     let cli_verbose = cli.verbose;
     let cli_quiet = cli.quiet;
@@ -2152,6 +2164,30 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         info!("Compose pattern analysis complete");
     }
 
+    // Step 9z: honor config.detection.* — deserialized-and-ignored until now
+    {
+        use analysis::DeadCodeIssue as I;
+        use graph::DeclarationKind as K;
+        let det = &config.detection;
+        dead_code.retain(|dc| match dc.issue {
+            I::Unreferenced => match dc.declaration.kind {
+                K::Class | K::Interface | K::Object | K::Enum | K::TypeAlias | K::Annotation => {
+                    det.unused_class
+                }
+                K::Function | K::Method | K::Constructor => det.unused_method,
+                K::Property | K::Field => det.unused_property,
+                _ => true,
+            },
+            I::UnusedImport | I::DuplicateImport => det.unused_import,
+            I::UnusedParameter => det.unused_param,
+            I::UnusedEnumCase => det.unused_enum_case,
+            I::AssignOnly => det.assign_only,
+            I::DeadBranch => det.dead_branch,
+            I::RedundantPublic => det.redundant_public,
+            _ => true,
+        });
+    }
+
     // Step 10: Filter by confidence level
     let min_confidence = parse_confidence(&cli.min_confidence);
     let dead_code: Vec<_> = dead_code
@@ -2266,7 +2302,7 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     analysis::risk::assess(&mut dead_code, &files);
 
     // Step 14: Report results
-    let report_format = determine_report_format(cli);
+    let report_format = determine_report_format(cli, config);
     let mut report_options = report::ReportOptions::new();
     report_options.output_path = cli.output.clone();
     report_options.base_path = Some(cli.path.clone());
@@ -2309,7 +2345,10 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         reporter.report(&dead_code)?;
 
         // Guide the next move — terminal output with findings only
-        let is_terminal = matches!(cli.format, OutputFormat::Terminal | OutputFormat::Compact);
+        let is_terminal = matches!(
+            resolve_output_format(cli, config),
+            OutputFormat::Terminal | OutputFormat::Compact
+        );
         if is_terminal && cli.output.is_none() && !cli.quiet && !dead_code.is_empty() {
             println!("\n{}", "Next steps".bold());
             println!("  searchdeadcode --interactive       triage findings from the keyboard");
