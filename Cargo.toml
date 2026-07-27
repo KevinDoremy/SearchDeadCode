@@ -311,6 +311,10 @@ name = "git_undo"
 path = "tests/integration/git_undo_tests.rs"
 
 [[test]]
+name = "markdown_report"
+path = "tests/integration/markdown_report_tests.rs"
+
+[[test]]
 name = "cli"
 path = "tests/integration/cli_tests.rs"
 

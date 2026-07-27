@@ -483,6 +483,7 @@ enum OutputFormat {
     Json,
     Sarif,
     Html,
+    Markdown,
 }
 
 #[derive(clap::ValueEnum, Clone, Copy, Debug, Default)]
@@ -529,6 +530,7 @@ fn determine_report_format(cli: &Cli, config: &Config) -> report::ReportFormat {
         OutputFormat::Json => report::ReportFormat::Json,
         OutputFormat::Sarif => report::ReportFormat::Sarif,
         OutputFormat::Html => report::ReportFormat::Html,
+        OutputFormat::Markdown => report::ReportFormat::Markdown,
     }
 }
 
@@ -777,6 +779,7 @@ fn run_analysis_internal(
         OutputFormat::Json => report::ReportFormat::Json,
         OutputFormat::Sarif => report::ReportFormat::Sarif,
         OutputFormat::Html => report::ReportFormat::Html,
+        OutputFormat::Markdown => report::ReportFormat::Markdown,
     };
     let reporter = Reporter::new(report_format, output);
     reporter.report(&dead_code)?;

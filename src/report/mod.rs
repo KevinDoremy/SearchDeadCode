@@ -4,6 +4,7 @@ mod compact;
 mod grouped;
 mod html;
 mod json;
+mod markdown;
 mod sarif;
 pub(crate) mod summary;
 mod terminal;
@@ -33,6 +34,8 @@ pub enum ReportFormat {
     Summary,
     /// Self-contained HTML page with filter and sort
     Html,
+    /// Paste-ready Markdown table for PRs and tickets
+    Markdown,
     /// JSON machine-readable format
     Json,
     /// SARIF format for IDE integration
@@ -154,6 +157,11 @@ impl Reporter {
             }
             ReportFormat::Json => {
                 let reporter = JsonReporter::new(self.options.output_path.clone());
+                reporter.report(dead_code)
+            }
+            ReportFormat::Markdown => {
+                let reporter = markdown::MarkdownReporter::new(self.options.output_path.clone())
+                    .with_base_path(self.options.base_path.clone());
                 reporter.report(dead_code)
             }
             ReportFormat::Html => {
