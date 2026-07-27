@@ -24,6 +24,7 @@ pub mod remote_config;
 pub mod resources;
 pub mod risk;
 pub mod test_refs;
+pub mod translations;
 
 pub use cycles::CycleDetector;
 pub use deep::DeepAnalyzer;
@@ -207,6 +208,9 @@ pub enum DeadCodeIssue {
     /// Serialized DTO field written by reflection but never read
     DeadDtoField,
 
+    /// Locale string whose base key was removed from values/
+    OrphanTranslation,
+
     /// Android resource defined but never referenced
     UnusedResource,
 
@@ -366,6 +370,7 @@ impl DeadCodeIssue {
             DeadCodeIssue::UnusedIntentExtra => Severity::Warning,
             DeadCodeIssue::DeadConfigKey => Severity::Warning,
             DeadCodeIssue::DeadDtoField => Severity::Warning,
+            DeadCodeIssue::OrphanTranslation => Severity::Warning,
             DeadCodeIssue::UnusedResource => Severity::Warning,
             DeadCodeIssue::UnusedLayout => Severity::Warning,
             DeadCodeIssue::DuplicateImport => Severity::Warning,
@@ -469,6 +474,12 @@ impl DeadCodeIssue {
             DeadCodeIssue::DeadDtoField => {
                 format!(
                     "DTO field '{}' is deserialized but never read by the code",
+                    decl.name
+                )
+            }
+            DeadCodeIssue::OrphanTranslation => {
+                format!(
+                    "Translation '{}' has no base entry in values/ — it can never be resolved",
                     decl.name
                 )
             }
@@ -729,6 +740,7 @@ impl DeadCodeIssue {
             DeadCodeIssue::UnusedIntentExtra => "DC019",
             DeadCodeIssue::DeadConfigKey => "DC020",
             DeadCodeIssue::DeadDtoField => "DC021",
+            DeadCodeIssue::OrphanTranslation => "DC022",
             DeadCodeIssue::UnusedResource => "DC017",
             DeadCodeIssue::UnusedLayout => "DC018",
             DeadCodeIssue::DuplicateImport => "DC012",
