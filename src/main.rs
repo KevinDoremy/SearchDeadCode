@@ -30,6 +30,7 @@ use analysis::detectors::{
     CollectionWithoutSequenceDetector,
     // Phase 4: Kotlin-Specific (AP021-AP025)
     ComplexConditionDetector,
+    DeadBranchDetector,
     // Anti-pattern detectors (AP001-AP006)
     DeepInheritanceDetector,
     // Core detectors
@@ -1721,6 +1722,28 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         if !override_issues.is_empty() {
             info!("Found {} redundant overrides", override_issues.len());
             dead_code.extend(override_issues);
+        }
+    }
+
+    // Step 9e2: DC005 guard and DC007 literal-false branches.
+    // The reachability analyzers already emit DC005 now that the parser
+    // extracts enum entries; an enum iterated reflectively keeps its cases.
+    {
+        let reflective = analysis::detectors::reflectively_iterated_enum_ids(&graph);
+        if !reflective.is_empty() {
+            dead_code.retain(|dc| {
+                !(matches!(dc.issue, analysis::DeadCodeIssue::UnusedEnumCase)
+                    && dc
+                        .declaration
+                        .parent
+                        .as_ref()
+                        .is_some_and(|p| reflective.contains(p)))
+            });
+        }
+        let branch_issues = DeadBranchDetector::new().detect(&graph);
+        if !branch_issues.is_empty() {
+            info!("Found {} dead branches", branch_issues.len());
+            dead_code.extend(branch_issues);
         }
     }
 

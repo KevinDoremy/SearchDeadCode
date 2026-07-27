@@ -162,6 +162,10 @@ name = "detectors"
 path = "tests/integration/detector_tests.rs"
 
 [[test]]
+name = "stub_detectors"
+path = "tests/integration/stub_detector_tests.rs"
+
+[[test]]
 name = "cli"
 path = "tests/integration/cli_tests.rs"
 

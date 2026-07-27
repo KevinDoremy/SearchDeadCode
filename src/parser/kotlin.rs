@@ -195,7 +195,8 @@ impl KotlinParser {
         let mut cursor = node.walk();
         let mut found_class_body = false;
         for child in node.children(&mut cursor) {
-            if child.kind() == "class_body" {
+            // enums put their entries in an enum_class_body, not a class_body
+            if child.kind() == "class_body" || child.kind() == "enum_class_body" {
                 self.extract_class_members(path, child, source, package, id.clone(), result)?;
                 found_class_body = true;
                 break;
@@ -967,7 +968,12 @@ impl KotlinParser {
         parent: DeclarationId,
         result: &mut ParseResult,
     ) -> Result<()> {
-        if let Some(name_node) = node.child_by_field_name("simple_identifier") {
+        // "simple_identifier" is the child's kind, not a grammar field name
+        let mut cursor = node.walk();
+        let name_node = node
+            .children(&mut cursor)
+            .find(|c| c.kind() == "simple_identifier");
+        if let Some(name_node) = name_node {
             let name = node_text(name_node, source).to_string();
             let location = point_to_location(
                 path,
@@ -1559,7 +1565,16 @@ impl KotlinParser {
     }
 
     fn determine_class_kind(&self, node: Node, source: &str) -> DeclarationKind {
+        // `enum class` / `interface` keywords are direct child tokens of
+        // class_declaration, not part of a modifiers node
         let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            match child.kind() {
+                "enum" => return DeclarationKind::Enum,
+                "interface" => return DeclarationKind::Interface,
+                _ => {}
+            }
+        }
         for child in node.children(&mut cursor) {
             if child.kind() == "modifiers" {
                 let modifiers_text = node_text(child, source);
