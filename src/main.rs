@@ -835,7 +835,7 @@ fn main() -> Result<()> {
                 std::process::exit(2);
             }
         };
-        lsp::serve(&saved).map_err(|e| miette::miette!(e))?;
+        lsp::serve(&saved, &cli.path).map_err(|e| miette::miette!(e))?;
         return Ok(());
     }
 
