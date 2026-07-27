@@ -1,6 +1,7 @@
 mod aggregator;
 mod colors;
 mod compact;
+mod csv;
 pub(crate) mod graph_export;
 mod grouped;
 mod html;
@@ -40,6 +41,8 @@ pub enum ReportFormat {
     Markdown,
     /// Reviewdog Diagnostic JSON Lines (rdjsonl)
     Reviewdog,
+    /// Spreadsheet rows for team triage
+    Csv,
     /// JSON machine-readable format
     Json,
     /// SARIF format for IDE integration
@@ -170,6 +173,11 @@ impl Reporter {
             }
             ReportFormat::Reviewdog => {
                 let reporter = reviewdog::ReviewdogReporter::new(self.options.output_path.clone())
+                    .with_base_path(self.options.base_path.clone());
+                reporter.report(dead_code)
+            }
+            ReportFormat::Csv => {
+                let reporter = csv::CsvReporter::new(self.options.output_path.clone())
                     .with_base_path(self.options.base_path.clone());
                 reporter.report(dead_code)
             }
