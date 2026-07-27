@@ -17,9 +17,17 @@ pub enum Outcome {
     Quit,
 }
 
+#[derive(PartialEq, Eq)]
+enum Mode {
+    Normal,
+    Filter,
+}
+
 pub struct TuiApp {
     rows: Vec<RowData>,
     pub selected: usize,
+    mode: Mode,
+    query: String,
 }
 
 struct RowData {
@@ -56,15 +64,57 @@ impl TuiApp {
                 }
             })
             .collect();
-        Self { rows, selected: 0 }
+        Self {
+            rows,
+            selected: 0,
+            mode: Mode::Normal,
+            query: String::new(),
+        }
     }
 
-    /// j/down and k/up move the selection, q leaves.
+    /// Indices of the rows the current filter lets through.
+    fn visible(&self) -> Vec<usize> {
+        let needle = self.query.to_lowercase();
+        self.rows
+            .iter()
+            .enumerate()
+            .filter(|(_, row)| needle.is_empty() || row.label.to_lowercase().contains(&needle))
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    pub fn on_escape(&mut self) {
+        self.mode = Mode::Normal;
+        self.query.clear();
+        self.selected = 0;
+    }
+
+    pub fn on_backspace(&mut self) {
+        if self.mode == Mode::Filter {
+            self.query.pop();
+            self.selected = 0;
+        }
+    }
+
+    /// Normal mode: j/k move, / filters, q leaves. Filter mode: every
+    /// printable character narrows the query.
     pub fn on_key(&mut self, key: char) -> Outcome {
+        if self.mode == Mode::Filter {
+            if !key.is_control() {
+                self.query.push(key);
+                self.selected = 0;
+            }
+            return Outcome::Continue;
+        }
         match key {
             'q' => return Outcome::Quit,
+            '/' => {
+                self.mode = Mode::Filter;
+                self.query.clear();
+                self.selected = 0;
+            }
             'j' => {
-                if self.selected + 1 < self.rows.len() {
+                if self.selected + 1 < self.visible().len() {
                     self.selected += 1;
                 }
             }
@@ -82,24 +132,29 @@ impl TuiApp {
             .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
             .split(frame.area());
 
-        let items: Vec<ListItem> = self
-            .rows
+        let visible = self.visible();
+        let items: Vec<ListItem> = visible
             .iter()
-            .map(|row| ListItem::new(Line::raw(row.label.clone())))
+            .map(|&i| ListItem::new(Line::raw(self.rows[i].label.clone())))
             .collect();
+        let title = if self.mode == Mode::Filter {
+            format!(" findings ({}) — filter: {} ", visible.len(), self.query)
+        } else {
+            format!(
+                " findings ({}) — j/k move, / filter, q quit ",
+                visible.len()
+            )
+        };
         let list = List::new(items)
-            .block(Block::default().borders(Borders::ALL).title(format!(
-                " findings ({}) — j/k move, q quit ",
-                self.rows.len()
-            )))
+            .block(Block::default().borders(Borders::ALL).title(title))
             .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
         let mut state = ListState::default();
-        state.select(Some(self.selected));
+        state.select(Some(self.selected.min(visible.len().saturating_sub(1))));
         frame.render_stateful_widget(list, chunks[0], &mut state);
 
-        let detail = self
-            .rows
-            .get(self.selected)
+        let detail = visible
+            .get(self.selected.min(visible.len().saturating_sub(1)))
+            .and_then(|&i| self.rows.get(i))
             .map(|row| row.detail.clone())
             .unwrap_or_else(|| "no findings".to_string());
         let panel = Paragraph::new(detail)
@@ -117,15 +172,21 @@ pub fn run(findings: &[DeadCode], root: &Path) -> std::io::Result<()> {
     loop {
         terminal.draw(|frame| app.render(frame))?;
         if let Event::Key(key) = event::read()? {
-            let ch = match key.code {
-                KeyCode::Char(c) => c,
-                KeyCode::Down => 'j',
-                KeyCode::Up => 'k',
-                KeyCode::Esc => 'q',
-                _ => ' ',
-            };
-            if app.on_key(ch) == Outcome::Quit {
-                break;
+            match key.code {
+                KeyCode::Esc => app.on_escape(),
+                KeyCode::Backspace => app.on_backspace(),
+                other => {
+                    let ch = match other {
+                        KeyCode::Char(c) => c,
+                        KeyCode::Down => 'j',
+                        KeyCode::Up => 'k',
+                        KeyCode::Enter => ' ',
+                        _ => ' ',
+                    };
+                    if app.on_key(ch) == Outcome::Quit {
+                        break;
+                    }
+                }
             }
         }
     }
@@ -204,6 +265,83 @@ mod tests {
         let mut app = TuiApp::new(&findings, Path::new("/repo"));
         assert_eq!(app.on_key('x'), Outcome::Continue);
         assert_eq!(app.on_key('q'), Outcome::Quit);
+    }
+
+    #[test]
+    fn slash_enters_filter_mode_and_typing_narrows_the_list() {
+        let findings = vec![
+            finding("GhostAlpha", 3),
+            finding("GhostBeta", 9),
+            finding("Zombie", 12),
+        ];
+        let mut app = TuiApp::new(&findings, Path::new("/repo"));
+
+        app.on_key('/');
+        for c in "ghost".chars() {
+            app.on_key(c);
+        }
+        let screen = rendered(&app);
+        assert!(
+            screen.contains("GhostAlpha") && screen.contains("GhostBeta"),
+            "both ghosts match, screen was:\n{screen}"
+        );
+        assert!(
+            !screen.contains("Zombie"),
+            "the zombie is filtered out, screen was:\n{screen}"
+        );
+        assert!(
+            screen.contains("ghost"),
+            "the query is visible, screen was:\n{screen}"
+        );
+    }
+
+    #[test]
+    fn escape_leaves_filter_mode_and_restores_the_full_list() {
+        let findings = vec![finding("GhostAlpha", 3), finding("Zombie", 12)];
+        let mut app = TuiApp::new(&findings, Path::new("/repo"));
+
+        app.on_key('/');
+        for c in "ghost".chars() {
+            app.on_key(c);
+        }
+        app.on_escape();
+        let screen = rendered(&app);
+        assert!(
+            screen.contains("Zombie"),
+            "escape clears the filter, screen was:\n{screen}"
+        );
+    }
+
+    #[test]
+    fn q_filters_instead_of_quitting_while_in_filter_mode() {
+        let findings = vec![finding("Quokka", 3)];
+        let mut app = TuiApp::new(&findings, Path::new("/repo"));
+        app.on_key('/');
+        assert_eq!(
+            app.on_key('q'),
+            Outcome::Continue,
+            "q is a letter inside the filter"
+        );
+        let screen = rendered(&app);
+        assert!(screen.contains("Quokka"), "quokka matches 'q':\n{screen}");
+    }
+
+    #[test]
+    fn backspace_widens_the_filter_again() {
+        let findings = vec![finding("GhostAlpha", 3), finding("Zombie", 12)];
+        let mut app = TuiApp::new(&findings, Path::new("/repo"));
+        app.on_key('/');
+        for c in "ghostx".chars() {
+            app.on_key(c);
+        }
+        let screen = rendered(&app);
+        assert!(!screen.contains("GhostAlpha"), "'ghostx' matches nothing");
+        app.on_backspace();
+        let screen = rendered(&app);
+        assert!(
+            screen.contains("GhostAlpha"),
+            "one backspace back to 'ghost', screen was:\n{screen}"
+        );
     }
 
     #[test]
