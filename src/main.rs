@@ -4208,7 +4208,8 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     if cli.tui {
         use std::io::IsTerminal;
         if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
-            tui::run(&dead_code, &cli.path).map_err(|e| miette::miette!(e))?;
+            tui::run(&dead_code, &cli.path, cli.baseline.as_deref())
+                .map_err(|e| miette::miette!(e))?;
             return Ok(());
         }
         eprintln!("--tui requires a terminal; printing the standard report instead.");

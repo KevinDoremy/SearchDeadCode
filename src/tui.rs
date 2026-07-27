@@ -60,6 +60,8 @@ struct RowData {
     label: String,
     detail: String,
     marked: bool,
+    /// position in the findings slice handed to new()
+    finding_index: usize,
     sort_file: String,
     sort_rule: String,
     /// higher confidence first
@@ -70,7 +72,8 @@ impl TuiApp {
     pub fn new(findings: &[DeadCode], root: &Path) -> Self {
         let rows = findings
             .iter()
-            .map(|dc| {
+            .enumerate()
+            .map(|(finding_index, dc)| {
                 let rel = dc
                     .declaration
                     .location
@@ -93,6 +96,7 @@ impl TuiApp {
                         dc.risk
                     ),
                     marked: false,
+                    finding_index,
                     sort_file: format!("{}:{:08}", rel.display(), dc.declaration.location.line),
                     sort_rule: dc.issue.code().to_string(),
                     sort_confidence: std::cmp::Reverse((dc.confidence.score() * 100.0) as u32),
@@ -136,6 +140,18 @@ impl TuiApp {
             .filter(|(_, row)| needle.is_empty() || row.label.to_lowercase().contains(&needle))
             .map(|(i, _)| i)
             .collect()
+    }
+
+    /// Input positions of every marked finding, in input order.
+    pub fn marked_indices(&self) -> Vec<usize> {
+        let mut indices: Vec<usize> = self
+            .rows
+            .iter()
+            .filter(|row| row.marked)
+            .map(|row| row.finding_index)
+            .collect();
+        indices.sort_unstable();
+        indices
     }
 
     pub fn on_escape(&mut self) {
@@ -236,8 +252,44 @@ impl TuiApp {
     }
 }
 
+/// Add the marked findings to the baseline file, creating it when
+/// absent, skipping fingerprints already recorded. Returns how many
+/// entries were actually added.
+pub fn append_to_baseline(
+    findings: &[DeadCode],
+    indices: &[usize],
+    root: &Path,
+    baseline_path: &Path,
+) -> std::io::Result<usize> {
+    use crate::baseline::{Baseline, IssueFingerprint};
+    let mut baseline = if baseline_path.exists() {
+        Baseline::load(baseline_path).map_err(std::io::Error::other)?
+    } else {
+        Baseline::from_findings(&[], root)
+    };
+    let mut added = 0usize;
+    for &index in indices {
+        let Some(dc) = findings.get(index) else {
+            continue;
+        };
+        if baseline.is_baselined(dc, root) {
+            continue;
+        }
+        baseline
+            .issues
+            .push(IssueFingerprint::from_dead_code(dc, root));
+        added += 1;
+    }
+    if added > 0 {
+        baseline
+            .save(baseline_path)
+            .map_err(std::io::Error::other)?;
+    }
+    Ok(added)
+}
+
 /// Real terminal loop — the only part a test cannot drive.
-pub fn run(findings: &[DeadCode], root: &Path) -> std::io::Result<()> {
+pub fn run(findings: &[DeadCode], root: &Path, baseline: Option<&Path>) -> std::io::Result<()> {
     use crossterm::event::{self, Event, KeyCode};
     let mut app = TuiApp::new(findings, root);
     let mut terminal = ratatui::init();
@@ -263,6 +315,17 @@ pub fn run(findings: &[DeadCode], root: &Path) -> std::io::Result<()> {
         }
     }
     ratatui::restore();
+    if let Some(baseline_path) = baseline {
+        let marked = app.marked_indices();
+        if !marked.is_empty() {
+            let added = append_to_baseline(findings, &marked, root, baseline_path)?;
+            println!(
+                "added {added} finding(s) to {} ({} marked)",
+                baseline_path.display(),
+                marked.len()
+            );
+        }
+    }
     Ok(())
 }
 
@@ -526,6 +589,48 @@ mod tests {
             screen.contains("Bumble") && !screen.contains("[b]"),
             "no marking from inside the filter:\n{screen}"
         );
+    }
+
+    #[test]
+    fn marked_indices_point_back_at_the_original_findings() {
+        let mut zz = finding("ZzLate", 2);
+        zz.declaration.location.file = std::path::PathBuf::from("/repo/src/Zz.kt");
+        zz.declaration.id.file = std::path::PathBuf::from("/repo/src/Zz.kt");
+        // input order: ZzLate (0), AaEarly (1); file sort shows AaEarly first
+        let findings = vec![zz, finding("AaEarly", 8)];
+        let mut app = TuiApp::new(&findings, Path::new("/repo"));
+
+        app.on_key('b'); // marks AaEarly, which is input index 1
+        assert_eq!(
+            app.marked_indices(),
+            vec![1],
+            "the index is the input position, not the display slot"
+        );
+    }
+
+    #[test]
+    fn append_marked_writes_fingerprints_and_deduplicates() {
+        let temp = tempfile::tempdir().unwrap();
+        let baseline_path = temp.path().join("baseline.json");
+        let findings = vec![finding("GhostA", 3), finding("GhostB", 9)];
+
+        let added =
+            append_to_baseline(&findings, &[0], Path::new("/repo"), &baseline_path).unwrap();
+        assert_eq!(added, 1);
+        let json = std::fs::read_to_string(&baseline_path).unwrap();
+        assert!(json.contains("GhostA") && !json.contains("GhostB"));
+
+        // appending the same finding again adds nothing
+        let added =
+            append_to_baseline(&findings, &[0], Path::new("/repo"), &baseline_path).unwrap();
+        assert_eq!(added, 0, "already baselined, nothing to add");
+
+        // a second finding lands next to the first
+        let added =
+            append_to_baseline(&findings, &[0, 1], Path::new("/repo"), &baseline_path).unwrap();
+        assert_eq!(added, 1);
+        let json = std::fs::read_to_string(&baseline_path).unwrap();
+        assert!(json.contains("GhostA") && json.contains("GhostB"));
     }
 
     #[test]
