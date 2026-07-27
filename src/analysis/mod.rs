@@ -8,6 +8,7 @@ pub mod dead_modules;
 mod deep;
 pub mod detectors;
 pub mod diff_base;
+pub mod dto_fields;
 mod enhanced;
 mod entry_points;
 pub mod flags;
@@ -203,6 +204,9 @@ pub enum DeadCodeIssue {
     /// Remote Config key declared in defaults but never read
     DeadConfigKey,
 
+    /// Serialized DTO field written by reflection but never read
+    DeadDtoField,
+
     /// Android resource defined but never referenced
     UnusedResource,
 
@@ -361,6 +365,7 @@ impl DeadCodeIssue {
             DeadCodeIssue::WriteOnlyDao => Severity::Warning,
             DeadCodeIssue::UnusedIntentExtra => Severity::Warning,
             DeadCodeIssue::DeadConfigKey => Severity::Warning,
+            DeadCodeIssue::DeadDtoField => Severity::Warning,
             DeadCodeIssue::UnusedResource => Severity::Warning,
             DeadCodeIssue::UnusedLayout => Severity::Warning,
             DeadCodeIssue::DuplicateImport => Severity::Warning,
@@ -460,6 +465,12 @@ impl DeadCodeIssue {
             }
             DeadCodeIssue::DeadConfigKey => {
                 format!("Remote Config key \"{}\" is never read", decl.name)
+            }
+            DeadCodeIssue::DeadDtoField => {
+                format!(
+                    "DTO field '{}' is deserialized but never read by the code",
+                    decl.name
+                )
             }
             DeadCodeIssue::UnusedResource => {
                 format!("Resource '{}' is defined but never referenced", decl.name)
@@ -717,6 +728,7 @@ impl DeadCodeIssue {
             DeadCodeIssue::WriteOnlyDao => "DC011",
             DeadCodeIssue::UnusedIntentExtra => "DC019",
             DeadCodeIssue::DeadConfigKey => "DC020",
+            DeadCodeIssue::DeadDtoField => "DC021",
             DeadCodeIssue::UnusedResource => "DC017",
             DeadCodeIssue::UnusedLayout => "DC018",
             DeadCodeIssue::DuplicateImport => "DC012",

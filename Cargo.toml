@@ -287,6 +287,10 @@ name = "ctor_annotations"
 path = "tests/integration/ctor_annotation_tests.rs"
 
 [[test]]
+name = "dto_fields"
+path = "tests/integration/dto_field_tests.rs"
+
+[[test]]
 name = "cli"
 path = "tests/integration/cli_tests.rs"
 

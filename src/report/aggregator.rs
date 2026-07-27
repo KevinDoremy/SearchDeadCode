@@ -107,6 +107,7 @@ impl Aggregator {
             DeadCodeIssue::WriteOnlyDao => "Write-only DAOs".to_string(),
             DeadCodeIssue::UnusedIntentExtra => "Unused Intent extras".to_string(),
             DeadCodeIssue::DeadConfigKey => "Dead Remote Config keys".to_string(),
+            DeadCodeIssue::DeadDtoField => "Dead DTO fields".to_string(),
             DeadCodeIssue::UnusedResource => "Unused resources".to_string(),
             DeadCodeIssue::UnusedLayout => "Unused layouts".to_string(),
             DeadCodeIssue::DuplicateImport => "Duplicate imports".to_string(),
@@ -179,6 +180,7 @@ impl Aggregator {
             | DeadCodeIssue::WriteOnlyDao
             | DeadCodeIssue::UnusedIntentExtra
             | DeadCodeIssue::DeadConfigKey
+            | DeadCodeIssue::DeadDtoField
             | DeadCodeIssue::UnusedResource
             | DeadCodeIssue::UnusedLayout
             | DeadCodeIssue::DuplicateImport
