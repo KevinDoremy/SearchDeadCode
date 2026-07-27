@@ -331,6 +331,7 @@ Generated from `--help`; every flag the binary accepts, alphabetically.
 | `--twins` | Show Xxx/XxxV2-style pairs side by side with reference counts, then exit |
 | `--undo-script` | Generate undo script |
 | `--unobserved` | List exposed LiveData/StateFlow/SharedFlow properties nobody collects or observes, then exit |
+| `--unscheduled-workers` | List Worker/JobService classes nobody ever enqueues, then exit |
 | `--unused-assets` | List assets/ files whose path or name appears nowhere in the sources, then exit |
 | `--unused-deps` | List Gradle dependencies declared in build files but never imported by any source file, then exit |
 | `--unused-extras` | Enable unused Intent extra detection (enabled by default) Finds putExtra() keys that are never retrieved via getXxxExtra() [default: true] [possible values: true, false] |

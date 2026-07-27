@@ -465,6 +465,10 @@ name = "csv_format"
 path = "tests/integration/csv_format_tests.rs"
 
 [[test]]
+name = "unscheduled_workers"
+path = "tests/integration/unscheduled_workers_tests.rs"
+
+[[test]]
 name = "generated_mapping"
 path = "tests/integration/generated_mapping_tests.rs"
 
