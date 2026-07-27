@@ -2056,17 +2056,26 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         }
     }
 
-    // Step 9j: Anti-pattern detectors
-    let run_architecture = cli.anti_patterns || cli.architecture_patterns;
-    let run_kotlin = cli.anti_patterns || cli.kotlin_patterns;
-    let run_performance = cli.anti_patterns || cli.performance_patterns;
-    let run_android = cli.anti_patterns || cli.android_patterns;
-    let run_compose = cli.anti_patterns || cli.compose_patterns;
+    // Step 9j: Anti-pattern detectors — CLI flags or config groups
+    let ap_config = &config.detection.anti_patterns;
+    let limits = &config.detection.thresholds;
+    let run_architecture = cli.anti_patterns
+        || cli.architecture_patterns
+        || ap_config.enabled
+        || ap_config.architecture;
+    let run_kotlin =
+        cli.anti_patterns || cli.kotlin_patterns || ap_config.enabled || ap_config.kotlin;
+    let run_performance =
+        cli.anti_patterns || cli.performance_patterns || ap_config.enabled || ap_config.performance;
+    let run_android =
+        cli.anti_patterns || cli.android_patterns || ap_config.enabled || ap_config.android;
+    let run_compose =
+        cli.anti_patterns || cli.compose_patterns || ap_config.enabled || ap_config.compose;
 
     // Architecture patterns (AP001-AP006)
     if run_architecture {
         let detectors: Vec<Box<dyn Detector>> = vec![
-            Box::new(DeepInheritanceDetector::new()),
+            Box::new(DeepInheritanceDetector::new().with_max_depth(limits.deep_inheritance_depth)),
             Box::new(EventBusPatternDetector::new()),
             Box::new(GlobalMutableStateDetector::new()),
             Box::new(SingleImplInterfaceDetector::new()),
@@ -2090,7 +2099,9 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
             Box::new(ScopeFunctionChainingDetector::new()),
             // Phase 4
             Box::new(ComplexConditionDetector::new()),
-            Box::new(LongParameterListDetector::new()),
+            Box::new(
+                LongParameterListDetector::new().with_max_parameters(limits.long_parameter_list),
+            ),
             Box::new(NullabilityOverloadDetector::new()),
             Box::new(ReflectionOveruseDetector::new()),
             Box::new(StringLiteralDuplicationDetector::new()),
@@ -2108,8 +2119,12 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     if run_performance {
         let detectors: Vec<Box<dyn Detector>> = vec![
             Box::new(MemoryLeakRiskDetector::new()),
-            Box::new(LongMethodDetector::new()),
-            Box::new(LargeClassDetector::new()),
+            Box::new(LongMethodDetector::new().with_max_lines(limits.long_method_lines)),
+            Box::new(
+                LargeClassDetector::new()
+                    .with_max_methods(limits.large_class_methods)
+                    .with_max_properties(limits.large_class_properties),
+            ),
             Box::new(CollectionWithoutSequenceDetector::new()),
             Box::new(ObjectAllocationInLoopDetector::new()),
         ];

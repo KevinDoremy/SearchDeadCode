@@ -182,6 +182,10 @@ name = "config_effective"
 path = "tests/integration/config_effective_tests.rs"
 
 [[test]]
+name = "thresholds"
+path = "tests/integration/threshold_tests.rs"
+
+[[test]]
 name = "cli"
 path = "tests/integration/cli_tests.rs"
 

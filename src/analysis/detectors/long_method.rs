@@ -50,11 +50,18 @@ impl LongMethodDetector {
 
     /// Calculate approximate line count from byte range
     fn estimate_lines(decl: &crate::graph::Declaration) -> usize {
+        // Count real newlines in the declaration span when the file is
+        // readable; fall back to a bytes-per-line estimate otherwise.
+        if let Ok(content) = std::fs::read(&decl.location.file) {
+            let (start, end) = (decl.location.start_byte, decl.location.end_byte);
+            if end <= content.len() && start < end {
+                return content[start..end].iter().filter(|b| **b == b'\n').count() + 1;
+            }
+        }
         let byte_range = decl
             .location
             .end_byte
             .saturating_sub(decl.location.start_byte);
-        // Rough estimate: average 40 bytes per line
         (byte_range / 40).max(1)
     }
 }
