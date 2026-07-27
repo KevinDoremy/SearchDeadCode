@@ -305,6 +305,15 @@ struct Cli {
     #[arg(long)]
     doctor: bool,
 
+    /// After --delete: run this command (a compile, a test suite) and
+    /// restore every touched file automatically when it fails
+    #[arg(long, value_name = "CMD")]
+    verify_cmd: Option<String>,
+
+    /// With --delete: skip confirmation prompts (the CI path)
+    #[arg(long)]
+    yes: bool,
+
     /// Report only symbols that became dead since this git reference
     #[arg(long, value_name = "REF")]
     diff_base: Option<String>,
@@ -837,6 +846,22 @@ fn synthetic_finding(
     analysis::DeadCode::new(decl, issue)
         .with_message(message)
         .with_confidence(confidence)
+}
+
+/// Platform shell for --verify-cmd
+fn shell_command(cmd: &str) -> std::process::Command {
+    #[cfg(windows)]
+    {
+        let mut c = std::process::Command::new("cmd");
+        c.args(["/C", cmd]);
+        c
+    }
+    #[cfg(not(windows))]
+    {
+        let mut c = std::process::Command::new("sh");
+        c.args(["-c", cmd]);
+        c
+    }
 }
 
 /// Config checkup: a glob matching nothing or an unknown entry point
@@ -2878,11 +2903,61 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     let elapsed = start_time.elapsed();
     info!("Analysis completed in {:.2}s", elapsed.as_secs_f64());
 
+    // A check command with nothing to check is a config mistake
+    if cli.verify_cmd.is_some() && !cli.delete {
+        eprintln!(
+            "{}: --verify-cmd only makes sense with --delete",
+            "Error".red()
+        );
+        std::process::exit(2);
+    }
+
     // Step 15: Safe delete if requested
     if cli.delete && !dead_code.is_empty() {
+        // Snapshot before touching anything: restoring in Rust is
+        // portable, the undo shell script is not
+        let snapshots: Option<Vec<(std::path::PathBuf, String)>> =
+            if cli.verify_cmd.is_some() && !cli.dry_run {
+                let files_to_touch: std::collections::BTreeSet<std::path::PathBuf> = dead_code
+                    .iter()
+                    .map(|dc| dc.declaration.location.file.clone())
+                    .collect();
+                Some(
+                    files_to_touch
+                        .into_iter()
+                        .filter_map(|p| std::fs::read_to_string(&p).ok().map(|c| (p, c)))
+                        .collect(),
+                )
+            } else {
+                None
+            };
+
         let deleter =
-            refactor::SafeDeleter::new(cli.interactive, cli.dry_run, cli.undo_script.clone());
+            refactor::SafeDeleter::new(cli.interactive, cli.dry_run, cli.undo_script.clone())
+                .with_assume_yes(cli.yes);
         deleter.delete(&dead_code)?;
+
+        if let (Some(cmd), Some(snaps)) = (cli.verify_cmd.as_deref(), snapshots) {
+            println!("{}", format!("🔧 Verifying: {cmd}").dimmed());
+            let status = shell_command(cmd).current_dir(&cli.path).status();
+            let passed = matches!(status, Ok(s) if s.success());
+            if passed {
+                println!("{}", "✓ Verification passed — deletion kept".green());
+            } else {
+                for (path, content) in &snaps {
+                    let _ = std::fs::write(path, content);
+                }
+                eprintln!(
+                    "{}",
+                    format!(
+                        "✗ Verification failed — {} file(s) restored byte-for-byte",
+                        snaps.len()
+                    )
+                    .red()
+                );
+                std::process::exit(3);
+            }
+        }
     }
 
     // The ratchet verdict comes last: the report above already told the

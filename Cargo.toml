@@ -263,6 +263,10 @@ name = "nav_graphs"
 path = "tests/integration/nav_graph_tests.rs"
 
 [[test]]
+name = "verify_cmd"
+path = "tests/integration/verify_cmd_tests.rs"
+
+[[test]]
 name = "cli"
 path = "tests/integration/cli_tests.rs"
 
