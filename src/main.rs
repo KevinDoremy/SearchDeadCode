@@ -439,6 +439,10 @@ struct Cli {
     #[arg(long)]
     fail_on_findings: bool,
 
+    /// List Worker/JobService classes nobody ever enqueues, then exit
+    #[arg(long)]
+    unscheduled_workers: bool,
+
     /// After --delete: run this command (a compile, a test suite) and
     /// restore every touched file automatically when it fails
     #[arg(long, value_name = "CMD")]
@@ -2763,6 +2767,60 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
                 std::process::exit(2);
             }
         }
+    }
+
+    // --unscheduled-workers short-circuits everything after the graph
+    if cli.unscheduled_workers {
+        const WORKER_BASES: &[&str] = &[
+            "Worker",
+            "CoroutineWorker",
+            "ListenableWorker",
+            "RxWorker",
+            "JobService",
+            "JobIntentService",
+        ];
+        let mut orphans: Vec<&graph::Declaration> = graph
+            .declarations()
+            .filter(|decl| {
+                decl.kind.is_type()
+                    && decl.super_types.iter().any(|s| {
+                        let base = s.split('(').next().unwrap_or(s).trim();
+                        let simple = base.rsplit('.').next().unwrap_or(base);
+                        WORKER_BASES.contains(&simple)
+                    })
+                    && graph.get_references_to(&decl.id).is_empty()
+            })
+            .collect();
+        if orphans.is_empty() {
+            println!("{}", "✓ no unscheduled workers found".green());
+            return Ok(());
+        }
+        orphans.sort_by(|a, b| {
+            a.location
+                .file
+                .cmp(&b.location.file)
+                .then(a.location.line.cmp(&b.location.line))
+        });
+        println!("{}", "Workers nobody ever enqueues:".bold());
+        for decl in orphans {
+            let rel = decl
+                .location
+                .file
+                .strip_prefix(&cli.path)
+                .unwrap_or(&decl.location.file);
+            println!(
+                "  {} {:<25} {}",
+                "○".dimmed(),
+                decl.name,
+                format!("{}:{}", rel.display(), decl.location.line).dimmed()
+            );
+        }
+        println!(
+            "{}",
+            "  (no WorkRequest, no enqueue, no schedule — background code that never runs)"
+                .dimmed()
+        );
+        return Ok(());
     }
 
     // --promises short-circuits everything after the graph
