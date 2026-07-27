@@ -149,6 +149,11 @@ struct Cli {
     #[arg(long)]
     quick_wins: bool,
 
+    /// Apply zero-risk fixes automatically (unused imports). Combine with
+    /// --dry-run to preview. Always writes an undo script.
+    #[arg(long)]
+    fix: bool,
+
     /// Migration diff: OLD=NEW worlds (package prefix or path fragment).
     /// Lists old-world symbols deletable at the flip and the blockers.
     #[arg(long, value_name = "OLD=NEW")]
@@ -940,6 +945,74 @@ fn explain_symbol(
     }
 }
 
+/// Apply zero-risk fixes: remove unused imports across the project.
+/// --dry-run lists without touching; otherwise an undo script is written.
+fn run_fix(files: &[discovery::SourceFile], cli: &Cli) -> Result<()> {
+    use discovery::FileType;
+
+    let undo_path = cli
+        .undo_script
+        .clone()
+        .unwrap_or_else(|| cli.path.join(".searchdeadcode-undo.sh"));
+    let mut undo = refactor::UndoScript::new();
+    let mut removed = 0usize;
+    let mut touched_files = 0usize;
+
+    for file in files {
+        if !matches!(file.file_type, FileType::Kotlin | FileType::Java) {
+            continue;
+        }
+        let Ok(content) = std::fs::read_to_string(&file.path) else {
+            continue;
+        };
+        let unused = refactor::fix_imports::unused_imports(&content);
+        if unused.is_empty() {
+            continue;
+        }
+
+        let rel = file.path.strip_prefix(&cli.path).unwrap_or(&file.path);
+        for import in &unused {
+            println!(
+                "  {} {}:{} {}",
+                if cli.dry_run { "○" } else { "✂" },
+                rel.display(),
+                import.line_index + 1,
+                import.line.trim()
+            );
+        }
+
+        if !cli.dry_run {
+            undo.record_file_state(&file.path, &content);
+            let new_content = refactor::fix_imports::remove_imports(&content, &unused);
+            std::fs::write(&file.path, new_content)
+                .map_err(|e| miette::miette!("write {}: {e}", file.path.display()))?;
+        }
+        removed += unused.len();
+        touched_files += 1;
+    }
+
+    if removed == 0 {
+        println!("Nothing to fix — no unused imports found.");
+        return Ok(());
+    }
+
+    if cli.dry_run {
+        println!(
+            "\nDry run: {} unused import(s) in {} file(s) would be removed.",
+            removed, touched_files
+        );
+    } else {
+        undo.write(&undo_path)?;
+        println!(
+            "\n🔧 Fixed {} unused import(s) in {} file(s) — undo: {}",
+            removed,
+            touched_files,
+            undo_path.display()
+        );
+    }
+    Ok(())
+}
+
 /// Build the graph incrementally: parse changed files, load unchanged ones from cache
 fn build_graph_incremental(
     files: &[discovery::SourceFile],
@@ -1084,6 +1157,11 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         );
         println!("Check the path, or point the tool at your sources: searchdeadcode <path>");
         return Ok(());
+    }
+
+    // --fix: zero-risk cleanup (unused imports), no graph needed
+    if cli.fix {
+        return run_fix(&files, cli);
     }
 
     // Step 2: Parse files and build graph
