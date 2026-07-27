@@ -1,27 +1,22 @@
-//! Duplicate Import Detector
+//! Duplicate Import Detector (DC012)
 //!
-//! Detects import statements that appear multiple times in the same file.
-//! This is a common issue that can occur during refactoring or merging.
-//!
-//! ## Detection Algorithm
-//!
-//! 1. Group all imports by file
-//! 2. For each file, track seen import names
-//! 3. Report duplicates (second occurrence onwards)
-//!
-//! ## Examples Detected
-//!
-//! ```kotlin
-//! import kotlin.collections.List
-//! import kotlin.collections.List  // DUPLICATE
-//! ```
+//! Scans import lines directly: the parsers keep imports out of the
+//! declaration graph (feeding them in would make every import look
+//! unreachable to the analyzers), so this detector reads the files the
+//! graph knows about and reports the second and later occurrences of
+//! an identical import.
 
-use super::Detector;
+use super::{graph_files, Detector};
 use crate::analysis::{Confidence, DeadCode, DeadCodeIssue};
-use crate::graph::{DeclarationKind, Graph};
-use std::collections::{HashMap, HashSet};
+use crate::graph::{Declaration, DeclarationId, DeclarationKind, Graph, Language, Location};
+use regex::Regex;
+use std::collections::HashMap;
+use std::fs;
+use std::sync::LazyLock;
 
-/// Detector for duplicate import statements
+static IMPORT_LINE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^\s*import\s+(.+?);?\s*$").expect("Invalid import regex"));
+
 pub struct DuplicateImportDetector;
 
 impl DuplicateImportDetector {
@@ -39,50 +34,59 @@ impl Default for DuplicateImportDetector {
 impl Detector for DuplicateImportDetector {
     fn detect(&self, graph: &Graph) -> Vec<DeadCode> {
         let mut issues = Vec::new();
-
-        // Group imports by file
-        let mut imports_by_file: HashMap<&std::path::Path, Vec<_>> = HashMap::new();
-
-        for decl in graph.declarations() {
-            if decl.kind == DeclarationKind::Import {
-                imports_by_file
-                    .entry(decl.location.file.as_path())
-                    .or_default()
-                    .push(decl);
-            }
-        }
-
-        // Find duplicates in each file
-        for (_file, mut imports) in imports_by_file {
-            // Sort imports by line number to ensure consistent ordering
-            imports.sort_by_key(|i| i.location.line);
-
-            let mut seen: HashSet<&str> = HashSet::new();
-            let mut first_occurrence: HashMap<&str, usize> = HashMap::new();
-
-            for (idx, import) in imports.iter().enumerate() {
-                let import_name = &import.name;
-
-                if seen.contains(import_name.as_str()) {
-                    // This is a duplicate
-                    let mut dead = DeadCode::new((*import).clone(), DeadCodeIssue::DuplicateImport);
-                    let first_line = imports[*first_occurrence.get(import_name.as_str()).unwrap()]
-                        .location
-                        .line;
-                    dead = dead.with_message(format!(
-                        "Import '{}' is duplicated (first occurrence at line {})",
-                        import_name, first_line
-                    ));
-                    dead = dead.with_confidence(Confidence::High);
-                    issues.push(dead);
-                } else {
-                    seen.insert(import_name);
-                    first_occurrence.insert(import_name, idx);
+        for file in graph_files(graph) {
+            let Ok(content) = fs::read_to_string(file) else {
+                continue;
+            };
+            let language = if file.extension().is_some_and(|e| e == "java") {
+                Language::Java
+            } else {
+                Language::Kotlin
+            };
+            let mut first_seen: HashMap<String, usize> = HashMap::new();
+            let mut byte_offset = 0usize;
+            for (idx, line) in content.lines().enumerate() {
+                let line_start = byte_offset;
+                byte_offset += line.len() + 1;
+                let Some(captures) = IMPORT_LINE.captures(line) else {
+                    continue;
+                };
+                let import_path = captures[1].trim().to_string();
+                let line_no = idx + 1;
+                match first_seen.get(&import_path) {
+                    None => {
+                        first_seen.insert(import_path, line_no);
+                    }
+                    Some(first_line) => {
+                        let id = DeclarationId::new(
+                            file.to_path_buf(),
+                            line_start,
+                            line_start + line.len(),
+                        );
+                        let location = Location::new(
+                            file.to_path_buf(),
+                            line_no,
+                            1,
+                            line_start,
+                            line_start + line.len(),
+                        );
+                        let decl = Declaration::new(
+                            id,
+                            import_path.clone(),
+                            DeclarationKind::Import,
+                            location,
+                            language,
+                        );
+                        let dead = DeadCode::new(decl, DeadCodeIssue::DuplicateImport)
+                            .with_message(format!(
+                                "Import '{import_path}' is duplicated (first occurrence at line {first_line})"
+                            ))
+                            .with_confidence(Confidence::High);
+                        issues.push(dead);
+                    }
                 }
             }
         }
-
-        // Sort by file and line for consistent output
         issues.sort_by(|a, b| {
             a.declaration
                 .location
@@ -95,7 +99,6 @@ impl Detector for DuplicateImportDetector {
                         .cmp(&b.declaration.location.line),
                 )
         });
-
         issues
     }
 }
@@ -103,100 +106,74 @@ impl Detector for DuplicateImportDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{Declaration, DeclarationId, Language, Location};
-    use std::path::PathBuf;
 
-    fn create_import(file: &str, name: &str, line: usize) -> Declaration {
-        let path = PathBuf::from(file);
-        Declaration::new(
-            DeclarationId::new(path.clone(), line * 10, line * 10 + 5),
-            name.to_string(),
-            DeclarationKind::Import,
-            Location::new(path, line, 1, line * 10, line * 10 + 5),
+    fn graph_over(name: &str, source: &str) -> (Graph, tempfile::TempDir) {
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join(name);
+        fs::write(&file, source).unwrap();
+        let mut graph = Graph::new();
+        let decl = Declaration::new(
+            DeclarationId::new(file.to_path_buf(), 0, 5),
+            "anchor".to_string(),
+            DeclarationKind::Class,
+            Location::new(file.to_path_buf(), 1, 1, 0, 5),
             Language::Kotlin,
-        )
+        );
+        graph.add_declaration(decl);
+        (graph, temp)
     }
 
     #[test]
-    fn test_detector_creation() {
-        let detector = DuplicateImportDetector::new();
-        let default_detector = DuplicateImportDetector;
-        // Both should be valid
-        let _ = detector;
-        let _ = default_detector;
+    fn a_repeated_import_is_flagged_once_per_repeat() {
+        let (graph, _tmp) = graph_over(
+            "Main.kt",
+            "import kotlin.math.abs\nimport kotlin.math.abs\nimport kotlin.math.abs\n",
+        );
+        let issues = DuplicateImportDetector::new().detect(&graph);
+        assert_eq!(issues.len(), 2, "second and third occurrences");
+        assert!(issues[0].message.contains("first occurrence at line 1"));
     }
 
     #[test]
-    fn test_no_duplicates() {
-        let mut graph = Graph::new();
-        graph.add_declaration(create_import("test.kt", "kotlin.collections.List", 1));
-        graph.add_declaration(create_import("test.kt", "kotlin.collections.Map", 2));
-        graph.add_declaration(create_import("test.kt", "kotlin.collections.Set", 3));
+    fn different_imports_are_fine() {
+        let (graph, _tmp) = graph_over(
+            "Main.kt",
+            "import kotlin.math.abs\nimport kotlin.math.max\n",
+        );
+        let issues = DuplicateImportDetector::new().detect(&graph);
+        assert!(issues.is_empty());
+    }
 
-        let detector = DuplicateImportDetector::new();
-        let issues = detector.detect(&graph);
+    #[test]
+    fn java_semicolons_do_not_hide_duplicates() {
+        let (graph, _tmp) = graph_over(
+            "Main.java",
+            "import java.util.List;\nimport java.util.List;\n",
+        );
+        let issues = DuplicateImportDetector::new().detect(&graph);
+        assert_eq!(issues.len(), 1);
+    }
 
+    #[test]
+    fn a_commented_import_is_not_an_import() {
+        let (graph, _tmp) = graph_over(
+            "Main.kt",
+            "import kotlin.math.abs\n// import kotlin.math.abs\n",
+        );
+        let issues = DuplicateImportDetector::new().detect(&graph);
+        assert!(issues.is_empty());
+    }
+
+    #[test]
+    fn the_word_import_in_code_is_ignored() {
+        let (graph, _tmp) = graph_over(
+            "Main.kt",
+            "import kotlin.math.abs\nval s = \"import kotlin.math.abs\"\n",
+        );
+        let issues = DuplicateImportDetector::new().detect(&graph);
         assert!(
             issues.is_empty(),
-            "Should not find duplicates when all imports are unique"
+            "a string containing the word import is not an import line"
         );
-    }
-
-    #[test]
-    fn test_finds_duplicate() {
-        let mut graph = Graph::new();
-        graph.add_declaration(create_import("test.kt", "kotlin.collections.List", 1));
-        graph.add_declaration(create_import("test.kt", "kotlin.collections.List", 2)); // Duplicate
-
-        let detector = DuplicateImportDetector::new();
-        let issues = detector.detect(&graph);
-
-        assert_eq!(issues.len(), 1, "Should find one duplicate");
-        assert_eq!(issues[0].declaration.name, "kotlin.collections.List");
-        assert_eq!(issues[0].declaration.location.line, 2); // Reports the second occurrence
-    }
-
-    #[test]
-    fn test_finds_multiple_duplicates() {
-        let mut graph = Graph::new();
-        graph.add_declaration(create_import("test.kt", "kotlin.collections.List", 1));
-        graph.add_declaration(create_import("test.kt", "kotlin.collections.List", 2)); // Duplicate
-        graph.add_declaration(create_import("test.kt", "kotlin.collections.List", 3)); // Duplicate
-
-        let detector = DuplicateImportDetector::new();
-        let issues = detector.detect(&graph);
-
-        assert_eq!(
-            issues.len(),
-            2,
-            "Should find two duplicates (second and third occurrence)"
-        );
-    }
-
-    #[test]
-    fn test_different_files_not_duplicates() {
-        let mut graph = Graph::new();
-        graph.add_declaration(create_import("file1.kt", "kotlin.collections.List", 1));
-        graph.add_declaration(create_import("file2.kt", "kotlin.collections.List", 1));
-
-        let detector = DuplicateImportDetector::new();
-        let issues = detector.detect(&graph);
-
-        assert!(
-            issues.is_empty(),
-            "Same import in different files should not be duplicate"
-        );
-    }
-
-    #[test]
-    fn test_duplicate_confidence_is_high() {
-        let mut graph = Graph::new();
-        graph.add_declaration(create_import("test.kt", "kotlin.collections.List", 1));
-        graph.add_declaration(create_import("test.kt", "kotlin.collections.List", 2));
-
-        let detector = DuplicateImportDetector::new();
-        let issues = detector.detect(&graph);
-
-        assert_eq!(issues[0].confidence, Confidence::High);
     }
 }

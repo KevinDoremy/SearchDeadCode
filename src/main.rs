@@ -35,6 +35,7 @@ use analysis::detectors::{
     DeepInheritanceDetector,
     // Core detectors
     Detector,
+    DuplicateImportDetector,
     EventBusPatternDetector,
     GlobalMutableStateDetector,
     // Phase 1: Kotlin patterns (AP007-AP010)
@@ -57,6 +58,7 @@ use analysis::detectors::{
     NullabilityOverloadDetector,
     ObjectAllocationInLoopDetector,
     PreferIsEmptyDetector,
+    RedundantNullInitDetector,
     RedundantOverrideDetector,
     RedundantParenthesesDetector,
     RedundantPublicDetector,
@@ -1780,6 +1782,20 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         if !style_issues.is_empty() {
             info!("Found {} style findings", style_issues.len());
             dead_code.extend(style_issues);
+        }
+    }
+
+    // Step 9e4: DC012 duplicate imports and DC013 redundant Java '= null'
+    {
+        let import_issues = DuplicateImportDetector::new().detect(&graph);
+        if !import_issues.is_empty() {
+            info!("Found {} duplicate imports", import_issues.len());
+            dead_code.extend(import_issues);
+        }
+        let null_issues = RedundantNullInitDetector::new().detect(&graph);
+        if !null_issues.is_empty() {
+            info!("Found {} redundant null initializations", null_issues.len());
+            dead_code.extend(null_issues);
         }
     }
 

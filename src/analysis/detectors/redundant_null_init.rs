@@ -1,87 +1,28 @@
-//! Redundant Null Initialization Detector
+//! Redundant Null Initialization Detector (DC013)
 //!
-//! Detects nullable variables that are explicitly initialized to null,
-//! which is redundant in Kotlin since null is the default value for nullable types.
-//!
-//! ## Detection Algorithm
-//!
-//! 1. Find all property/field declarations
-//! 2. Check if the type is nullable (ends with ?)
-//! 3. Check if explicitly initialized to null
-//! 4. Report as redundant
-//!
-//! ## Examples Detected
-//!
-//! ```kotlin
-//! class Example {
-//!     private var name: String? = null  // REDUNDANT: null is default
-//!     private var age: Int? = null      // REDUNDANT: null is default
-//! }
-//! ```
-//!
-//! ## Not Detected (correct usage)
-//!
-//! ```kotlin
-//! class Example {
-//!     private var name: String? = "default"  // Has actual value
-//!     private var count: Int = 0             // Non-nullable, needs init
-//!     private lateinit var adapter: String   // lateinit, no init
-//! }
-//! ```
+//! Flags Java fields explicitly initialized to null: the JLS (4.12.5)
+//! already defaults reference-typed fields to null, so `= null` says
+//! nothing. Final fields are excluded — dropping their initializer
+//! breaks definite assignment. Kotlin is excluded entirely: properties
+//! there REQUIRE an initializer, so nothing is redundant.
 
 use super::Detector;
 use crate::analysis::{Confidence, DeadCode, DeadCodeIssue};
 use crate::graph::{DeclarationKind, Graph, Language};
+use regex::Regex;
+use std::collections::HashMap;
+use std::fs;
+use std::path::PathBuf;
+use std::sync::LazyLock;
 
-/// Detector for redundant null initialization
-pub struct RedundantNullInitDetector {
-    /// Include local variables (not just class properties)
-    include_locals: bool,
-}
+static NULL_INIT: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"=\s*null\s*;").expect("Invalid null-init regex"));
+
+pub struct RedundantNullInitDetector;
 
 impl RedundantNullInitDetector {
     pub fn new() -> Self {
-        Self {
-            include_locals: true,
-        }
-    }
-
-    /// Only check class properties, not local variables
-    #[allow(dead_code)]
-    pub fn properties_only(mut self) -> Self {
-        self.include_locals = false;
-        self
-    }
-
-    /// Check if a declaration has redundant null initialization
-    /// This requires checking the source text, which we simulate through
-    /// declaration metadata
-    fn is_redundant_null_init(&self, decl: &crate::graph::Declaration) -> bool {
-        // Must be a property or field
-        if !matches!(
-            decl.kind,
-            DeclarationKind::Property | DeclarationKind::Field
-        ) {
-            return false;
-        }
-
-        // Skip lateinit (no init allowed)
-        if decl.modifiers.iter().any(|m| m == "lateinit") {
-            return false;
-        }
-
-        // Skip const/val that can't be null
-        if decl.modifiers.iter().any(|m| m == "const") {
-            return false;
-        }
-
-        // For now, we detect based on naming patterns and modifiers
-        // A full implementation would parse the initializer expression
-        // This is a placeholder that will be enhanced with AST analysis
-
-        // Check if the name suggests nullable type (ends with ?)
-        // In practice, we'd check the actual type annotation
-        false // Placeholder - requires AST enhancement
+        Self
     }
 }
 
@@ -93,26 +34,41 @@ impl Default for RedundantNullInitDetector {
 
 impl Detector for RedundantNullInitDetector {
     fn detect(&self, graph: &Graph) -> Vec<DeadCode> {
+        let mut file_cache: HashMap<PathBuf, Vec<String>> = HashMap::new();
         let mut issues = Vec::new();
 
         for decl in graph.declarations() {
-            // Only check Kotlin code (Java doesn't have this redundancy)
-            if decl.language != Language::Kotlin {
+            if decl.language != Language::Java || decl.kind != DeclarationKind::Field {
                 continue;
             }
-
-            if self.is_redundant_null_init(decl) {
-                let mut dead = DeadCode::new(decl.clone(), DeadCodeIssue::RedundantNullInit);
-                dead = dead.with_message(format!(
-                    "Nullable property '{}' is explicitly initialized to null (this is the default value)",
-                    decl.name
-                ));
-                dead = dead.with_confidence(Confidence::High);
-                issues.push(dead);
+            if decl.modifiers.iter().any(|m| m == "final") {
+                continue;
             }
+            let lines = file_cache
+                .entry(decl.location.file.clone())
+                .or_insert_with(|| {
+                    fs::read_to_string(&decl.location.file)
+                        .map(|c| c.lines().map(String::from).collect())
+                        .unwrap_or_default()
+                });
+            let Some(line) = lines.get(decl.location.line.saturating_sub(1)) else {
+                continue;
+            };
+            if line.contains("final") {
+                continue; // belt and braces: modifiers may not carry final
+            }
+            if !NULL_INIT.is_match(line) {
+                continue;
+            }
+            let dead = DeadCode::new(decl.clone(), DeadCodeIssue::RedundantNullInit)
+                .with_message(format!(
+                    "Java field '{}' defaults to null — the explicit '= null' is redundant",
+                    decl.name
+                ))
+                .with_confidence(Confidence::High);
+            issues.push(dead);
         }
 
-        // Sort by file and line
         issues.sort_by(|a, b| {
             a.declaration
                 .location
@@ -125,7 +81,6 @@ impl Detector for RedundantNullInitDetector {
                         .cmp(&b.declaration.location.line),
                 )
         });
-
         issues
     }
 }
@@ -133,73 +88,89 @@ impl Detector for RedundantNullInitDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::graph::{Declaration, DeclarationId, Location, Visibility};
-    use std::path::PathBuf;
+    use crate::graph::{Declaration, DeclarationId, Location};
+    use std::path::Path;
 
-    fn create_property(name: &str, modifiers: Vec<&str>) -> Declaration {
-        let path = PathBuf::from("test.kt");
+    fn field_decl(file: &Path, name: &str, line: usize, modifiers: Vec<&str>) -> Declaration {
         let mut decl = Declaration::new(
-            DeclarationId::new(path.clone(), 0, 50),
+            DeclarationId::new(file.to_path_buf(), line * 100, line * 100 + 10),
             name.to_string(),
-            DeclarationKind::Property,
-            Location::new(path, 1, 1, 0, 50),
-            Language::Kotlin,
+            DeclarationKind::Field,
+            Location::new(file.to_path_buf(), line, 1, line * 100, line * 100 + 10),
+            Language::Java,
         );
-        decl.visibility = Visibility::Private;
         decl.modifiers = modifiers.into_iter().map(String::from).collect();
         decl
     }
 
-    #[test]
-    fn test_detector_creation() {
-        let detector = RedundantNullInitDetector::new();
-        assert!(detector.include_locals);
-    }
-
-    #[test]
-    fn test_properties_only_mode() {
-        let detector = RedundantNullInitDetector::new().properties_only();
-        assert!(!detector.include_locals);
-    }
-
-    #[test]
-    fn test_skip_lateinit() {
-        let detector = RedundantNullInitDetector::new();
-        let decl = create_property("adapter", vec!["lateinit"]);
-        assert!(!detector.is_redundant_null_init(&decl));
-    }
-
-    #[test]
-    fn test_skip_const() {
-        let detector = RedundantNullInitDetector::new();
-        let decl = create_property("MAX_SIZE", vec!["const"]);
-        assert!(!detector.is_redundant_null_init(&decl));
-    }
-
-    #[test]
-    fn test_skip_java_code() {
+    fn graph_over(
+        source: &str,
+        field_line: usize,
+        modifiers: Vec<&str>,
+    ) -> (Graph, tempfile::TempDir) {
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("Holder.java");
+        fs::write(&file, source).unwrap();
         let mut graph = Graph::new();
-        let path = PathBuf::from("Test.java");
-        let decl = Declaration::new(
-            DeclarationId::new(path.clone(), 0, 50),
-            "value".to_string(),
-            DeclarationKind::Field,
-            Location::new(path, 1, 1, 0, 50),
-            Language::Java, // Java code
+        graph.add_declaration(field_decl(&file, "cache", field_line, modifiers));
+        (graph, temp)
+    }
+
+    #[test]
+    fn a_null_initialized_field_is_flagged() {
+        let (graph, _tmp) = graph_over(
+            "class Holder {\n    private String cache = null;\n}\n",
+            2,
+            vec!["private"],
         );
+        let issues = RedundantNullInitDetector::new().detect(&graph);
+        assert_eq!(issues.len(), 1);
+        assert!(issues[0].message.contains("cache"));
+    }
+
+    #[test]
+    fn a_field_with_a_real_initializer_is_fine() {
+        let (graph, _tmp) = graph_over(
+            "class Holder {\n    private String cache = \"warm\";\n}\n",
+            2,
+            vec!["private"],
+        );
+        let issues = RedundantNullInitDetector::new().detect(&graph);
+        assert!(issues.is_empty());
+    }
+
+    #[test]
+    fn a_final_field_keeps_its_initializer() {
+        let (graph, _tmp) = graph_over(
+            "class Holder {\n    private final String cache = null;\n}\n",
+            2,
+            vec!["private", "final"],
+        );
+        let issues = RedundantNullInitDetector::new().detect(&graph);
+        assert!(issues.is_empty(), "final needs definite assignment");
+    }
+
+    #[test]
+    fn kotlin_properties_are_out_of_scope() {
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("State.kt");
+        fs::write(&file, "class State {\n    var name: String? = null\n}\n").unwrap();
+        let mut graph = Graph::new();
+        let mut decl = field_decl(&file, "name", 2, vec![]);
+        decl.language = Language::Kotlin;
+        decl.kind = DeclarationKind::Property;
         graph.add_declaration(decl);
 
-        let detector = RedundantNullInitDetector::new();
-        let issues = detector.detect(&graph);
-
-        assert!(issues.is_empty(), "Should skip Java code");
+        let issues = RedundantNullInitDetector::new().detect(&graph);
+        assert!(
+            issues.is_empty(),
+            "Kotlin requires property initializers, nothing is redundant"
+        );
     }
 
     #[test]
-    fn test_empty_graph() {
-        let graph = Graph::new();
-        let detector = RedundantNullInitDetector::new();
-        let issues = detector.detect(&graph);
+    fn an_empty_graph_reports_nothing() {
+        let issues = RedundantNullInitDetector::new().detect(&Graph::new());
         assert!(issues.is_empty());
     }
 }
