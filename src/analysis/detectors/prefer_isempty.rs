@@ -1,64 +1,26 @@
-//! Prefer isEmpty() Detector
+//! Prefer isEmpty() Detector (DC016)
 //!
-//! Detects size/length comparisons to zero that should use isEmpty()/isNotEmpty().
-//!
-//! ## Detection Algorithm
-//!
-//! 1. Find comparison expressions (==, !=, >, <, >=, <=)
-//! 2. Check if one side is .size or .length
-//! 3. Check if other side is 0
-//! 4. Report with suggestion to use isEmpty()/isNotEmpty()
-//!
-//! ## Examples Detected
-//!
-//! ```kotlin
-//! fun example(list: List<String>) {
-//!     if (list.size == 0) { }     // PREFER: list.isEmpty()
-//!     if (list.size != 0) { }     // PREFER: list.isNotEmpty()
-//!     if (list.size > 0) { }      // PREFER: list.isNotEmpty()
-//!     if (s.length == 0) { }      // PREFER: s.isEmpty()
-//! }
-//! ```
-//!
-//! ## Not Detected (correct or different)
-//!
-//! ```kotlin
-//! fun example(list: List<String>) {
-//!     if (list.isEmpty()) { }     // Already correct
-//!     if (list.size == 5) { }     // Checking specific size
-//!     if (list.size >= 3) { }     // Checking minimum size
-//! }
-//! ```
+//! Flags `.size` / `.length` compared to zero where isEmpty() or
+//! isNotEmpty() says the same thing. Comparisons to any other number,
+//! and `>= 0` (always true, but not this detector's business), are
+//! left alone.
 
-use super::Detector;
+use super::{enclosing_declaration, graph_files, Detector};
 use crate::analysis::{Confidence, DeadCode, DeadCodeIssue};
 use crate::graph::Graph;
+use regex::Regex;
+use std::fs;
+use std::sync::LazyLock;
 
-/// Detector for size/length comparisons that should use isEmpty()
-pub struct PreferIsEmptyDetector {
-    /// Check string.length comparisons
-    check_strings: bool,
-    /// Check collection.size comparisons
-    check_collections: bool,
-    /// Check array.size comparisons
-    check_arrays: bool,
-}
+static SIZE_VS_ZERO: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\.(?:size|length)\s*(==|!=|>)\s*0\b").expect("Invalid size regex")
+});
+
+pub struct PreferIsEmptyDetector;
 
 impl PreferIsEmptyDetector {
     pub fn new() -> Self {
-        Self {
-            check_strings: true,
-            check_collections: true,
-            check_arrays: true,
-        }
-    }
-
-    /// Only check collections, not strings
-    #[allow(dead_code)]
-    pub fn collections_only(mut self) -> Self {
-        self.check_strings = false;
-        self.check_arrays = false;
-        self
+        Self
     }
 }
 
@@ -69,37 +31,37 @@ impl Default for PreferIsEmptyDetector {
 }
 
 impl Detector for PreferIsEmptyDetector {
-    fn detect(&self, _graph: &Graph) -> Vec<DeadCode> {
-        let mut issues: Vec<DeadCode> = Vec::new();
-
-        // This detector requires AST-level analysis to:
-        // 1. Find comparison expressions
-        // 2. Check for .size or .length on one side
-        // 3. Check for 0 on the other side
-        // 4. Determine the comparison operator
-        //
-        // Current implementation is a placeholder.
-        // Full implementation requires extending the parser to:
-        // - Track comparison expressions
-        // - Identify property access (.size, .length)
-        // - Match literal values (0)
-
-        // Placeholder - will be enhanced with full AST analysis
-
-        // Sort by file and line
-        issues.sort_by(|a, b| {
-            a.declaration
-                .location
-                .file
-                .cmp(&b.declaration.location.file)
-                .then(
-                    a.declaration
-                        .location
-                        .line
-                        .cmp(&b.declaration.location.line),
-                )
-        });
-
+    fn detect(&self, graph: &Graph) -> Vec<DeadCode> {
+        let mut issues = Vec::new();
+        for file in graph_files(graph) {
+            let Ok(content) = fs::read_to_string(file) else {
+                continue;
+            };
+            for (idx, line) in content.lines().enumerate() {
+                let trimmed = line.trim_start();
+                if trimmed.starts_with("//") || trimmed.starts_with('*') {
+                    continue;
+                }
+                let Some(captures) = SIZE_VS_ZERO.captures(line) else {
+                    continue;
+                };
+                let suggestion = match &captures[1] {
+                    "==" => "isEmpty()",
+                    _ => "isNotEmpty()",
+                };
+                let line_no = idx + 1;
+                let Some(decl) = enclosing_declaration(graph, file, line_no) else {
+                    continue;
+                };
+                let dead = DeadCode::new(decl.clone(), DeadCodeIssue::PreferIsEmpty)
+                    .with_message(format!(
+                        "size/length compared to zero at line {line_no} — prefer {suggestion}"
+                    ))
+                    .with_confidence(Confidence::High);
+                issues.push(dead);
+            }
+        }
+        issues.sort_by(|a, b| a.message.cmp(&b.message));
         issues
     }
 }
@@ -107,39 +69,70 @@ impl Detector for PreferIsEmptyDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::graph::{Declaration, DeclarationId, DeclarationKind, Language, Location};
 
-    #[test]
-    fn test_detector_creation() {
-        let detector = PreferIsEmptyDetector::new();
-        assert!(detector.check_strings);
-        assert!(detector.check_collections);
-        assert!(detector.check_arrays);
+    fn graph_over(source: &str) -> (Graph, tempfile::TempDir) {
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("Main.kt");
+        fs::write(&file, source).unwrap();
+        let mut graph = Graph::new();
+        let decl = Declaration::new(
+            DeclarationId::new(file.to_path_buf(), 0, 10),
+            "main".to_string(),
+            DeclarationKind::Function,
+            Location::new(file.to_path_buf(), 1, 1, 0, 10),
+            Language::Kotlin,
+        );
+        graph.add_declaration(decl);
+        (graph, temp)
     }
 
     #[test]
-    fn test_collections_only_mode() {
-        let detector = PreferIsEmptyDetector::new().collections_only();
-        assert!(!detector.check_strings);
-        assert!(detector.check_collections);
-        assert!(!detector.check_arrays);
+    fn size_equals_zero_suggests_isempty() {
+        let (graph, _tmp) =
+            graph_over("fun main(l: List<Int>) {\n    if (l.size == 0) return\n}\n");
+        let issues = PreferIsEmptyDetector::new().detect(&graph);
+        assert_eq!(issues.len(), 1);
+        assert!(issues[0].message.contains("isEmpty()"));
     }
 
     #[test]
-    fn test_default_implementation() {
-        let detector = PreferIsEmptyDetector::default();
-        assert!(detector.check_strings);
-        assert!(detector.check_collections);
-        assert!(detector.check_arrays);
+    fn size_greater_than_zero_suggests_isnotempty() {
+        let (graph, _tmp) = graph_over("fun main(l: List<Int>) {\n    if (l.size > 0) return\n}\n");
+        let issues = PreferIsEmptyDetector::new().detect(&graph);
+        assert_eq!(issues.len(), 1);
+        assert!(issues[0].message.contains("isNotEmpty()"));
     }
 
     #[test]
-    fn test_empty_graph() {
-        let graph = Graph::new();
-        let detector = PreferIsEmptyDetector::new();
-        let issues = detector.detect(&graph);
+    fn length_not_equals_zero_suggests_isnotempty() {
+        let (graph, _tmp) = graph_over("fun main(s: String) {\n    if (s.length != 0) return\n}\n");
+        let issues = PreferIsEmptyDetector::new().detect(&graph);
+        assert_eq!(issues.len(), 1);
+        assert!(issues[0].message.contains("isNotEmpty()"));
+    }
+
+    #[test]
+    fn specific_sizes_are_fine() {
+        let (graph, _tmp) =
+            graph_over("fun main(l: List<Int>) {\n    if (l.size == 3) return\n}\n");
+        let issues = PreferIsEmptyDetector::new().detect(&graph);
         assert!(issues.is_empty());
     }
 
-    // Note: More comprehensive tests will be added once AST-level
-    // analysis is implemented to detect size/length comparisons.
+    #[test]
+    fn greater_or_equal_zero_is_not_this_detectors_call() {
+        let (graph, _tmp) =
+            graph_over("fun main(l: List<Int>) {\n    if (l.size >= 0) return\n}\n");
+        let issues = PreferIsEmptyDetector::new().detect(&graph);
+        assert!(issues.is_empty());
+    }
+
+    #[test]
+    fn size_compared_to_ten_is_fine() {
+        let (graph, _tmp) =
+            graph_over("fun main(l: List<Int>) {\n    if (l.size > 10) return\n}\n");
+        let issues = PreferIsEmptyDetector::new().detect(&graph);
+        assert!(issues.is_empty());
+    }
 }
