@@ -19,11 +19,98 @@ const MIN_SIMILARITY: f64 = 0.8;
 /// A one-liner matching another one-liner proves nothing.
 const MIN_LINES: usize = 3;
 
+/// Kotlin/Java keywords kept verbatim — they carry the control flow.
+const KEYWORDS: &[&str] = &[
+    "val",
+    "var",
+    "fun",
+    "if",
+    "else",
+    "when",
+    "for",
+    "while",
+    "return",
+    "null",
+    "true",
+    "false",
+    "class",
+    "object",
+    "interface",
+    "this",
+    "super",
+    "try",
+    "catch",
+    "finally",
+    "throw",
+    "is",
+    "in",
+    "as",
+    "it",
+    "let",
+    "also",
+    "apply",
+    "run",
+    "with",
+    "new",
+    "static",
+    "void",
+    "int",
+    "boolean",
+    "String",
+];
+
+/// Abstract local names but keep what the code DOES: keywords, literals
+/// and call names survive; other identifiers collapse to `_` so a
+/// rename cannot hide a twin (type-2 clone).
+fn abstract_line(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let chars: Vec<char> = line.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if c.is_alphabetic() || c == '_' {
+            let start = i;
+            while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
+                i += 1;
+            }
+            let ident: String = chars[start..i].iter().collect();
+            let mut j = i;
+            while j < chars.len() && chars[j] == ' ' {
+                j += 1;
+            }
+            let is_call = chars.get(j) == Some(&'(');
+            if is_call || KEYWORDS.contains(&ident.as_str()) {
+                out.push_str(&ident);
+            } else {
+                out.push('_');
+            }
+        } else if c == '"' {
+            // string literals carry meaning — copy them whole
+            out.push(c);
+            i += 1;
+            while i < chars.len() {
+                out.push(chars[i]);
+                if chars[i] == '"' && chars.get(i - 1) != Some(&'\\') {
+                    i += 1;
+                    break;
+                }
+                i += 1;
+            }
+        } else if c != ' ' {
+            out.push(c);
+            i += 1;
+        } else {
+            i += 1;
+        }
+    }
+    out
+}
+
 fn normalized_lines(text: &str) -> BTreeSet<String> {
     text.lines()
         .map(str::trim)
         .filter(|l| !l.is_empty() && *l != "{" && *l != "}")
-        .map(str::to_string)
+        .map(abstract_line)
         .collect()
 }
 
@@ -92,6 +179,25 @@ pub fn near_twins(graph: &Graph) -> Vec<NearTwin> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn renamed_locals_normalize_identically_but_calls_survive() {
+        assert_eq!(
+            abstract_line("val cleaned = input.trim()"),
+            abstract_line("val stripped = raw.trim()"),
+            "a rename is invisible"
+        );
+        assert_ne!(
+            abstract_line("val a = input.trim()"),
+            abstract_line("val a = input.uppercase()"),
+            "the call name is behavior, not naming"
+        );
+        assert_ne!(
+            abstract_line("log(\"started\")"),
+            abstract_line("log(\"stopped\")"),
+            "string literals carry meaning"
+        );
+    }
 
     #[test]
     fn identical_bodies_score_one_and_disjoint_score_zero() {
