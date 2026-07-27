@@ -148,3 +148,36 @@ pub trait Detector {
     /// Run the detector on the graph and return found issues
     fn detect(&self, graph: &Graph) -> Vec<DeadCode>;
 }
+
+/// Innermost declaration in `file` starting at or before `line` — used by
+/// line-scanning detectors to attach a finding to something the reporter
+/// can point at.
+pub(crate) fn enclosing_declaration<'a>(
+    graph: &'a Graph,
+    file: &std::path::Path,
+    line: usize,
+) -> Option<&'a crate::graph::Declaration> {
+    use crate::graph::DeclarationKind;
+    graph
+        .declarations()
+        .filter(|d| d.location.file.as_path() == file && d.location.line <= line)
+        .filter(|d| {
+            matches!(
+                d.kind,
+                DeclarationKind::Function
+                    | DeclarationKind::Method
+                    | DeclarationKind::Constructor
+                    | DeclarationKind::Class
+                    | DeclarationKind::Object
+            )
+        })
+        .max_by_key(|d| d.location.line)
+}
+
+/// Distinct source files known to the graph, for detectors that scan text.
+pub(crate) fn graph_files(graph: &Graph) -> std::collections::BTreeSet<&std::path::Path> {
+    graph
+        .declarations()
+        .map(|d| d.location.file.as_path())
+        .collect()
+}

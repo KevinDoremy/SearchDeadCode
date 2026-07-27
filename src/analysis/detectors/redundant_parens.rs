@@ -1,70 +1,29 @@
-//! Redundant Parentheses Detector
+//! Redundant Parentheses Detector (DC015)
 //!
-//! Detects unnecessary parentheses around expressions that don't need them.
-//!
-//! ## Detection Algorithm
-//!
-//! 1. Find parenthesized expressions in AST
-//! 2. Check if inner expression is:
-//!    - Already parenthesized (double parens)
-//!    - A simple literal or identifier
-//!    - A function call result
-//! 3. Check if parens are needed for:
-//!    - Operator precedence
-//!    - Method chaining on cast/elvis
-//! 4. Report unnecessary parens
-//!
-//! ## Examples Detected
-//!
-//! ```kotlin
-//! fun example() {
-//!     val x = ((42))           // REDUNDANT: double parens
-//!     if ((x > 0)) { }         // REDUNDANT: condition already in if()
-//!     return (x)               // REDUNDANT: simple variable
-//! }
-//! ```
-//!
-//! ## Not Detected (parens are useful)
-//!
-//! ```kotlin
-//! fun example() {
-//!     val x = (a + b) * c      // Needed for precedence
-//!     val y = (obj as String).length  // Needed for chaining
-//! }
-//! ```
+//! Flags `if ((x))` / `while ((x))` where the inner pair wraps a
+//! parenthesis-free expression, and `return (x)` around a bare
+//! identifier. Anything with nested parentheses is left alone: the
+//! outer pair may be doing real grouping work.
 
-use super::Detector;
+use super::{enclosing_declaration, graph_files, Detector};
 use crate::analysis::{Confidence, DeadCode, DeadCodeIssue};
 use crate::graph::Graph;
+use regex::Regex;
+use std::fs;
+use std::sync::LazyLock;
 
-/// Detector for redundant parentheses
-pub struct RedundantParenthesesDetector {
-    /// Report parens around single return values
-    check_returns: bool,
-    /// Report parens in when expressions
-    check_when: bool,
-}
+static DOUBLED_CONDITION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b(?:if|while)\s*\(\(([^()]*)\)\)").expect("Invalid doubled-parens regex")
+});
+
+static PARENTHESIZED_RETURN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\breturn\s*\((\w+)\)\s*;?\s*$").expect("Invalid return regex"));
+
+pub struct RedundantParenthesesDetector;
 
 impl RedundantParenthesesDetector {
     pub fn new() -> Self {
-        Self {
-            check_returns: true,
-            check_when: true,
-        }
-    }
-
-    /// Don't check return statements
-    #[allow(dead_code)]
-    pub fn skip_returns(mut self) -> Self {
-        self.check_returns = false;
-        self
-    }
-
-    /// Don't check when expressions
-    #[allow(dead_code)]
-    pub fn skip_when(mut self) -> Self {
-        self.check_when = false;
-        self
+        Self
     }
 }
 
@@ -75,36 +34,38 @@ impl Default for RedundantParenthesesDetector {
 }
 
 impl Detector for RedundantParenthesesDetector {
-    fn detect(&self, _graph: &Graph) -> Vec<DeadCode> {
-        let mut issues: Vec<DeadCode> = Vec::new();
-
-        // This detector requires AST-level analysis to:
-        // 1. Find parenthesized expressions
-        // 2. Analyze the inner expression type
-        // 3. Check surrounding context (operators, method calls)
-        //
-        // Current implementation is a placeholder.
-        // Full implementation requires extending the parser to:
-        // - Track parenthesized expressions
-        // - Understand expression precedence
-        // - Detect double parentheses
-
-        // Placeholder - will be enhanced with full AST analysis
-
-        // Sort by file and line
-        issues.sort_by(|a, b| {
-            a.declaration
-                .location
-                .file
-                .cmp(&b.declaration.location.file)
-                .then(
-                    a.declaration
-                        .location
-                        .line
-                        .cmp(&b.declaration.location.line),
-                )
-        });
-
+    fn detect(&self, graph: &Graph) -> Vec<DeadCode> {
+        let mut issues = Vec::new();
+        for file in graph_files(graph) {
+            let Ok(content) = fs::read_to_string(file) else {
+                continue;
+            };
+            for (idx, line) in content.lines().enumerate() {
+                let trimmed = line.trim_start();
+                if trimmed.starts_with("//") || trimmed.starts_with('*') {
+                    continue;
+                }
+                let doubled = DOUBLED_CONDITION.is_match(line);
+                let wrapped_return = PARENTHESIZED_RETURN.is_match(line);
+                if !doubled && !wrapped_return {
+                    continue;
+                }
+                let line_no = idx + 1;
+                let Some(decl) = enclosing_declaration(graph, file, line_no) else {
+                    continue;
+                };
+                let what = if doubled {
+                    "doubled parentheses around the condition"
+                } else {
+                    "parentheses around a bare return value"
+                };
+                let dead = DeadCode::new(decl.clone(), DeadCodeIssue::RedundantParentheses)
+                    .with_message(format!("{what} at line {line_no}"))
+                    .with_confidence(Confidence::High);
+                issues.push(dead);
+            }
+        }
+        issues.sort_by(|a, b| a.message.cmp(&b.message));
         issues
     }
 }
@@ -112,43 +73,59 @@ impl Detector for RedundantParenthesesDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::graph::{Declaration, DeclarationId, DeclarationKind, Language, Location};
 
-    #[test]
-    fn test_detector_creation() {
-        let detector = RedundantParenthesesDetector::new();
-        assert!(detector.check_returns);
-        assert!(detector.check_when);
+    fn graph_over(source: &str) -> (Graph, tempfile::TempDir) {
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("Main.kt");
+        fs::write(&file, source).unwrap();
+        let mut graph = Graph::new();
+        let decl = Declaration::new(
+            DeclarationId::new(file.to_path_buf(), 0, 10),
+            "main".to_string(),
+            DeclarationKind::Function,
+            Location::new(file.to_path_buf(), 1, 1, 0, 10),
+            Language::Kotlin,
+        );
+        graph.add_declaration(decl);
+        (graph, temp)
     }
 
     #[test]
-    fn test_skip_returns_mode() {
-        let detector = RedundantParenthesesDetector::new().skip_returns();
-        assert!(!detector.check_returns);
-        assert!(detector.check_when);
+    fn doubled_condition_is_flagged() {
+        let (graph, _tmp) = graph_over("fun main(x: Boolean) {\n    if ((x)) return\n}\n");
+        let issues = RedundantParenthesesDetector::new().detect(&graph);
+        assert_eq!(issues.len(), 1);
+        assert!(issues[0].message.contains("line 2"));
     }
 
     #[test]
-    fn test_skip_when_mode() {
-        let detector = RedundantParenthesesDetector::new().skip_when();
-        assert!(detector.check_returns);
-        assert!(!detector.check_when);
+    fn grouping_parentheses_are_respected() {
+        let (graph, _tmp) = graph_over(
+            "fun main(a: Boolean, b: Boolean, c: Boolean) {\n    if ((a || b) && c) return\n}\n",
+        );
+        let issues = RedundantParenthesesDetector::new().detect(&graph);
+        assert!(issues.is_empty(), "the outer pair groups a || b");
     }
 
     #[test]
-    fn test_default_implementation() {
-        let detector = RedundantParenthesesDetector::default();
-        assert!(detector.check_returns);
-        assert!(detector.check_when);
+    fn bare_return_wrapped_in_parens_is_flagged() {
+        let (graph, _tmp) = graph_over("fun main(x: Int): Int {\n    return (x)\n}\n");
+        let issues = RedundantParenthesesDetector::new().detect(&graph);
+        assert_eq!(issues.len(), 1);
     }
 
     #[test]
-    fn test_empty_graph() {
-        let graph = Graph::new();
-        let detector = RedundantParenthesesDetector::new();
-        let issues = detector.detect(&graph);
+    fn return_of_an_expression_is_left_alone() {
+        let (graph, _tmp) = graph_over("fun main(x: Int): Int {\n    return (x + 1) * 2\n}\n");
+        let issues = RedundantParenthesesDetector::new().detect(&graph);
         assert!(issues.is_empty());
     }
 
-    // Note: More comprehensive tests will be added once AST-level
-    // analysis is implemented to detect parenthesized expressions.
+    #[test]
+    fn comments_never_fire() {
+        let (graph, _tmp) = graph_over("fun main() {\n    // if ((x)) return\n}\n");
+        let issues = RedundantParenthesesDetector::new().detect(&graph);
+        assert!(issues.is_empty());
+    }
 }

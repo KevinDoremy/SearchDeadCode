@@ -170,6 +170,10 @@ name = "redundant_public"
 path = "tests/integration/redundant_public_tests.rs"
 
 [[test]]
+name = "style_lints"
+path = "tests/integration/style_lint_tests.rs"
+
+[[test]]
 name = "cli"
 path = "tests/integration/cli_tests.rs"
 

@@ -56,8 +56,11 @@ use analysis::detectors::{
     NestedCallbackDetector,
     NullabilityOverloadDetector,
     ObjectAllocationInLoopDetector,
+    PreferIsEmptyDetector,
     RedundantOverrideDetector,
+    RedundantParenthesesDetector,
     RedundantPublicDetector,
+    RedundantThisDetector,
     ReflectionOveruseDetector,
     ScopeFunctionChainingDetector,
     SingleImplInterfaceDetector,
@@ -258,6 +261,10 @@ struct Cli {
     /// Finds method overrides that only call super
     #[arg(long)]
     redundant_overrides: bool,
+
+    /// Style lints: redundant this, doubled parentheses, size==0 (DC014-16)
+    #[arg(long)]
+    style: bool,
 
     /// Enable unused Intent extra detection (enabled by default)
     /// Finds putExtra() keys that are never retrieved via getXxxExtra()
@@ -1759,6 +1766,20 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
                 public_issues.len()
             );
             dead_code.extend(public_issues);
+        }
+    }
+
+    // Step 9e3: opt-in style lints (DC014-16) — style, not deadness
+    if cli.style {
+        let style_issues: Vec<_> = RedundantThisDetector::new()
+            .detect(&graph)
+            .into_iter()
+            .chain(RedundantParenthesesDetector::new().detect(&graph))
+            .chain(PreferIsEmptyDetector::new().detect(&graph))
+            .collect();
+        if !style_issues.is_empty() {
+            info!("Found {} style findings", style_issues.len());
+            dead_code.extend(style_issues);
         }
     }
 
