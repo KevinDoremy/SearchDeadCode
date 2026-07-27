@@ -477,6 +477,10 @@ name = "legend"
 path = "tests/integration/legend_tests.rs"
 
 [[test]]
+name = "honest_docs"
+path = "tests/integration/honest_docs_tests.rs"
+
+[[test]]
 name = "generated_mapping"
 path = "tests/integration/generated_mapping_tests.rs"
 
