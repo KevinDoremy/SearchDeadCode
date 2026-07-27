@@ -241,7 +241,7 @@ Same detector reports similar issues hundreds of times:
 
 ### Before (Current)
 ```
-/Users/kevin/Desktop/work/lapresse/core/login/src/main/java/.../BaseLoginViewModel.kt
+app/core/login/src/main/java/.../BaseLoginViewModel.kt
   ◉ 16:5 warning [AP016] Property 'loginMutableState' exposes mutable state publicly. Use private backing property with read-only exposure (e.g., LiveData, StateFlow).
     → property 'loginMutableState'
   ◉ 23:5 warning [AP016] Property 'errorMessageMutableState' exposes mutable state publicly. Use private backing property with read-only exposure (e.g., LiveData, StateFlow).
