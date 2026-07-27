@@ -359,6 +359,11 @@ struct Cli {
     #[arg(long)]
     unused_assets: bool,
 
+    /// List string values declared in several modules (centralization
+    /// candidates), then exit
+    #[arg(long)]
+    duplicate_strings: bool,
+
     /// After --delete: run this command (a compile, a test suite) and
     /// restore every touched file automatically when it fails
     #[arg(long, value_name = "CMD")]
@@ -2101,6 +2106,34 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     let entry_points = entry_points;
 
     info!("Found {} entry points", entry_points.len());
+
+    // --duplicate-strings short-circuits everything: values files only
+    if cli.duplicate_strings {
+        match analysis::strings_dup::duplicate_strings(&cli.path) {
+            None => println!(
+                "{}",
+                "no string resources found — nothing to compare".dimmed()
+            ),
+            Some(dups) if dups.is_empty() => {
+                println!("{}", "✓ no duplicate strings across modules".green())
+            }
+            Some(dups) => {
+                println!("{}", "String values declared in several modules:".bold());
+                for dup in dups {
+                    println!("  \"{}\"", dup.value);
+                    for (module, name) in dup.declarations {
+                        println!("    {} {}  {}", "○".dimmed(), name, module.dimmed());
+                    }
+                }
+                println!(
+                    "{}",
+                    "  (one shared resource is cheaper — each copy drifts and gets translated alone)"
+                        .dimmed()
+                );
+            }
+        }
+        return Ok(());
+    }
 
     // --unused-assets short-circuits everything: file paths + strings only
     if cli.unused_assets {
