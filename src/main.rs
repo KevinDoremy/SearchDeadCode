@@ -335,6 +335,11 @@ struct Cli {
     #[arg(long)]
     deprecated: bool,
 
+    /// List exposed LiveData/StateFlow/SharedFlow properties nobody
+    /// collects or observes, then exit
+    #[arg(long)]
+    unobserved: bool,
+
     /// After --delete: run this command (a compile, a test suite) and
     /// restore every touched file automatically when it fails
     #[arg(long, value_name = "CMD")]
@@ -2034,6 +2039,35 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
                 println!("{line}");
             }
         }
+        return Ok(());
+    }
+
+    // --unobserved short-circuits everything: streams nobody collects
+    if cli.unobserved {
+        let findings = analysis::unobserved::unobserved_streams(&cli.path);
+        if findings.is_empty() {
+            println!("{}", "✓ no unobserved streams found".green());
+            return Ok(());
+        }
+        println!("{}", "Exposed streams nobody collects or observes:".bold());
+        for finding in findings {
+            let rel = finding
+                .file
+                .strip_prefix(&cli.path)
+                .unwrap_or(&finding.file);
+            println!(
+                "  {} {:<30} {}  {}",
+                "○".dimmed(),
+                finding.name,
+                finding.stream_type,
+                format!("{}:{}", rel.display(), finding.line).dimmed()
+            );
+        }
+        println!(
+            "{}",
+            "  (the upstream computation runs for nobody — wire a collector or delete the chain)"
+                .dimmed()
+        );
         return Ok(());
     }
 
