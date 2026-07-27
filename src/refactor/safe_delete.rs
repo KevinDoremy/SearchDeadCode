@@ -63,6 +63,49 @@ pub(crate) fn removal_diff(item: &DeadCode) -> String {
     out
 }
 
+/// Record the pre-delete state under refs/searchdeadcode/undo. `git
+/// stash create` captures modified tracked files without touching the
+/// worktree; a clean tree falls back to HEAD (the committed state IS
+/// the pre-delete state). No repo, no ref — quietly.
+fn record_git_undo(selected: &[&DeadCode]) -> bool {
+    let Some(first) = selected.first() else {
+        return false;
+    };
+    let Some(dir) = first.declaration.location.file.parent() else {
+        return false;
+    };
+    let git = |args: &[&str]| {
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .output()
+            .ok()
+    };
+
+    let Some(created) = git(&["stash", "create", "searchdeadcode undo point"]) else {
+        return false;
+    };
+    if !created.status.success() {
+        return false; // not a repo
+    }
+    let mut sha = String::from_utf8_lossy(&created.stdout).trim().to_string();
+    if sha.is_empty() {
+        // clean tree: the committed state is the pre-delete state
+        let Some(head) = git(&["rev-parse", "HEAD"]) else {
+            return false;
+        };
+        if !head.status.success() {
+            return false;
+        }
+        sha = String::from_utf8_lossy(&head.stdout).trim().to_string();
+    }
+    matches!(
+        git(&["update-ref", "refs/searchdeadcode/undo", &sha]),
+        Some(out) if out.status.success()
+    )
+}
+
 /// Safe delete functionality with user confirmation
 pub struct SafeDeleter {
     interactive: bool,
@@ -142,6 +185,9 @@ impl SafeDeleter {
             None
         };
 
+        // Git-aware undo: record the pre-delete tree without touching it
+        let git_undo_recorded = record_git_undo(&selected);
+
         // Perform deletions
         println!();
         println!("{}", "Deleting dead code...".cyan().bold());
@@ -173,6 +219,13 @@ impl SafeDeleter {
             script.write(path)?;
             println!();
             println!("{} Undo script saved to: {}", "→".dimmed(), path.display());
+        }
+
+        if git_undo_recorded {
+            println!(
+                "{} Undo anytime: git restore --source refs/searchdeadcode/undo -- .",
+                "→".dimmed()
+            );
         }
 
         Ok(())
