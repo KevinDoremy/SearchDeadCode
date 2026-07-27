@@ -1667,7 +1667,11 @@ fn print_pr_description(dead_code: &[analysis::DeadCode], root: &Path) {
 
 /// A-F report card per module from the dead/total declaration ratio —
 /// the light gamification that lands in a team review.
-fn print_health(graph: &graph::Graph, dead_code: &[analysis::DeadCode], root: &Path) {
+fn health_rows(
+    graph: &graph::Graph,
+    dead_code: &[analysis::DeadCode],
+    root: &Path,
+) -> Vec<(String, usize, usize)> {
     use std::collections::{HashMap, HashSet};
     let mut totals: HashMap<String, usize> = HashMap::new();
     for decl in graph.declarations() {
@@ -1701,16 +1705,41 @@ fn print_health(graph: &graph::Graph, dead_code: &[analysis::DeadCode], root: &P
         let ratio_b = b.1 as f64 / b.2.max(1) as f64;
         ratio_b.partial_cmp(&ratio_a).unwrap().then(a.0.cmp(&b.0))
     });
+    rows
+}
+
+fn health_grade(percent: f64) -> &'static str {
+    match percent {
+        p if p <= 1.0 => "A",
+        p if p <= 3.0 => "B",
+        p if p <= 8.0 => "C",
+        p if p <= 15.0 => "D",
+        _ => "F",
+    }
+}
+
+fn print_health_json(graph: &graph::Graph, dead_code: &[analysis::DeadCode], root: &Path) {
+    let modules: Vec<serde_json::Value> = health_rows(graph, dead_code, root)
+        .into_iter()
+        .map(|(module, corpses, total)| {
+            let percent = corpses as f64 * 100.0 / total.max(1) as f64;
+            serde_json::json!({
+                "module": module,
+                "grade": health_grade(percent),
+                "dead": corpses,
+                "total": total,
+                "percent": (percent * 10.0).round() / 10.0
+            })
+        })
+        .collect();
+    println!("{}", serde_json::json!({ "modules": modules }));
+}
+
+fn print_health(graph: &graph::Graph, dead_code: &[analysis::DeadCode], root: &Path) {
     println!("{}", "Module health (dead/total declarations):".bold());
-    for (module, corpses, total) in rows {
+    for (module, corpses, total) in health_rows(graph, dead_code, root) {
         let percent = corpses as f64 * 100.0 / total.max(1) as f64;
-        let grade = match percent {
-            p if p <= 1.0 => "A",
-            p if p <= 3.0 => "B",
-            p if p <= 8.0 => "C",
-            p if p <= 15.0 => "D",
-            _ => "F",
-        };
+        let grade = health_grade(percent);
         let colored_grade = match grade {
             "A" => grade.green().bold().to_string(),
             "B" | "C" => grade.yellow().bold().to_string(),
@@ -4718,7 +4747,11 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
 
     // --health replaces the report with the module report card
     if cli.health {
-        print_health(&graph, &dead_code, &cli.path);
+        if matches!(cli.format, Some(OutputFormat::Json)) {
+            print_health_json(&graph, &dead_code, &cli.path);
+        } else {
+            print_health(&graph, &dead_code, &cli.path);
+        }
         return Ok(());
     }
 
