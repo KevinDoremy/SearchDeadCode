@@ -2204,7 +2204,39 @@ fn explain_symbol(
     };
 
     if candidates.is_empty() {
-        println!("Symbol '{}' not found in the analyzed project.", symbol);
+        // detector findings (prefs keys, flags, resources) are string
+        // literals, not graph nodes — locate them instead of shrugging
+        let quoted = format!("\"{symbol}\"");
+        let files: std::collections::BTreeSet<_> = graph
+            .declarations()
+            .map(|d| d.location.file.clone())
+            .collect();
+        let mut sites: Vec<(std::path::PathBuf, usize)> = Vec::new();
+        for file in files {
+            let Ok(content) = std::fs::read_to_string(&file) else {
+                continue;
+            };
+            for (index, line) in content.lines().enumerate() {
+                if line.contains(&quoted) {
+                    sites.push((file.clone(), index + 1));
+                }
+            }
+        }
+        if sites.is_empty() {
+            println!("Symbol '{}' not found in the analyzed project.", symbol);
+            return;
+        }
+        println!(
+            "'{}' is not a declaration in the reference graph, but appears as a string literal at {} site(s):",
+            symbol,
+            sites.len()
+        );
+        for (file, line) in sites.iter().take(5) {
+            println!("  - {}:{}", file.display(), line);
+        }
+        println!(
+            "String keys are judged by detectors (write-only prefs, stale flags, caches), not by graph reachability."
+        );
         return;
     }
 
