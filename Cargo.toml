@@ -198,6 +198,10 @@ name = "blame"
 path = "tests/integration/blame_tests.rs"
 
 [[test]]
+name = "ratchet"
+path = "tests/integration/ratchet_tests.rs"
+
+[[test]]
 name = "cli"
 path = "tests/integration/cli_tests.rs"
 

@@ -272,6 +272,11 @@ struct Cli {
     #[arg(long)]
     blame: bool,
 
+    /// With --baseline: fail on new issues (exit 3) and rewrite the
+    /// baseline downward on progress — the count can only decrease
+    #[arg(long)]
+    ratchet: bool,
+
     /// Enable unused Intent extra detection (enabled by default)
     /// Finds putExtra() keys that are never retrieved via getXxxExtra()
     #[arg(long, default_value = "true", action = clap::ArgAction::Set)]
@@ -2297,11 +2302,45 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     }
 
     // Step 13: Filter by baseline if provided
+    let mut ratchet_failed = false;
     let dead_code = if let Some(ref baseline_path) = cli.baseline {
         match baseline::Baseline::load(baseline_path) {
             Ok(baseline) => {
                 let stats = baseline.stats(&dead_code, &cli.path);
                 println!("{}", format!("📋 Baseline: {}", stats).cyan());
+
+                // The ratchet only accepts decrease: new issues fail the
+                // run, progress rewrites the ceiling downward.
+                if cli.ratchet {
+                    if stats.new_issues > 0 {
+                        eprintln!(
+                            "{}",
+                            format!(
+                                "Ratchet: {} new issue(s) over the baseline ceiling",
+                                stats.new_issues
+                            )
+                            .red()
+                        );
+                        ratchet_failed = true;
+                    } else if stats.baselined_found < stats.total_in_baseline {
+                        let tightened = baseline::Baseline::from_findings(&dead_code, &cli.path);
+                        match tightened.save(baseline_path) {
+                            Ok(_) => println!(
+                                "{}",
+                                format!(
+                                    "📉 Ratchet tightened: {} → {} issues",
+                                    stats.total_in_baseline, stats.baselined_found
+                                )
+                                .green()
+                            ),
+                            Err(e) => eprintln!(
+                                "{}: Failed to tighten baseline: {}",
+                                "Warning".yellow(),
+                                e
+                            ),
+                        }
+                    }
+                }
 
                 // Only report new issues not in baseline
                 let new_issues: Vec<_> = baseline
@@ -2317,11 +2356,26 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
                 new_issues
             }
             Err(e) => {
+                if cli.ratchet {
+                    eprintln!(
+                        "{}: --ratchet cannot guard an unreadable baseline: {}",
+                        "Error".red(),
+                        e
+                    );
+                    std::process::exit(2);
+                }
                 eprintln!("{}: Failed to load baseline: {}", "Warning".yellow(), e);
                 dead_code
             }
         }
     } else {
+        if cli.ratchet {
+            eprintln!(
+                "{}: --ratchet needs --baseline <file> — a ratchet without a ceiling guards nothing",
+                "Error".red()
+            );
+            std::process::exit(2);
+        }
         dead_code
     };
 
@@ -2395,6 +2449,12 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         let deleter =
             refactor::SafeDeleter::new(cli.interactive, cli.dry_run, cli.undo_script.clone());
         deleter.delete(&dead_code)?;
+    }
+
+    // The ratchet verdict comes last: the report above already told the
+    // user what crossed the ceiling
+    if ratchet_failed {
+        std::process::exit(3);
     }
 
     Ok(())
