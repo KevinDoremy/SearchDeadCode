@@ -1130,6 +1130,10 @@ fn load_config(cli: &Cli) -> Result<Config> {
         Config::from_default_locations(&cli.path)?
     };
 
+    // Module-level .deadcode.yml files merge their excludes, scoped to
+    // their own directory — one root config never fits 49 modules
+    config.merge_module_overrides(&cli.path);
+
     // Override with CLI arguments
     if !cli.target.is_empty() {
         config.targets = cli.target.clone();
