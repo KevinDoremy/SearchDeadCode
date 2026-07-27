@@ -336,3 +336,106 @@ fn health_grades_a_clean_module_a() {
         "everything reachable grades A, text was:\n{text}"
     );
 }
+
+fn saved_graph_with_many_corpses(temp: &Path) -> std::path::PathBuf {
+    let project = temp.join("morgue");
+    fs::create_dir_all(&project).unwrap();
+    let mut body = String::from("package sample\n\n");
+    for i in 0..60 {
+        body.push_str(&format!(
+            "class Corpse{i:02} {{\n    fun rot() {{}}\n}}\n\n"
+        ));
+    }
+    fs::write(project.join("Morgue.kt"), body).unwrap();
+    fs::write(
+        project.join("Main.kt"),
+        "package sample\n\nfun main() {\n    println(\"alive\")\n}\n",
+    )
+    .unwrap();
+    let graph = temp.join("morgue-graph.json");
+    let out = Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+        .arg(&project)
+        .args(["--export-graph", graph.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "export failed:\n{out:?}");
+    graph
+}
+
+#[test]
+fn dead_list_pages_at_fifty_and_says_how_to_continue() {
+    let temp = tempfile::tempdir().unwrap();
+    let graph = saved_graph_with_many_corpses(temp.path());
+
+    let responses = serve(
+        &graph,
+        &[
+            r#"{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"dead_list","arguments":{}}}"#,
+        ],
+    );
+    let text = responses[0]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    let listed = text.matches("- ").count();
+    assert!(
+        listed <= 50,
+        "an agent context is finite: 50 max, got {listed}:\n{text}"
+    );
+    assert!(
+        text.contains("offset"),
+        "the answer says how to get the rest, text was:\n{text}"
+    );
+}
+
+#[test]
+fn dead_list_offset_returns_the_next_page_without_overlap() {
+    let temp = tempfile::tempdir().unwrap();
+    let graph = saved_graph_with_many_corpses(temp.path());
+
+    let responses = serve(
+        &graph,
+        &[
+            r#"{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"dead_list","arguments":{}}}"#,
+            r#"{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"dead_list","arguments":{"offset":50}}}"#,
+        ],
+    );
+    let first = responses[0]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    let second = responses[1]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(
+        second.matches("- ").count() >= 1,
+        "the second page has the remainder, text was:\n{second}"
+    );
+    let first_symbols: std::collections::HashSet<&str> =
+        first.lines().filter(|l| l.starts_with("- ")).collect();
+    assert!(
+        second
+            .lines()
+            .filter(|l| l.starts_with("- "))
+            .all(|l| !first_symbols.contains(l)),
+        "pages must not overlap.\nfirst:\n{first}\nsecond:\n{second}"
+    );
+}
+
+#[test]
+fn dead_list_offset_past_the_end_is_a_clean_answer() {
+    let temp = tempfile::tempdir().unwrap();
+    let graph = saved_graph_with_many_corpses(temp.path());
+
+    let responses = serve(
+        &graph,
+        &[
+            r#"{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"dead_list","arguments":{"offset":5000}}}"#,
+        ],
+    );
+    let text = responses[0]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(
+        text.matches("- ").count() == 0 && !text.is_empty(),
+        "past the end: explicit emptiness, no crash, text was:\n{text}"
+    );
+}
