@@ -300,6 +300,11 @@ struct Cli {
     #[arg(long)]
     library_mode: bool,
 
+    /// Check the config against the repo's reality (dead globs,
+    /// unknown entry points, missing targets) and exit
+    #[arg(long)]
+    doctor: bool,
+
     /// Report only symbols that became dead since this git reference
     #[arg(long, value_name = "REF")]
     diff_base: Option<String>,
@@ -829,6 +834,74 @@ fn synthetic_finding(
     analysis::DeadCode::new(decl, issue)
         .with_message(message)
         .with_confidence(confidence)
+}
+
+/// Config checkup: a glob matching nothing or an unknown entry point
+/// silently skews every run. Returns true when everything checks out.
+fn run_doctor(config: &Config, graph: &graph::Graph, root: &std::path::Path) -> bool {
+    if !root.join(".deadcode.yml").exists() {
+        println!(
+            "{}",
+            "🩺 no .deadcode.yml — defaults in use, nothing to check".dimmed()
+        );
+        return true;
+    }
+
+    let mut problems = 0usize;
+
+    for pattern in &config.exclude {
+        match globset::Glob::new(pattern) {
+            Ok(glob) => {
+                let matcher = glob.compile_matcher();
+                let hit = walkdir::WalkDir::new(root)
+                    .into_iter()
+                    .flatten()
+                    .any(|entry| {
+                        let rel = entry.path().strip_prefix(root).unwrap_or(entry.path());
+                        matcher.is_match(rel)
+                    });
+                if !hit {
+                    println!("  ✗ exclude '{pattern}' matches nothing in the repo");
+                    problems += 1;
+                }
+            }
+            Err(e) => {
+                println!("  ✗ exclude '{pattern}' is not a valid glob: {e}");
+                problems += 1;
+            }
+        }
+    }
+
+    for name in &config.entry_points {
+        if graph.find_by_fqn(name).is_none() && graph.find_by_name(name).is_empty() {
+            println!("  ✗ entry point '{name}' is unknown to the graph");
+            problems += 1;
+        }
+    }
+
+    for target in &config.targets {
+        let path = if target.is_absolute() {
+            target.clone()
+        } else {
+            root.join(target)
+        };
+        if !path.exists() {
+            println!("  ✗ target '{}' does not exist", target.display());
+            problems += 1;
+        }
+    }
+
+    if problems == 0 {
+        println!("{}", "✓ .deadcode.yml matches the repo".green());
+        true
+    } else {
+        println!(
+            "{}",
+            format!("🩺 {problems} problem(s) found — the analysis would run silently skewed")
+                .yellow()
+        );
+        false
+    }
 }
 
 /// One sortable number per finding: lines × confidence ÷ risk.
@@ -1777,6 +1850,14 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     let entry_points = entry_points;
 
     info!("Found {} entry points", entry_points.len());
+
+    // --doctor short-circuits everything: checkup, verdict, exit
+    if cli.doctor {
+        if run_doctor(config, &graph, &cli.path) {
+            return Ok(());
+        }
+        std::process::exit(2);
+    }
 
     // --explain short-circuits the normal report
     if let Some(symbol) = cli.explain.as_deref() {
