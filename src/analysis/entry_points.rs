@@ -55,6 +55,18 @@ impl<'a> EntryPointDetector<'a> {
         // 6. Add explicitly configured entry points
         self.add_configured_entry_points(graph, &mut entry_points);
 
+        // 6b. Respect ProGuard/R8 -keep rules: kept classes are retained
+        let keep_patterns = crate::analysis::keep_rules::collect_keep_patterns(root);
+        if !keep_patterns.is_empty() {
+            for decl in graph.declarations() {
+                if let Some(fqn) = &decl.fully_qualified_name {
+                    if keep_patterns.iter().any(|p| p.matches(fqn)) {
+                        entry_points.insert(decl.id.clone());
+                    }
+                }
+            }
+        }
+
         // 7. Apply retain patterns
         self.apply_retain_patterns(graph, &mut entry_points);
 
