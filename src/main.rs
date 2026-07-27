@@ -310,6 +310,11 @@ struct Cli {
     #[arg(long)]
     dead_modules: bool,
 
+    /// List Gradle dependencies declared in build files but never
+    /// imported by any source file, then exit
+    #[arg(long)]
+    unused_deps: bool,
+
     /// Show how many declarations each retention annotation keeps
     /// alive, broadest first, and exit
     #[arg(long)]
@@ -1911,6 +1916,43 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     let entry_points = entry_points;
 
     info!("Found {} entry points", entry_points.len());
+
+    // --unused-deps short-circuits everything: build files + imports only
+    if cli.unused_deps {
+        match analysis::gradle_deps::unused_dependencies(&cli.path) {
+            None => println!(
+                "{}",
+                "no gradle build files found — nothing to check".dimmed()
+            ),
+            Some(unused) if unused.is_empty() => {
+                println!(
+                    "{}",
+                    "✓ every declared dependency is imported somewhere".green()
+                )
+            }
+            Some(unused) => {
+                println!("{}", "Declared but never imported:".bold());
+                for dep in unused {
+                    let rel = dep
+                        .build_file
+                        .strip_prefix(&cli.path)
+                        .unwrap_or(&dep.build_file);
+                    println!(
+                        "  {} {}  {}",
+                        "○".dimmed(),
+                        dep.coordinate,
+                        rel.display().to_string().dimmed()
+                    );
+                }
+                println!(
+                    "{}",
+                    "  (candidates only — check reflection, resources and transitive needs before removing)"
+                        .dimmed()
+                );
+            }
+        }
+        return Ok(());
+    }
 
     // --dead-modules short-circuits everything: build files only
     if cli.dead_modules {

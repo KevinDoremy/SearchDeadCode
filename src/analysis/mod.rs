@@ -12,6 +12,7 @@ pub mod dto_fields;
 mod enhanced;
 mod entry_points;
 pub mod flags;
+pub mod gradle_deps;
 mod hybrid;
 pub mod ignore;
 pub mod keep_rules;
