@@ -2469,6 +2469,23 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         }
     }
 
+    // Step 9f6: locale strings whose base key was removed (DC022)
+    {
+        for (key, file, line) in analysis::translations::orphan_translations(&cli.path) {
+            dead_code.push(synthetic_finding(
+                &file,
+                line,
+                &key,
+                graph::DeclarationKind::Property,
+                analysis::DeadCodeIssue::OrphanTranslation,
+                format!(
+                    "Translation '{key}' has no base entry in values/ — it can never be resolved"
+                ),
+                analysis::Confidence::High,
+            ));
+        }
+    }
+
     // Step 9g: Unused Intent extras — through the standard report (DC019)
     if cli.unused_extras {
         let intent_detector = UnusedIntentExtraDetector::new();

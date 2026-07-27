@@ -345,6 +345,7 @@ pub fn rule_label(rule: &str) -> &'static str {
             "DC019" => "Unused Intent extras",
             "DC020" => "Dead Remote Config keys",
             "DC021" => "Dead DTO fields",
+            "DC022" => "Orphan translations",
             "AP001" => "Global mutable state",
             "AP002" => "Deep inheritance",
             "AP003" => "Single-impl interface",

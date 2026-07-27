@@ -108,6 +108,7 @@ impl Aggregator {
             DeadCodeIssue::UnusedIntentExtra => "Unused Intent extras".to_string(),
             DeadCodeIssue::DeadConfigKey => "Dead Remote Config keys".to_string(),
             DeadCodeIssue::DeadDtoField => "Dead DTO fields".to_string(),
+            DeadCodeIssue::OrphanTranslation => "Orphan translations".to_string(),
             DeadCodeIssue::UnusedResource => "Unused resources".to_string(),
             DeadCodeIssue::UnusedLayout => "Unused layouts".to_string(),
             DeadCodeIssue::DuplicateImport => "Duplicate imports".to_string(),
@@ -181,6 +182,7 @@ impl Aggregator {
             | DeadCodeIssue::UnusedIntentExtra
             | DeadCodeIssue::DeadConfigKey
             | DeadCodeIssue::DeadDtoField
+            | DeadCodeIssue::OrphanTranslation
             | DeadCodeIssue::UnusedResource
             | DeadCodeIssue::UnusedLayout
             | DeadCodeIssue::DuplicateImport
