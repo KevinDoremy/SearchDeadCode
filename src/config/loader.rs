@@ -326,7 +326,8 @@ impl Config {
 
     /// Check if a pattern matches for exclusion
     pub fn should_exclude(&self, path: &Path) -> bool {
-        let path_str = path.to_string_lossy();
+        // patterns are written with forward slashes; Windows paths are not
+        let path_str = path.to_string_lossy().replace('\\', "/");
         self.exclude
             .iter()
             .any(|pattern| glob_match(pattern, &path_str))
