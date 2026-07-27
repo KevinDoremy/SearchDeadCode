@@ -308,6 +308,7 @@ Generated from `--help`; every flag the binary accepts, alphabetically.
 | `--performance-patterns` | Enable performance anti-pattern detectors (AP011-AP015) Detects: memory leaks, long methods, large classes, collection inefficiencies, loop allocations |
 | `--profile` | Preset for an audience: ci (strict, high confidence only) or explore (everything down to low) Possible values: - ci:      Strict: high-confidence findings only — for pipelines - explore: Everything down to low confidence — for humans digging |
 | `--proguard-usage` | ProGuard/R8 usage.txt file for enhanced detection This file lists code that R8 determined is unused |
+| `--promises` | Cross TODO remove / FIXME delete comments with the symbol's real reference count, then exit |
 | `--quick-wins` | Only the findings safe to delete blind: whole cluster dead, every member low risk |
 | `--quiet` | Quiet mode - only output results |
 | `--ratchet` | With --baseline: fail on new issues (exit 3) and rewrite the baseline downward on progress — the count can only decrease |

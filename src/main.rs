@@ -429,6 +429,11 @@ struct Cli {
     #[arg(long)]
     tui: bool,
 
+    /// Cross TODO remove / FIXME delete comments with the symbol's
+    /// real reference count, then exit
+    #[arg(long)]
+    promises: bool,
+
     /// After --delete: run this command (a compile, a test suite) and
     /// restore every touched file automatically when it fails
     #[arg(long, value_name = "CMD")]
@@ -2750,6 +2755,41 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
                 std::process::exit(2);
             }
         }
+    }
+
+    // --promises short-circuits everything after the graph
+    if cli.promises {
+        let promises = analysis::promises::deletion_promises(&graph);
+        if promises.is_empty() {
+            println!(
+                "{}",
+                "no deletion promises found (TODO remove / FIXME delete)".dimmed()
+            );
+            return Ok(());
+        }
+        println!("{}", "Written deletion promises:".bold());
+        for promise in promises {
+            let verdict = match promise.state {
+                analysis::promises::PromiseState::Ready => {
+                    "ready to honor (0 references)".green().to_string()
+                }
+                analysis::promises::PromiseState::StillReferenced(n) => {
+                    format!("still referenced ({n})").yellow().to_string()
+                }
+            };
+            let rel = promise
+                .file
+                .strip_prefix(&cli.path)
+                .unwrap_or(&promise.file);
+            println!(
+                "  {} {:<25} {}  {}",
+                "○".dimmed(),
+                promise.symbol,
+                verdict,
+                format!("{}:{}", rel.display(), promise.line).dimmed()
+            );
+        }
+        return Ok(());
     }
 
     // --dead-serializables short-circuits everything after the graph:
