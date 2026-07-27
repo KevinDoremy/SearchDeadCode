@@ -109,10 +109,9 @@ const ENTRY_ANNOTATIONS: &[&str] = &[
     "BindingMethod",
     "BindingMethods",
     "BindingConversion",
-    "JvmStatic",
-    "JvmOverloads",
-    "JvmField",
-    "JvmName",
+    // Jvm* interop annotations deliberately absent: @JvmOverloads,
+    // @JvmStatic, @JvmField, @JvmName change how a symbol is exposed
+    // to Java, they do not make anything reachable by themselves
     // Reflection markers
     "Keep",
     "KeepPublicApi",

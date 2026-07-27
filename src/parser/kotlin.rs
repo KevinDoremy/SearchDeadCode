@@ -186,6 +186,17 @@ impl KotlinParser {
         // Extract annotations
         decl.annotations = self.extract_annotations(node, source);
 
+        // Annotations on the primary constructor belong to the class for
+        // retention purposes: `class Foo @Inject constructor()` is how DI
+        // marks the CLASS as injectable
+        let mut ctor_cursor = node.walk();
+        for child in node.children(&mut ctor_cursor) {
+            if child.kind() == "primary_constructor" {
+                decl.annotations
+                    .extend(self.extract_annotations(child, source));
+            }
+        }
+
         decl.parent = parent.clone();
 
         result.declarations.push(decl);
