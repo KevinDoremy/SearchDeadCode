@@ -132,6 +132,85 @@ fn a_living_file_gets_empty_diagnostics() {
 }
 
 #[test]
+fn hover_on_a_dead_symbol_says_dead() {
+    let temp = tempfile::tempdir().unwrap();
+    let (graph, project) = saved_graph(temp.path());
+    let ghost_uri = format!("file://{}", project.join("Ghost.kt").display());
+
+    // Ghost is declared on line 3 (0-indexed: 2)
+    let responses = serve(
+        &graph,
+        &[
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#.to_string(),
+            format!(
+                r#"{{"jsonrpc":"2.0","id":2,"method":"textDocument/hover","params":{{"textDocument":{{"uri":"{ghost_uri}"}},"position":{{"line":2,"character":6}}}}}}"#
+            ),
+        ],
+    );
+    let hover = responses
+        .iter()
+        .find(|r| r["id"] == 2)
+        .expect("hover response");
+    let text = hover["result"]["contents"]["value"].as_str().unwrap();
+    assert!(
+        text.contains("Ghost") && text.to_lowercase().contains("dead"),
+        "the hover names the corpse, text was:\n{text}"
+    );
+}
+
+#[test]
+fn hover_on_a_living_symbol_shows_the_life_path() {
+    let temp = tempfile::tempdir().unwrap();
+    let (graph, project) = saved_graph(temp.path());
+    let main_uri = format!("file://{}", project.join("Main.kt").display());
+
+    // main is declared on line 3 (0-indexed: 2)
+    let responses = serve(
+        &graph,
+        &[
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#.to_string(),
+            format!(
+                r#"{{"jsonrpc":"2.0","id":3,"method":"textDocument/hover","params":{{"textDocument":{{"uri":"{main_uri}"}},"position":{{"line":2,"character":4}}}}}}"#
+            ),
+        ],
+    );
+    let hover = responses
+        .iter()
+        .find(|r| r["id"] == 3)
+        .expect("hover response");
+    let text = hover["result"]["contents"]["value"].as_str().unwrap();
+    assert!(
+        text.contains("main") && (text.to_lowercase().contains("alive") || text.contains("root")),
+        "the hover explains the life, text was:\n{text}"
+    );
+}
+
+#[test]
+fn hover_on_an_empty_line_answers_null() {
+    let temp = tempfile::tempdir().unwrap();
+    let (graph, project) = saved_graph(temp.path());
+    let main_uri = format!("file://{}", project.join("Main.kt").display());
+
+    let responses = serve(
+        &graph,
+        &[
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#.to_string(),
+            format!(
+                r#"{{"jsonrpc":"2.0","id":4,"method":"textDocument/hover","params":{{"textDocument":{{"uri":"{main_uri}"}},"position":{{"line":1,"character":0}}}}}}"#
+            ),
+        ],
+    );
+    let hover = responses
+        .iter()
+        .find(|r| r["id"] == 4)
+        .expect("hover response");
+    assert!(
+        hover["result"].is_null(),
+        "no symbol on that line, null per the LSP spec, got:\n{hover}"
+    );
+}
+
+#[test]
 fn shutdown_answers_and_the_server_exits_on_eof() {
     let temp = tempfile::tempdir().unwrap();
     let (graph, _) = saved_graph(temp.path());

@@ -21,7 +21,7 @@ pub fn serve(graph: &SavedGraph) -> std::io::Result<()> {
                     "jsonrpc": "2.0",
                     "id": message["id"],
                     "result": {
-                        "capabilities": { "textDocumentSync": 1 },
+                        "capabilities": { "textDocumentSync": 1, "hoverProvider": true },
                         "serverInfo": {
                             "name": "searchdeadcode",
                             "version": env!("CARGO_PKG_VERSION")
@@ -43,6 +43,18 @@ pub fn serve(graph: &SavedGraph) -> std::io::Result<()> {
                     }
                 });
                 write_frame(&mut stdout, &notification)?;
+            }
+            Some("textDocument/hover") => {
+                let uri = message["params"]["textDocument"]["uri"]
+                    .as_str()
+                    .unwrap_or("");
+                let line = message["params"]["position"]["line"].as_u64().unwrap_or(0);
+                let response = json!({
+                    "jsonrpc": "2.0",
+                    "id": message["id"],
+                    "result": hover_for(graph, uri, line)
+                });
+                write_frame(&mut stdout, &response)?;
             }
             Some("shutdown") => {
                 let response = json!({ "jsonrpc": "2.0", "id": message["id"], "result": null });
@@ -74,6 +86,38 @@ fn diagnostics_for(graph: &SavedGraph, uri: &str) -> Vec<Value> {
             })
         })
         .collect()
+}
+
+/// Life-or-death verdict for the symbol declared on this 0-indexed
+/// line, or null when the line holds none.
+fn hover_for(graph: &SavedGraph, uri: &str, line: u64) -> Value {
+    let path = uri.strip_prefix("file://").unwrap_or(uri);
+    let Some(node) = graph
+        .nodes
+        .iter()
+        .find(|n| n.file == path && n.line == (line + 1) as usize)
+    else {
+        return Value::Null;
+    };
+    let text = match graph.why_alive(&node.name) {
+        None => format!("`{}` is not in the graph", node.name),
+        Some(chain) if chain.is_empty() => {
+            format!(
+                "`{}` ({}) is **dead** — no entry point reaches it",
+                node.name, node.kind
+            )
+        }
+        Some(chain) => {
+            let path_names: Vec<&str> = chain.iter().map(|n| n.name.as_str()).collect();
+            format!(
+                "`{}` ({}) is alive — kept by: {}",
+                node.name,
+                node.kind,
+                path_names.join(" -> ")
+            )
+        }
+    };
+    json!({ "contents": { "kind": "markdown", "value": text } })
 }
 
 fn read_frame(reader: &mut impl BufRead) -> std::io::Result<Option<String>> {
