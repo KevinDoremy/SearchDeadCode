@@ -25,6 +25,7 @@ pub mod middlemen;
 pub mod migration;
 pub mod module_usage;
 pub mod permissions;
+pub mod promises;
 mod reachability;
 pub mod remote_config;
 pub mod resources;
