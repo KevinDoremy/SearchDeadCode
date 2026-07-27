@@ -517,6 +517,11 @@ struct Cli {
     #[arg(long)]
     baseline_prune: bool,
 
+    /// Show baseline entries counted per rule (where the tool cries
+    /// wolf the most), then exit
+    #[arg(long)]
+    baseline_stats: bool,
+
     /// Watch mode - continuously monitor for changes
     #[arg(long)]
     watch: bool,
@@ -812,8 +817,8 @@ fn main() -> Result<()> {
         std::process::exit(2);
     }
 
-    // Baseline management (show/rm) needs only the file, not an analysis
-    if cli.baseline_show || cli.baseline_rm.is_some() {
+    // Baseline management (show/rm/stats) needs only the file, not an analysis
+    if cli.baseline_show || cli.baseline_rm.is_some() || cli.baseline_stats {
         let Some(ref baseline_path) = cli.baseline else {
             eprintln!(
                 "{}: baseline management needs --baseline <file>",
@@ -840,6 +845,28 @@ fn main() -> Result<()> {
                 loaded.save(baseline_path).map_err(|e| miette::miette!(e))?;
                 println!("removed {removed} entrie(s) named '{target}'");
             }
+            return Ok(());
+        }
+        if cli.baseline_stats {
+            let mut per_rule: std::collections::HashMap<String, usize> =
+                std::collections::HashMap::new();
+            for fp in &loaded.issues {
+                let rule = fp.rule.clone().unwrap_or_else(|| "unknown".to_string());
+                *per_rule.entry(rule).or_default() += 1;
+            }
+            let mut rows: Vec<(String, usize)> = per_rule.into_iter().collect();
+            rows.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+            println!(
+                "{}",
+                format!("Baseline entries per rule ({} total):", loaded.issues.len()).bold()
+            );
+            for (rule, count) in rows {
+                println!("  {:<10} {:>4}", rule, count);
+            }
+            println!(
+                "{}",
+                "  (the rules people baseline the most are where the tool cries wolf)".dimmed()
+            );
             return Ok(());
         }
         println!(
