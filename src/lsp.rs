@@ -6,8 +6,9 @@
 use crate::report::graph_export::SavedGraph;
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
+use std::path::Path;
 
-pub fn serve(graph: &SavedGraph) -> std::io::Result<()> {
+pub fn serve(graph: &SavedGraph, project_root: &Path) -> std::io::Result<()> {
     let stdin = std::io::stdin();
     let mut reader = stdin.lock();
     let mut stdout = std::io::stdout();
@@ -21,7 +22,14 @@ pub fn serve(graph: &SavedGraph) -> std::io::Result<()> {
                     "jsonrpc": "2.0",
                     "id": message["id"],
                     "result": {
-                        "capabilities": { "textDocumentSync": 1, "hoverProvider": true },
+                        "capabilities": {
+                            "textDocumentSync": 1,
+                            "hoverProvider": true,
+                            "codeActionProvider": true,
+                            "executeCommandProvider": {
+                                "commands": ["searchdeadcode.addToBaseline"]
+                            }
+                        },
                         "serverInfo": {
                             "name": "searchdeadcode",
                             "version": env!("CARGO_PKG_VERSION")
@@ -54,6 +62,42 @@ pub fn serve(graph: &SavedGraph) -> std::io::Result<()> {
                     "id": message["id"],
                     "result": hover_for(graph, uri, line)
                 });
+                write_frame(&mut stdout, &response)?;
+            }
+            Some("textDocument/codeAction") => {
+                let uri = message["params"]["textDocument"]["uri"]
+                    .as_str()
+                    .unwrap_or("");
+                let start = message["params"]["range"]["start"]["line"]
+                    .as_u64()
+                    .unwrap_or(0);
+                let end = message["params"]["range"]["end"]["line"]
+                    .as_u64()
+                    .unwrap_or(start);
+                let response = json!({
+                    "jsonrpc": "2.0",
+                    "id": message["id"],
+                    "result": code_actions_for(graph, uri, start, end)
+                });
+                write_frame(&mut stdout, &response)?;
+            }
+            Some("workspace/executeCommand") => {
+                let command = message["params"]["command"].as_str().unwrap_or("");
+                let args = message["params"]["arguments"].as_array();
+                let result = if command == "searchdeadcode.addToBaseline" {
+                    let uri = args
+                        .and_then(|a| a.first())
+                        .and_then(Value::as_str)
+                        .unwrap_or("");
+                    let name = args
+                        .and_then(|a| a.get(1))
+                        .and_then(Value::as_str)
+                        .unwrap_or("");
+                    add_to_baseline(graph, project_root, uri, name)
+                } else {
+                    Value::Null
+                };
+                let response = json!({ "jsonrpc": "2.0", "id": message["id"], "result": result });
                 write_frame(&mut stdout, &response)?;
             }
             Some("shutdown") => {
@@ -90,6 +134,82 @@ fn diagnostics_for(graph: &SavedGraph, uri: &str) -> Vec<Value> {
             })
         })
         .collect()
+}
+
+/// Quickfixes for the dead symbols inside the 0-indexed line range.
+fn code_actions_for(graph: &SavedGraph, uri: &str, start: u64, end: u64) -> Vec<Value> {
+    let path = uri
+        .strip_prefix("file://")
+        .unwrap_or(uri)
+        .replace('\\', "/");
+    graph
+        .dead_symbols()
+        .into_iter()
+        .filter(|node| {
+            let line = node.line.saturating_sub(1) as u64;
+            node.file.replace('\\', "/") == path && line >= start && line <= end
+        })
+        .map(|node| {
+            json!({
+                "title": format!("Add '{}' to the searchdeadcode baseline", node.name),
+                "kind": "quickfix",
+                "command": {
+                    "title": "Add to baseline",
+                    "command": "searchdeadcode.addToBaseline",
+                    "arguments": [uri, node.name]
+                }
+            })
+        })
+        .collect()
+}
+
+/// Append the symbol's fingerprint to <root>/.searchdeadcode-baseline.json
+/// so the next CLI run with --baseline stays quiet about it. Unknown
+/// symbols write nothing — a quickfix must never invent an entry.
+fn add_to_baseline(graph: &SavedGraph, project_root: &Path, uri: &str, name: &str) -> Value {
+    let path = uri
+        .strip_prefix("file://")
+        .unwrap_or(uri)
+        .replace('\\', "/");
+    let Some(node) = graph
+        .nodes
+        .iter()
+        .find(|n| n.name == name && n.file.replace('\\', "/") == path)
+    else {
+        return Value::Null;
+    };
+    let baseline_path = project_root.join(".searchdeadcode-baseline.json");
+    let mut baseline = if baseline_path.exists() {
+        match crate::baseline::Baseline::load(&baseline_path) {
+            Ok(b) => b,
+            Err(_) => return Value::Null,
+        }
+    } else {
+        crate::baseline::Baseline::from_findings(&[], project_root)
+    };
+    let relative = Path::new(&node.file)
+        .strip_prefix(project_root)
+        .unwrap_or(Path::new(&node.file))
+        .to_string_lossy()
+        .to_string();
+    let already = baseline
+        .issues
+        .iter()
+        .any(|i| i.file == relative && i.name == node.name && i.kind == node.kind);
+    if !already {
+        baseline.issues.push(crate::baseline::IssueFingerprint {
+            file: relative,
+            name: node.name.clone(),
+            kind: node.kind.clone(),
+            line: node.line,
+            fqn: None,
+            rule: None,
+        });
+        if baseline.save(&baseline_path).is_err() {
+            return Value::Null;
+        }
+    }
+    json!({ "baseline": baseline_path.to_string_lossy(), "added": !already })
 }
 
 /// Life-or-death verdict for the symbol declared on this 0-indexed
