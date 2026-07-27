@@ -4,7 +4,7 @@
 //! or event-bus dispatch. Findings touched by those signals are flagged so
 //! the user knows which deletions need a second look.
 
-use crate::analysis::{DeadCode, RiskLevel};
+use crate::analysis::{Confidence, DeadCode, RiskLevel};
 use crate::discovery::{FileType, SourceFile};
 use regex::Regex;
 use std::collections::HashSet;
@@ -14,6 +14,9 @@ use std::sync::LazyLock;
 
 static STRING_LITERAL: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#""([^"\\]|\\.)*""#).expect("Invalid string literal regex"));
+
+static WORD: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"[A-Za-z_][A-Za-z0-9_]*").expect("Invalid word regex"));
 
 const REFLECTION_MARKERS: &[&str] = &[
     "Class.forName",
@@ -35,9 +38,12 @@ const SERIALIZATION_ANNOTATIONS: &[&str] = &[
     "Expose",
 ];
 
-/// Assign a risk level to every finding, in place.
+/// Assign a risk level to every finding, in place. A finding whose name
+/// appears as a whole word inside any string literal of the project is
+/// soft-referenced: risk High, confidence down one notch (Confirmed
+/// stays — runtime evidence outranks a string), and the message says so.
 pub fn assess(dead_code: &mut [DeadCode], files: &[SourceFile]) {
-    let mut literal_text = String::new();
+    let mut literal_tokens: HashSet<String> = HashSet::new();
     let mut marker_files: HashSet<PathBuf> = HashSet::new();
 
     for file in files {
@@ -48,8 +54,9 @@ pub fn assess(dead_code: &mut [DeadCode], files: &[SourceFile]) {
             continue;
         };
         for m in STRING_LITERAL.find_iter(&content) {
-            literal_text.push_str(m.as_str());
-            literal_text.push('\n');
+            for word in WORD.find_iter(m.as_str()) {
+                literal_tokens.insert(word.as_str().to_string());
+            }
         }
         if REFLECTION_MARKERS.iter().any(|m| content.contains(m)) {
             marker_files.insert(file.path.clone());
@@ -57,12 +64,27 @@ pub fn assess(dead_code: &mut [DeadCode], files: &[SourceFile]) {
     }
 
     for finding in dead_code.iter_mut() {
-        finding.risk = risk_of(finding, &literal_text, &marker_files);
+        let soft_referenced = literal_tokens.contains(&finding.declaration.name);
+        finding.risk = risk_of(finding, soft_referenced, &marker_files);
+        if soft_referenced {
+            finding.message.push_str(
+                " — name appears in string literals (reflective or serialized use possible)",
+            );
+            finding.confidence = match finding.confidence {
+                Confidence::Confirmed => Confidence::Confirmed,
+                Confidence::High => Confidence::Medium,
+                _ => Confidence::Low,
+            };
+        }
     }
 }
 
-fn risk_of(finding: &DeadCode, literal_text: &str, marker_files: &HashSet<PathBuf>) -> RiskLevel {
-    if literal_text.contains(&finding.declaration.name) {
+fn risk_of(
+    finding: &DeadCode,
+    soft_referenced: bool,
+    marker_files: &HashSet<PathBuf>,
+) -> RiskLevel {
+    if soft_referenced {
         return RiskLevel::High;
     }
     if finding
