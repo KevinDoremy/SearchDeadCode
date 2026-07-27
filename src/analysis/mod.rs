@@ -5,6 +5,7 @@ pub mod accessors;
 pub mod assets;
 pub mod blame;
 pub mod bus;
+pub mod caches;
 mod cycles;
 pub mod dead_modules;
 mod deep;

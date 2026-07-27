@@ -497,6 +497,10 @@ name = "pr_description"
 path = "tests/integration/pr_description_tests.rs"
 
 [[test]]
+name = "write_only_caches"
+path = "tests/integration/write_only_caches_tests.rs"
+
+[[test]]
 name = "generated_mapping"
 path = "tests/integration/generated_mapping_tests.rs"
 
