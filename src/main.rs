@@ -354,6 +354,11 @@ struct Cli {
     #[arg(long)]
     dead_keep_rules: bool,
 
+    /// List assets/ files whose path or name appears nowhere in the
+    /// sources, then exit
+    #[arg(long)]
+    unused_assets: bool,
+
     /// After --delete: run this command (a compile, a test suite) and
     /// restore every touched file automatically when it fails
     #[arg(long, value_name = "CMD")]
@@ -2096,6 +2101,37 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     let entry_points = entry_points;
 
     info!("Found {} entry points", entry_points.len());
+
+    // --unused-assets short-circuits everything: file paths + strings only
+    if cli.unused_assets {
+        match analysis::assets::unused_assets(&cli.path) {
+            None => println!(
+                "{}",
+                "no assets directory found — nothing to check".dimmed()
+            ),
+            Some(unused) if unused.is_empty() => {
+                println!("{}", "✓ every asset is referenced somewhere".green())
+            }
+            Some(unused) => {
+                println!("{}", "Assets nothing references:".bold());
+                for asset in unused {
+                    let rel = asset.file.strip_prefix(&cli.path).unwrap_or(&asset.file);
+                    println!(
+                        "  {} {:<40} {}",
+                        "○".dimmed(),
+                        asset.rel_path,
+                        rel.display().to_string().dimmed()
+                    );
+                }
+                println!(
+                    "{}",
+                    "  (candidates only — server-driven or reflective paths cannot be seen)"
+                        .dimmed()
+                );
+            }
+        }
+        return Ok(());
+    }
 
     // --unused-deps short-circuits everything: build files + imports only
     if cli.unused_deps {
