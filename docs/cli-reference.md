@@ -304,6 +304,7 @@ Generated from `--help`; every flag the binary accepts, alphabetically.
 | `--middlemen` | List classes whose every method forwards to the same delegate, then exit |
 | `--min-confidence` | Minimum confidence level to report (low, medium, high, confirmed). Defaults to medium, or to the --profile choice |
 | `--module-usage` | Attribute a shared module's symbols to their real consumers: unreferenced, internal-only, or used by which directories |
+| `--near-twins` | List same-named functions with near-identical bodies across files (migration copy-paste), then exit |
 | `--necromancy` | Fail when code references a symbol the --baseline judged dead (someone is resurrecting legacy), then exit |
 | `--output` | Output file (for json/sarif formats) |
 | `--parallel` | Enable parallel processing for faster analysis (enabled by default) [default: true] [possible values: true, false] |

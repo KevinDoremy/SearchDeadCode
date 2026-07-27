@@ -501,6 +501,10 @@ name = "write_only_caches"
 path = "tests/integration/write_only_caches_tests.rs"
 
 [[test]]
+name = "near_twins"
+path = "tests/integration/near_twins_tests.rs"
+
+[[test]]
 name = "generated_mapping"
 path = "tests/integration/generated_mapping_tests.rs"
 
