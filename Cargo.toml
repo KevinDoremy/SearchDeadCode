@@ -202,6 +202,10 @@ name = "ratchet"
 path = "tests/integration/ratchet_tests.rs"
 
 [[test]]
+name = "file_resources"
+path = "tests/integration/file_resource_tests.rs"
+
+[[test]]
 name = "cli"
 path = "tests/integration/cli_tests.rs"
 
