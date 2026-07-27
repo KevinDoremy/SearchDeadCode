@@ -27,6 +27,9 @@ impl FileType {
         let file_name = path.file_name()?.to_str()?;
 
         match extension {
+            // Gradle build scripts are Kotlin syntax but not application
+            // code — their DSL declarations would pollute the graph
+            "kts" if file_name.ends_with(".gradle.kts") => None,
             "kt" | "kts" => Some(FileType::Kotlin),
             "java" => Some(FileType::Java),
             "xml" => {
