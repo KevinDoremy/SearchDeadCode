@@ -307,6 +307,10 @@ name = "twins"
 path = "tests/integration/twins_tests.rs"
 
 [[test]]
+name = "git_undo"
+path = "tests/integration/git_undo_tests.rs"
+
+[[test]]
 name = "cli"
 path = "tests/integration/cli_tests.rs"
 
