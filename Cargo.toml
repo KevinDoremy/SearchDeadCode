@@ -166,6 +166,10 @@ name = "stub_detectors"
 path = "tests/integration/stub_detector_tests.rs"
 
 [[test]]
+name = "redundant_public"
+path = "tests/integration/redundant_public_tests.rs"
+
+[[test]]
 name = "cli"
 path = "tests/integration/cli_tests.rs"
 
