@@ -589,7 +589,7 @@ struct Cli {
     expand: bool,
 
     /// Expand a specific rule's issues (e.g., --expand-rule AP017)
-    #[arg(long, value_name = "RULE")]
+    #[arg(long, value_name = "RULE", value_parser = ["DC001", "DC002", "DC003", "DC004", "DC005", "DC006", "DC007", "DC008", "DC009", "DC010", "DC011", "DC012", "DC013", "DC014", "DC015", "DC016", "DC017", "DC018", "DC019", "DC020", "DC021", "DC022", "AP001", "AP002", "AP003", "AP004", "AP005", "AP006", "AP007", "AP008", "AP009", "AP010", "AP011", "AP012", "AP013", "AP014", "AP015", "AP016", "AP017", "AP018", "AP019", "AP020", "AP021", "AP022", "AP023", "AP024", "AP025", "AP026", "AP027", "AP028", "AP029", "AP030", "AP031", "AP032", "AP033", "AP034"])]
     expand_rule: Option<String>,
 
     /// Number of top issues to show in summary mode
