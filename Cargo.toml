@@ -435,6 +435,10 @@ name = "doc_coverage"
 path = "tests/integration/doc_coverage_tests.rs"
 
 [[test]]
+name = "mcp_serve"
+path = "tests/integration/mcp_serve_tests.rs"
+
+[[test]]
 name = "generated_mapping"
 path = "tests/integration/generated_mapping_tests.rs"
 
