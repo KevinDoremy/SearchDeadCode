@@ -1048,6 +1048,7 @@ dependencies = [
  "console",
  "criterion",
  "dialoguer",
+ "globset",
  "ignore",
  "indicatif",
  "miette",

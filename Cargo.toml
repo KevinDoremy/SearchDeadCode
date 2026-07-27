@@ -25,6 +25,7 @@ petgraph = "0.8"
 
 # File discovery
 ignore = "0.4"
+globset = "0.4"
 walkdir = "2.4"
 
 # Parallelism
@@ -248,6 +249,10 @@ path = "tests/integration/gradle_out_tests.rs"
 [[test]]
 name = "library_mode"
 path = "tests/integration/library_mode_tests.rs"
+
+[[test]]
+name = "doctor"
+path = "tests/integration/doctor_tests.rs"
 
 [[test]]
 name = "cli"
