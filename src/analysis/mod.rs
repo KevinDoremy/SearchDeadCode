@@ -1,6 +1,7 @@
 // Analysis module - some types and variants reserved for future use
 #![allow(dead_code)]
 
+pub mod blame;
 pub mod bus;
 mod cycles;
 mod deep;

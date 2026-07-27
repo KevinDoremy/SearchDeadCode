@@ -268,6 +268,10 @@ struct Cli {
     #[arg(long)]
     style: bool,
 
+    /// Annotate each finding with its last author and date (one git call per finding)
+    #[arg(long)]
+    blame: bool,
+
     /// Enable unused Intent extra detection (enabled by default)
     /// Finds putExtra() keys that are never retrieved via getXxxExtra()
     #[arg(long, default_value = "true", action = clap::ArgAction::Set)]
@@ -2208,11 +2212,17 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
 
     // Step 10: Filter by confidence level
     let min_confidence = parse_confidence(&cli.min_confidence);
-    let dead_code: Vec<_> = dead_code
+    let mut dead_code: Vec<_> = dead_code
         .into_iter()
         .filter(|dc| dc.confidence >= min_confidence)
         .filter(|dc| !cli.runtime_only || dc.runtime_confirmed)
         .collect();
+
+    // Step 10b: ownership — after the filters, one git call per survivor
+    if cli.blame {
+        analysis::blame::annotate(&mut dead_code, &cli.path);
+    }
+    let dead_code = dead_code;
 
     info!("Found {} dead code candidates", dead_code.len());
 
