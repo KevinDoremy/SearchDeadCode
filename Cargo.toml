@@ -363,6 +363,10 @@ name = "duplicate_strings"
 path = "tests/integration/duplicate_strings_tests.rs"
 
 [[test]]
+name = "dead_accessors"
+path = "tests/integration/dead_accessors_tests.rs"
+
+[[test]]
 name = "generated_mapping"
 path = "tests/integration/generated_mapping_tests.rs"
 

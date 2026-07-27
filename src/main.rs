@@ -364,6 +364,11 @@ struct Cli {
     #[arg(long)]
     duplicate_strings: bool,
 
+    /// List JavaBean properties whose getter nobody calls (write-only
+    /// or fully dead groups), then exit
+    #[arg(long)]
+    dead_accessors: bool,
+
     /// After --delete: run this command (a compile, a test suite) and
     /// restore every touched file automatically when it fails
     #[arg(long, value_name = "CMD")]
@@ -2312,6 +2317,39 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
             "  (the upstream computation runs for nobody — wire a collector or delete the chain)"
                 .dimmed()
         );
+        return Ok(());
+    }
+
+    // --dead-accessors short-circuits everything after the graph
+    if cli.dead_accessors {
+        let findings = analysis::accessors::dead_accessors(&graph);
+        if findings.is_empty() {
+            println!("{}", "✓ no dead accessor groups found".green());
+            return Ok(());
+        }
+        println!("{}", "Bean properties nobody reads:".bold());
+        for finding in findings {
+            let verdict = match finding.verdict {
+                analysis::accessors::AccessorVerdict::WriteOnly => {
+                    "write-only (setter still called)".yellow().to_string()
+                }
+                analysis::accessors::AccessorVerdict::Dead => {
+                    "dead (field + accessors can go)".red().to_string()
+                }
+            };
+            let rel = finding
+                .file
+                .strip_prefix(&cli.path)
+                .unwrap_or(&finding.file);
+            println!(
+                "  {} {}.{:<20} {}  {}",
+                "○".dimmed(),
+                finding.class,
+                finding.field,
+                verdict,
+                format!("{}:{}", rel.display(), finding.line).dimmed()
+            );
+        }
         return Ok(());
     }
 
