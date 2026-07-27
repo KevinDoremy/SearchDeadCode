@@ -383,6 +383,10 @@ name = "middlemen"
 path = "tests/integration/middlemen_tests.rs"
 
 [[test]]
+name = "export_graph"
+path = "tests/integration/export_graph_tests.rs"
+
+[[test]]
 name = "generated_mapping"
 path = "tests/integration/generated_mapping_tests.rs"
 

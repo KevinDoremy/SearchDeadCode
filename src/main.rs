@@ -379,6 +379,10 @@ struct Cli {
     #[arg(long)]
     middlemen: bool,
 
+    /// Write the reference graph to this file (.json or .dot), then exit
+    #[arg(long, value_name = "FILE")]
+    export_graph: Option<PathBuf>,
+
     /// After --delete: run this command (a compile, a test suite) and
     /// restore every touched file automatically when it fails
     #[arg(long, value_name = "CMD")]
@@ -2362,6 +2366,35 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
                 .dimmed()
         );
         return Ok(());
+    }
+
+    // --export-graph short-circuits everything after the graph
+    if let Some(ref export_path) = cli.export_graph {
+        let extension = export_path
+            .extension()
+            .map(|e| e.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        let result = match extension.as_str() {
+            "json" => report::graph_export::export_json(&graph, export_path),
+            "dot" | "gv" => report::graph_export::export_dot(&graph, export_path),
+            other => {
+                eprintln!(
+                    "{}: unknown graph format '.{other}' — use .json or .dot",
+                    "Error".red()
+                );
+                std::process::exit(2);
+            }
+        };
+        match result {
+            Ok(_) => {
+                println!("✅ Wrote reference graph: {}", export_path.display());
+                return Ok(());
+            }
+            Err(e) => {
+                eprintln!("{}: failed to write graph: {}", "Error".red(), e);
+                std::process::exit(2);
+            }
+        }
     }
 
     // --middlemen short-circuits everything after the graph
