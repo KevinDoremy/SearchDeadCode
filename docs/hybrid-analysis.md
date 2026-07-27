@@ -26,10 +26,10 @@ searchdeadcode ./app \
 
 | Level | Indicator | Meaning |
 |---|---|---|
-| Confirmed | ● green | Runtime coverage confirms code is never executed |
-| High | ◉ bright green | Private / internal with no static references |
-| Medium | ○ yellow | Default for static-only analysis |
-| Low | ◌ red | May be a false positive (reflection, dynamic dispatch) |
+| Confirmed | ✓ green | Runtime coverage confirms code is never executed |
+| High | ! yellow | Private / internal with no static references |
+| Medium | ? dimmed | Default for static-only analysis |
+| Low | ~ dimmed italic | May be a false positive (reflection, dynamic dispatch) |
 
 ```bash
 # Only high-confidence and confirmed findings
@@ -84,7 +84,7 @@ searchdeadcode ./app \
 
 | Benefit | Description |
 |---|---|
-| Confirmed findings | Items in `usage.txt` are marked as `● Confirmed` |
+| Confirmed findings | Items in `usage.txt` are marked as `✓ Confirmed` |
 | Cross-validation | Static analysis + R8 agreement = high confidence |
 | Library dead code | R8 sees unused library code we cannot analyze |
 | False positive detection | `const val` objects may appear unused but are inlined |
@@ -108,8 +108,8 @@ searchdeadcode ./app \
 # 📋 ProGuard usage.txt: 106329 unused items (24593 classes, 55479 methods)
 # 🧟 Zombie Code Detected: 1 dead cycle (2 declarations)
 # Found 21 dead code issues:
-#   ● 8 confirmed (matched with R8/ProGuard)
-#   ○ 13 medium confidence
+#   ✓ 8 confirmed (matched with R8/ProGuard)
+#   ? 13 medium confidence
 ```
 
 ## Zombie code (cycle detection)
