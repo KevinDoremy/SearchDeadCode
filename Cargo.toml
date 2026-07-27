@@ -210,6 +210,10 @@ name = "inline_ignore"
 path = "tests/integration/inline_ignore_tests.rs"
 
 [[test]]
+name = "top_files"
+path = "tests/integration/top_files_tests.rs"
+
+[[test]]
 name = "cli"
 path = "tests/integration/cli_tests.rs"
 
