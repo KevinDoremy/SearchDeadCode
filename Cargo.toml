@@ -222,6 +222,10 @@ name = "why_alive"
 path = "tests/integration/why_alive_tests.rs"
 
 [[test]]
+name = "soft_refs"
+path = "tests/integration/soft_refs_tests.rs"
+
+[[test]]
 name = "cli"
 path = "tests/integration/cli_tests.rs"
 
