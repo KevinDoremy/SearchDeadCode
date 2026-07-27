@@ -457,6 +457,10 @@ name = "promises"
 path = "tests/integration/promises_tests.rs"
 
 [[test]]
+name = "fail_on_findings"
+path = "tests/integration/fail_on_findings_tests.rs"
+
+[[test]]
 name = "generated_mapping"
 path = "tests/integration/generated_mapping_tests.rs"
 

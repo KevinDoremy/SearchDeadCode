@@ -281,6 +281,7 @@ Generated from `--help`; every flag the binary accepts, alphabetically.
 | `--expand-rule` | Expand a specific rule's issues (e.g., --expand-rule AP017) |
 | `--explain` | Explain why a symbol (simple name or FQN) is considered dead or alive |
 | `--export-graph` | Write the reference graph to this file (.json or .dot), then exit |
+| `--fail-on-findings` | Exit 1 when findings remain after filtering (baseline included) — the scriptable CI gate |
 | `--fix` | Apply zero-risk fixes automatically (unused imports). Combine with --dry-run to preview. Always writes an undo script |
 | `--flag` | Feature flag cleanup: name (or key) of the flag being settled |
 | `--format` | Output format (defaults to report.format from .deadcode.yml, else terminal) [possible values: terminal, compact, json, sarif, html, markdown, reviewdog] |

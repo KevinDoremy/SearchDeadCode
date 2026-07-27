@@ -434,6 +434,11 @@ struct Cli {
     #[arg(long)]
     promises: bool,
 
+    /// Exit 1 when findings remain after filtering (baseline included)
+    /// — the scriptable CI gate
+    #[arg(long)]
+    fail_on_findings: bool,
+
     /// After --delete: run this command (a compile, a test suite) and
     /// restore every touched file automatically when it fails
     #[arg(long, value_name = "CMD")]
@@ -4436,6 +4441,12 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     // user what crossed the ceiling
     if ratchet_failed {
         std::process::exit(3);
+    }
+
+    // the scriptable gate: 1 = findings, after the report printed and
+    // the baseline filtered — new findings only
+    if cli.fail_on_findings && !dead_code.is_empty() {
+        std::process::exit(1);
     }
 
     Ok(())
