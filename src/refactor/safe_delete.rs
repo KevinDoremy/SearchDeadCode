@@ -68,6 +68,7 @@ pub struct SafeDeleter {
     interactive: bool,
     dry_run: bool,
     undo_script_path: Option<PathBuf>,
+    assume_yes: bool,
 }
 
 impl SafeDeleter {
@@ -76,7 +77,14 @@ impl SafeDeleter {
             interactive,
             dry_run,
             undo_script_path,
+            assume_yes: false,
         }
+    }
+
+    /// Skip confirmation prompts — the CI path (pair with --verify-cmd)
+    pub fn with_assume_yes(mut self, yes: bool) -> Self {
+        self.assume_yes = yes;
+        self
     }
 
     /// Delete dead code with user confirmation
@@ -114,7 +122,9 @@ impl SafeDeleter {
         }
 
         // Get user selection (only in non-dry-run mode)
-        let selected = if self.interactive {
+        let selected = if self.assume_yes {
+            dead_code.iter().collect()
+        } else if self.interactive {
             self.interactive_select(dead_code)?
         } else {
             self.batch_confirm(dead_code)?
