@@ -53,7 +53,8 @@ impl Detector for RedundantThisDetector {
     fn detect(&self, graph: &Graph) -> Vec<DeadCode> {
         let mut issues = Vec::new();
         for file in graph_files(graph) {
-            if file.extension().is_none_or(|e| e != "kt") {
+            // map_or, not is_none_or: MSRV is 1.80, is_none_or landed in 1.82
+            if file.extension().map_or(true, |e| e != "kt") {
                 continue;
             }
             let Ok(content) = fs::read_to_string(file) else {
