@@ -105,6 +105,7 @@ impl Aggregator {
             DeadCodeIssue::UnusedSealedVariant => "Unused sealed variants".to_string(),
             DeadCodeIssue::WriteOnlyPreference => "Write-only preferences".to_string(),
             DeadCodeIssue::WriteOnlyDao => "Write-only DAOs".to_string(),
+            DeadCodeIssue::UnusedIntentExtra => "Unused Intent extras".to_string(),
             DeadCodeIssue::UnusedResource => "Unused resources".to_string(),
             DeadCodeIssue::UnusedLayout => "Unused layouts".to_string(),
             DeadCodeIssue::DuplicateImport => "Duplicate imports".to_string(),
@@ -175,6 +176,7 @@ impl Aggregator {
             | DeadCodeIssue::UnusedSealedVariant
             | DeadCodeIssue::WriteOnlyPreference
             | DeadCodeIssue::WriteOnlyDao
+            | DeadCodeIssue::UnusedIntentExtra
             | DeadCodeIssue::UnusedResource
             | DeadCodeIssue::UnusedLayout
             | DeadCodeIssue::DuplicateImport

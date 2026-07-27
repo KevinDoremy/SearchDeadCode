@@ -190,6 +190,10 @@ name = "outputs_in_json"
 path = "tests/integration/outputs_in_json_tests.rs"
 
 [[test]]
+name = "outputs_in_json_2"
+path = "tests/integration/outputs_in_json_2_tests.rs"
+
+[[test]]
 name = "cli"
 path = "tests/integration/cli_tests.rs"
 

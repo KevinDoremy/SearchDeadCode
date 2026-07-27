@@ -191,6 +191,9 @@ pub enum DeadCodeIssue {
     /// Room DAO method writes data but the DAO has no read queries
     WriteOnlyDao,
 
+    /// Intent extra put but never retrieved
+    UnusedIntentExtra,
+
     /// Android resource defined but never referenced
     UnusedResource,
 
@@ -347,6 +350,7 @@ impl DeadCodeIssue {
             DeadCodeIssue::RedundantOverride => Severity::Info,
             DeadCodeIssue::WriteOnlyPreference => Severity::Warning,
             DeadCodeIssue::WriteOnlyDao => Severity::Warning,
+            DeadCodeIssue::UnusedIntentExtra => Severity::Warning,
             DeadCodeIssue::UnusedResource => Severity::Warning,
             DeadCodeIssue::UnusedLayout => Severity::Warning,
             DeadCodeIssue::DuplicateImport => Severity::Warning,
@@ -440,6 +444,9 @@ impl DeadCodeIssue {
                     "DAO method '{}' writes data but the DAO has no read queries",
                     decl.name
                 )
+            }
+            DeadCodeIssue::UnusedIntentExtra => {
+                format!("putExtra(\"{}\") is never retrieved", decl.name)
             }
             DeadCodeIssue::UnusedResource => {
                 format!("Resource '{}' is defined but never referenced", decl.name)
@@ -695,6 +702,7 @@ impl DeadCodeIssue {
             DeadCodeIssue::RedundantOverride => "DC009",
             DeadCodeIssue::WriteOnlyPreference => "DC010",
             DeadCodeIssue::WriteOnlyDao => "DC011",
+            DeadCodeIssue::UnusedIntentExtra => "DC019",
             DeadCodeIssue::UnusedResource => "DC017",
             DeadCodeIssue::UnusedLayout => "DC018",
             DeadCodeIssue::DuplicateImport => "DC012",

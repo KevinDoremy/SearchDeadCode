@@ -335,6 +335,7 @@ impl SummaryReporter {
             "DC016" => "Prefer isEmpty()",
             "DC017" => "Unused resources",
             "DC018" => "Unused layouts",
+            "DC019" => "Unused Intent extras",
             "AP001" => "Global mutable state",
             "AP002" => "Deep inheritance",
             "AP003" => "Single-impl interface",

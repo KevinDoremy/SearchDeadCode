@@ -744,6 +744,37 @@ fn load_config(cli: &Cli) -> Result<Config> {
 }
 
 /// Outermost entries of a declaration set with their estimated line total
+/// A finding about something outside the code graph (a resource, an
+/// intent extra, a prefs key): synthesize the declaration the reporter
+/// needs so the finding flows through JSON/SARIF/baseline like any other.
+#[allow(clippy::too_many_arguments)]
+fn synthetic_finding(
+    file: &std::path::Path,
+    line: usize,
+    name: &str,
+    kind: graph::DeclarationKind,
+    issue: analysis::DeadCodeIssue,
+    message: String,
+    confidence: analysis::Confidence,
+) -> analysis::DeadCode {
+    let decl = graph::Declaration::new(
+        graph::DeclarationId::new(file.to_path_buf(), line * 1000, line * 1000 + name.len()),
+        name.to_string(),
+        kind,
+        graph::Location::new(
+            file.to_path_buf(),
+            line,
+            1,
+            line * 1000,
+            line * 1000 + name.len(),
+        ),
+        graph::Language::Kotlin,
+    );
+    analysis::DeadCode::new(decl, issue)
+        .with_message(message)
+        .with_confidence(confidence)
+}
+
 fn outermost_entries(graph: &graph::Graph, ids: &[graph::DeclarationId]) -> (Vec<String>, usize) {
     let in_list: std::collections::HashSet<&graph::DeclarationId> = ids.iter().collect();
     let mut estimated_lines = 0usize;
@@ -1828,30 +1859,18 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
                 resource_analysis.referenced.len()
             );
             for resource in &resource_analysis.unused {
-                let decl = graph::Declaration::new(
-                    graph::DeclarationId::new(
-                        resource.file.clone(),
-                        resource.line * 1000,
-                        resource.line * 1000 + resource.name.len(),
-                    ),
-                    resource.name.clone(),
+                dead_code.push(synthetic_finding(
+                    &resource.file,
+                    resource.line,
+                    &resource.name,
                     graph::DeclarationKind::Property,
-                    graph::Location::new(
-                        resource.file.clone(),
-                        resource.line,
-                        1,
-                        resource.line * 1000,
-                        resource.line * 1000 + resource.name.len(),
-                    ),
-                    graph::Language::Kotlin,
-                );
-                let dead = analysis::DeadCode::new(decl, analysis::DeadCodeIssue::UnusedResource)
-                    .with_message(format!(
+                    analysis::DeadCodeIssue::UnusedResource,
+                    format!(
                         "{} '{}' is defined but never referenced",
                         resource.resource_type, resource.name
-                    ))
-                    .with_confidence(analysis::Confidence::High);
-                dead_code.push(dead);
+                    ),
+                    analysis::Confidence::High,
+                ));
             }
         }
     }
@@ -1865,20 +1884,18 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
                 .file_stem()
                 .map(|s| s.to_string_lossy().into_owned())
                 .unwrap_or_else(|| layout.display().to_string());
-            let decl = graph::Declaration::new(
-                graph::DeclarationId::new(layout.clone(), 0, stem.len()),
-                stem.clone(),
+            dead_code.push(synthetic_finding(
+                layout,
+                1,
+                &stem,
                 graph::DeclarationKind::File,
-                graph::Location::new(layout.clone(), 1, 1, 0, stem.len()),
-                graph::Language::Kotlin,
-            );
-            let dead = analysis::DeadCode::new(decl, analysis::DeadCodeIssue::UnusedLayout)
-                .with_message(format!(
+                analysis::DeadCodeIssue::UnusedLayout,
+                format!(
                     "Layout '{stem}' has no Binding usage, no R.layout and no include \
                      (check for getIdentifier()-style dynamic inflation before deleting)"
-                ))
-                .with_confidence(analysis::Confidence::Medium);
-            dead_code.push(dead);
+                ),
+                analysis::Confidence::Medium,
+            ));
         }
     }
 
@@ -1926,7 +1943,7 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         }
     }
 
-    // Step 9g: Detect unused Intent extras (Phase 11)
+    // Step 9g: Unused Intent extras — through the standard report (DC019)
     if cli.unused_extras {
         let intent_detector = UnusedIntentExtraDetector::new();
         let intent_analysis = intent_detector.analyze(&cli.path);
@@ -1937,22 +1954,16 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
                 intent_analysis.total_put,
                 intent_analysis.total_get
             );
-            // Print unused extras directly
-            if !cli.quiet {
-                use colored::Colorize;
-                println!();
-                println!("{}", "🔑 Unused Intent Extras:".yellow().bold());
-                for extra in &intent_analysis.unused_extras {
-                    let rel_path = extra.file.strip_prefix(&cli.path).unwrap_or(&extra.file);
-                    println!(
-                        "  {} {}:{} - putExtra(\"{}\") never retrieved",
-                        "○".dimmed(),
-                        rel_path.display(),
-                        extra.line,
-                        extra.key
-                    );
-                }
-                println!();
+            for extra in &intent_analysis.unused_extras {
+                dead_code.push(synthetic_finding(
+                    &extra.file,
+                    extra.line,
+                    &extra.key,
+                    graph::DeclarationKind::Property,
+                    analysis::DeadCodeIssue::UnusedIntentExtra,
+                    format!("putExtra(\"{}\") is never retrieved", extra.key),
+                    analysis::Confidence::Medium,
+                ));
             }
         }
     }
@@ -1990,25 +2001,20 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
                 "Found {} write-only SharedPreferences keys",
                 write_only_keys.len()
             );
-            if !cli.quiet {
-                use colored::Colorize;
-                println!();
-                println!("{}", "🔐 Write-Only SharedPreferences:".yellow().bold());
-                for key in write_only_keys {
-                    if let Some(locs) = prefs_analysis.writes.get(key) {
-                        for loc in locs {
-                            let rel_path = loc.file.strip_prefix(&cli.path).unwrap_or(&loc.file);
-                            println!(
-                                "  {} {}:{} - key \"{}\" written but never read",
-                                "○".dimmed(),
-                                rel_path.display(),
-                                loc.line,
-                                key
-                            );
-                        }
+            for key in write_only_keys {
+                if let Some(locs) = prefs_analysis.writes.get(key) {
+                    for loc in locs {
+                        dead_code.push(synthetic_finding(
+                            &loc.file,
+                            loc.line,
+                            key,
+                            graph::DeclarationKind::Property,
+                            analysis::DeadCodeIssue::WriteOnlyPreference,
+                            format!("SharedPreferences key \"{key}\" is written but never read"),
+                            analysis::Confidence::Medium,
+                        ));
                     }
                 }
-                println!();
             }
         }
     }
@@ -2033,34 +2039,22 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         let write_only_daos = dao_analysis.get_write_only_daos();
         if !write_only_daos.is_empty() {
             info!("Found {} write-only Room DAOs", write_only_daos.len());
-            if !cli.quiet {
-                use colored::Colorize;
-                println!();
-                println!("{}", "🗄️ Write-Only Room DAOs:".yellow().bold());
-                for dao in write_only_daos {
-                    let rel_path = dao.file.strip_prefix(&cli.path).unwrap_or(&dao.file);
-                    println!(
-                        "  {} {}:{} - DAO '{}' has @Insert but no @Query",
-                        "○".dimmed(),
-                        rel_path.display(),
-                        dao.line,
-                        dao.name
-                    );
-                    for method in dao.write_methods() {
-                        let entity_info = method
-                            .entity_type
-                            .as_ref()
-                            .map(|e| format!(" ({})", e))
-                            .unwrap_or_default();
-                        println!(
-                            "    {} {}{}",
-                            "└".dimmed(),
-                            method.name,
-                            entity_info.dimmed()
-                        );
-                    }
-                }
-                println!();
+            for dao in write_only_daos {
+                let writers: Vec<String> =
+                    dao.write_methods().iter().map(|m| m.name.clone()).collect();
+                dead_code.push(synthetic_finding(
+                    &dao.file,
+                    dao.line,
+                    &dao.name,
+                    graph::DeclarationKind::Interface,
+                    analysis::DeadCodeIssue::WriteOnlyDao,
+                    format!(
+                        "DAO '{}' has @Insert but no @Query (writers: {})",
+                        dao.name,
+                        writers.join(", ")
+                    ),
+                    analysis::Confidence::Medium,
+                ));
             }
         }
     }
