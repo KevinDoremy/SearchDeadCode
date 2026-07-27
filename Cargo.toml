@@ -315,6 +315,10 @@ name = "markdown_report"
 path = "tests/integration/markdown_report_tests.rs"
 
 [[test]]
+name = "deprecated"
+path = "tests/integration/deprecated_tests.rs"
+
+[[test]]
 name = "cli"
 path = "tests/integration/cli_tests.rs"
 
