@@ -90,6 +90,10 @@ impl ResourceDetector {
         let walker = walkdir::WalkDir::new(project_root)
             .into_iter()
             .filter_entry(|e| {
+                // never filter the root itself — its name is not ours to judge
+                if e.depth() == 0 {
+                    return true;
+                }
                 let name = e.file_name().to_string_lossy();
                 !name.starts_with('.') && name != "build" && name != "generated"
             });
@@ -218,6 +222,10 @@ impl ResourceDetector {
         let walker = walkdir::WalkDir::new(project_root)
             .into_iter()
             .filter_entry(|e| {
+                // never filter the root itself — its name is not ours to judge
+                if e.depth() == 0 {
+                    return true;
+                }
                 let name = e.file_name().to_string_lossy();
                 !name.starts_with('.') && name != "build" && name != "generated"
             });

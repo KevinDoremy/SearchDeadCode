@@ -1811,7 +1811,8 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         }
     }
 
-    // Step 9f: Detect unused Android resources
+    // Step 9f: Unused Android resources — findings flow through the
+    // standard report so JSON/SARIF/baseline see them (DC017)
     if cli.unused_resources {
         let resource_detector = ResourceDetector::new();
         let resource_analysis = resource_detector.analyze(&cli.path);
@@ -1826,50 +1827,58 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
                     .sum::<usize>(),
                 resource_analysis.referenced.len()
             );
-            // Print unused resources directly (they're not part of the code graph)
-            if !cli.quiet {
-                use colored::Colorize;
-                println!();
-                println!("{}", "📦 Unused Android Resources:".yellow().bold());
-                for resource in &resource_analysis.unused {
-                    let rel_path = resource
-                        .file
-                        .strip_prefix(&cli.path)
-                        .unwrap_or(&resource.file);
-                    println!(
-                        "  {} {}:{} - {} '{}'",
-                        "○".dimmed(),
-                        rel_path.display(),
+            for resource in &resource_analysis.unused {
+                let decl = graph::Declaration::new(
+                    graph::DeclarationId::new(
+                        resource.file.clone(),
+                        resource.line * 1000,
+                        resource.line * 1000 + resource.name.len(),
+                    ),
+                    resource.name.clone(),
+                    graph::DeclarationKind::Property,
+                    graph::Location::new(
+                        resource.file.clone(),
                         resource.line,
-                        resource.resource_type,
-                        resource.name
-                    );
-                }
-                println!();
+                        1,
+                        resource.line * 1000,
+                        resource.line * 1000 + resource.name.len(),
+                    ),
+                    graph::Language::Kotlin,
+                );
+                let dead = analysis::DeadCode::new(decl, analysis::DeadCodeIssue::UnusedResource)
+                    .with_message(format!(
+                        "{} '{}' is defined but never referenced",
+                        resource.resource_type, resource.name
+                    ))
+                    .with_confidence(analysis::Confidence::High);
+                dead_code.push(dead);
             }
         }
     }
 
-    // Step 9f2: Dead layouts (ViewBinding-aware, cheap string scan)
+    // Step 9f2: Dead layouts — same route, DC018. The dynamic-inflation
+    // caveat lives in the message.
     {
         let dead_layouts = analysis::layouts::find_dead_layouts(&files);
-        if !dead_layouts.is_empty() && !cli.quiet {
-            println!();
-            println!(
-                "{}",
-                "📐 Unused layouts (no Binding usage, no R.layout, no include):"
-                    .yellow()
-                    .bold()
+        for layout in &dead_layouts {
+            let stem = layout
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_else(|| layout.display().to_string());
+            let decl = graph::Declaration::new(
+                graph::DeclarationId::new(layout.clone(), 0, stem.len()),
+                stem.clone(),
+                graph::DeclarationKind::File,
+                graph::Location::new(layout.clone(), 1, 1, 0, stem.len()),
+                graph::Language::Kotlin,
             );
-            for layout in &dead_layouts {
-                let rel = layout.strip_prefix(&cli.path).unwrap_or(layout);
-                println!("  {} {}", "○".dimmed(), rel.display());
-            }
-            println!(
-                "{}",
-                "  (check for getIdentifier()-style dynamic inflation before deleting)".dimmed()
-            );
-            println!();
+            let dead = analysis::DeadCode::new(decl, analysis::DeadCodeIssue::UnusedLayout)
+                .with_message(format!(
+                    "Layout '{stem}' has no Binding usage, no R.layout and no include \
+                     (check for getIdentifier()-style dynamic inflation before deleting)"
+                ))
+                .with_confidence(analysis::Confidence::Medium);
+            dead_code.push(dead);
         }
     }
 

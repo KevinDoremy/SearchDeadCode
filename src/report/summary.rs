@@ -333,6 +333,8 @@ impl SummaryReporter {
             "DC014" => "Redundant this",
             "DC015" => "Redundant parentheses",
             "DC016" => "Prefer isEmpty()",
+            "DC017" => "Unused resources",
+            "DC018" => "Unused layouts",
             "AP001" => "Global mutable state",
             "AP002" => "Deep inheritance",
             "AP003" => "Single-impl interface",
