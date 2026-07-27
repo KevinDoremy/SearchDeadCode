@@ -316,6 +316,13 @@ impl SummaryReporter {
     }
 
     fn rule_short_description(&self, rule: &str) -> &'static str {
+        rule_label(rule)
+    }
+}
+
+/// Shared code -> human label table, also used by the SARIF rule list
+pub fn rule_label(rule: &str) -> &'static str {
+    {
         match rule {
             "DC001" => "Unused declarations",
             "DC002" => "Assign-only variables",

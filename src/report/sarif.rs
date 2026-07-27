@@ -6,15 +6,24 @@ use std::path::PathBuf;
 /// SARIF reporter for CI/CD integration (GitHub, Azure DevOps, etc.)
 pub struct SarifReporter {
     output_path: Option<PathBuf>,
+    base_path: Option<PathBuf>,
 }
 
 impl SarifReporter {
     pub fn new(output_path: Option<PathBuf>) -> Self {
-        Self { output_path }
+        Self {
+            output_path,
+            base_path: None,
+        }
+    }
+
+    pub fn with_base_path(mut self, base: Option<PathBuf>) -> Self {
+        self.base_path = base;
+        self
     }
 
     pub fn report(&self, dead_code: &[DeadCode]) -> Result<()> {
-        let sarif = SarifReport::from_dead_code(dead_code);
+        let sarif = SarifReport::from_dead_code(dead_code, self.base_path.as_deref());
         let json = serde_json::to_string_pretty(&sarif).into_diagnostic()?;
 
         if let Some(path) = &self.output_path {
@@ -59,10 +68,12 @@ struct SarifDriver {
 
 #[derive(Serialize)]
 struct SarifRule {
-    id: &'static str,
-    name: &'static str,
+    id: String,
+    name: String,
     #[serde(rename = "shortDescription")]
     short_description: SarifMessage,
+    #[serde(rename = "helpUri")]
+    help_uri: &'static str,
     #[serde(rename = "defaultConfiguration")]
     default_configuration: SarifConfiguration,
 }
@@ -79,6 +90,8 @@ struct SarifResult {
     level: &'static str,
     message: SarifMessage,
     locations: Vec<SarifLocation>,
+    #[serde(rename = "partialFingerprints")]
+    partial_fingerprints: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Serialize)]
@@ -113,65 +126,32 @@ struct SarifRegion {
 }
 
 impl SarifReport {
-    fn from_dead_code(dead_code: &[DeadCode]) -> Self {
-        let rules = vec![
-            SarifRule {
-                id: "DC001",
-                name: "unreferenced-declaration",
-                short_description: SarifMessage {
-                    text: "Declaration is never referenced".to_string(),
-                },
-                default_configuration: SarifConfiguration { level: "warning" },
-            },
-            SarifRule {
-                id: "DC002",
-                name: "assign-only-property",
-                short_description: SarifMessage {
-                    text: "Property is assigned but never read".to_string(),
-                },
-                default_configuration: SarifConfiguration { level: "warning" },
-            },
-            SarifRule {
-                id: "DC003",
-                name: "unused-parameter",
-                short_description: SarifMessage {
-                    text: "Parameter is never used".to_string(),
-                },
-                default_configuration: SarifConfiguration { level: "note" },
-            },
-            SarifRule {
-                id: "DC004",
-                name: "unused-import",
-                short_description: SarifMessage {
-                    text: "Import is never used".to_string(),
-                },
-                default_configuration: SarifConfiguration { level: "note" },
-            },
-            SarifRule {
-                id: "DC005",
-                name: "unused-enum-case",
-                short_description: SarifMessage {
-                    text: "Enum case is never used".to_string(),
-                },
-                default_configuration: SarifConfiguration { level: "warning" },
-            },
-            SarifRule {
-                id: "DC006",
-                name: "redundant-public",
-                short_description: SarifMessage {
-                    text: "Public visibility is unnecessary".to_string(),
-                },
-                default_configuration: SarifConfiguration { level: "note" },
-            },
-            SarifRule {
-                id: "DC007",
-                name: "dead-branch",
-                short_description: SarifMessage {
-                    text: "Code branch can never be executed".to_string(),
-                },
-                default_configuration: SarifConfiguration { level: "warning" },
-            },
-        ];
+    fn from_dead_code(dead_code: &[DeadCode], base: Option<&std::path::Path>) -> Self {
+        // One declared rule per code actually emitted: Code Scanning
+        // requires every ruleId to exist in driver.rules
+        let mut seen: Vec<&'static str> = Vec::new();
+        for dc in dead_code {
+            let code = dc.issue.code();
+            if !seen.contains(&code) {
+                seen.push(code);
+            }
+        }
+        let rules: Vec<SarifRule> =
+            seen.iter()
+                .map(|code| {
+                    let label = crate::report::summary::rule_label(code);
+                    SarifRule {
+                    id: code.to_string(),
+                    name: label.to_lowercase().replace([' ', '/'], "-").replace("()", ""),
+                    short_description: SarifMessage {
+                        text: label.to_string(),
+                    },
+                    help_uri:
+                        "https://github.com/KevinDoremy/SearchDeadCode/blob/main/docs/detectors.md",
+                    default_configuration: SarifConfiguration { level: "warning" },
+                }
+                })
+                .collect();
 
         let results: Vec<SarifResult> = dead_code
             .iter()
@@ -182,6 +162,29 @@ impl SarifReport {
                     Severity::Info => "note",
                 };
 
+                let uri = match base {
+                    Some(root) => dc
+                        .declaration
+                        .location
+                        .file
+                        .strip_prefix(root)
+                        .unwrap_or(&dc.declaration.location.file)
+                        .to_string_lossy()
+                        .replace('\\', "/"),
+                    None => dc.declaration.location.file.to_string_lossy().to_string(),
+                };
+                // Line-free fingerprint: relative file + symbol + rule.
+                // A line shift must never re-open the alert.
+                let mut fingerprints = std::collections::BTreeMap::new();
+                fingerprints.insert(
+                    "searchdeadcode/v1".to_string(),
+                    stable_hash(&format!(
+                        "{uri}|{}|{}",
+                        dc.declaration.name,
+                        dc.issue.code()
+                    )),
+                );
+
                 SarifResult {
                     rule_id: dc.issue.code(),
                     level,
@@ -190,15 +193,14 @@ impl SarifReport {
                     },
                     locations: vec![SarifLocation {
                         physical_location: SarifPhysicalLocation {
-                            artifact_location: SarifArtifactLocation {
-                                uri: dc.declaration.location.file.to_string_lossy().to_string(),
-                            },
+                            artifact_location: SarifArtifactLocation { uri },
                             region: SarifRegion {
                                 start_line: dc.declaration.location.line,
                                 start_column: dc.declaration.location.column,
                             },
                         },
                     }],
+                    partial_fingerprints: fingerprints,
                 }
             })
             .collect();
@@ -211,7 +213,7 @@ impl SarifReport {
                     driver: SarifDriver {
                         name: "searchdeadcode",
                         version: env!("CARGO_PKG_VERSION"),
-                        information_uri: "https://github.com/user/searchdeadcode",
+                        information_uri: "https://github.com/KevinDoremy/SearchDeadCode",
                         rules,
                     },
                 },
@@ -219,4 +221,14 @@ impl SarifReport {
             }],
         }
     }
+}
+
+/// djb2 — deliberately hand-rolled: std's DefaultHasher is not stable
+/// across Rust versions, and fingerprints must never drift
+fn stable_hash(input: &str) -> String {
+    let mut hash: u64 = 5381;
+    for byte in input.bytes() {
+        hash = hash.wrapping_mul(33) ^ u64::from(byte);
+    }
+    format!("{hash:016x}")
 }

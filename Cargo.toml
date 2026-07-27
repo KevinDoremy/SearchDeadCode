@@ -238,6 +238,10 @@ name = "java_parity"
 path = "tests/integration/java_parity_tests.rs"
 
 [[test]]
+name = "sarif"
+path = "tests/integration/sarif_tests.rs"
+
+[[test]]
 name = "cli"
 path = "tests/integration/cli_tests.rs"
 
