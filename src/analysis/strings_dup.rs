@@ -20,7 +20,7 @@ static STRING_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"<string\s+name="([^"]+)"[^>]*>([^<]+)</string>"#).unwrap());
 
 /// The module owning a file: the path (relative to root) before src/.
-fn module_of(root: &Path, file: &Path) -> String {
+pub(crate) fn module_of(root: &Path, file: &Path) -> String {
     let rel = file.strip_prefix(root).unwrap_or(file);
     let mut parts: Vec<String> = Vec::new();
     let mut crossed_src = false;

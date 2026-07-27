@@ -379,6 +379,10 @@ struct Cli {
     #[arg(long)]
     middlemen: bool,
 
+    /// Replace the report with a per-module summary (count, top rule)
+    #[arg(long)]
+    by_module: bool,
+
     /// Write the reference graph to this file (.json or .dot), then exit
     #[arg(long, value_name = "FILE")]
     export_graph: Option<PathBuf>,
@@ -1281,6 +1285,41 @@ fn print_score_ranking(dead_code: &[analysis::DeadCode], base: &std::path::Path)
 }
 
 /// Rank files by deletable lines — the Monday-morning "where do I start"
+/// Findings aggregated per Gradle module: count and dominant rule —
+/// the view a lead of a many-module repo actually looks at.
+fn print_by_module(dead_code: &[analysis::DeadCode], root: &Path) {
+    use std::collections::HashMap;
+    if dead_code.is_empty() {
+        println!("{}", "✓ no findings — nothing to aggregate".green());
+        return;
+    }
+    let mut per_module: HashMap<String, (usize, HashMap<&'static str, usize>)> = HashMap::new();
+    for dc in dead_code {
+        let module = analysis::strings_dup::module_of(root, &dc.declaration.location.file);
+        let entry = per_module.entry(module).or_default();
+        entry.0 += 1;
+        *entry.1.entry(dc.issue.code()).or_default() += 1;
+    }
+    let mut rows: Vec<(String, usize, &'static str, usize)> = per_module
+        .into_iter()
+        .map(|(module, (count, rules))| {
+            let (top_rule, top_count) = rules
+                .into_iter()
+                .max_by_key(|(code, n)| (*n, std::cmp::Reverse(*code)))
+                .unwrap_or(("", 0));
+            (module, count, top_rule, top_count)
+        })
+        .collect();
+    rows.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    println!("{}", "Findings per module:".bold());
+    for (module, count, top_rule, top_count) in rows {
+        println!(
+            "  {:<30} {:>4} finding(s)  top: {} ({})",
+            module, count, top_rule, top_count
+        );
+    }
+}
+
 fn print_top_files(
     graph: &graph::Graph,
     dead_code: &[analysis::DeadCode],
@@ -3752,6 +3791,12 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     // --top-files replaces the report with a per-file impact ranking
     if let Some(limit) = cli.top_files {
         print_top_files(&graph, &dead_code, &cli.path, limit.max(1));
+        return Ok(());
+    }
+
+    // --by-module replaces the report with a per-module summary
+    if cli.by_module {
+        print_by_module(&dead_code, &cli.path);
         return Ok(());
     }
 
