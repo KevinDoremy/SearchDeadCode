@@ -179,7 +179,7 @@ runs:
 
         # Count findings (look for "Found X dead code" or count JSON entries)
         if [ "$FORMAT" = "json" ] && [ -n "${{ inputs.output }}" ]; then
-          FINDINGS=$(jq 'length' "${{ inputs.output }}" 2>/dev/null || echo "0")
+          FINDINGS=$(jq '.findings | length' "${{ inputs.output }}" 2>/dev/null || echo "0")
         else
           FINDINGS=$(echo "$OUTPUT_TEXT" | grep -oE 'Found [0-9]+ dead code' | grep -oE '[0-9]+' || echo "0")
         fi
