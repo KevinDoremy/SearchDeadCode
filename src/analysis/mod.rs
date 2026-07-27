@@ -6,6 +6,7 @@ pub mod bus;
 mod cycles;
 mod deep;
 pub mod detectors;
+pub mod diff_base;
 mod enhanced;
 mod entry_points;
 pub mod flags;

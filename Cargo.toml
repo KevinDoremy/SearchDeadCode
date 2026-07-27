@@ -214,6 +214,10 @@ name = "top_files"
 path = "tests/integration/top_files_tests.rs"
 
 [[test]]
+name = "diff_base"
+path = "tests/integration/diff_base_tests.rs"
+
+[[test]]
 name = "cli"
 path = "tests/integration/cli_tests.rs"
 
