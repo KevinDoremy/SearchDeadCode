@@ -329,6 +329,7 @@ Generated from `--help`; every flag the binary accepts, alphabetically.
 | `--style` | Style lints: redundant this, doubled parentheses, size==0 (DC014-16) |
 | `--summary` | Summary output - show statistics and top issues only |
 | `--target` | Target directories to analyze (can be specified multiple times) |
+| `--test-only` | List src/main symbols kept alive only by test source sets (delete symbol and tests together), then exit |
 | `--top` | Number of top issues to show in summary mode [default: 10] |
 | `--top-files` | Rank files by deletable lines instead of reporting findings |
 | `--tui` | Full-screen findings triage (needs a terminal) |

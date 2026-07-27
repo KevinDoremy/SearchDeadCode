@@ -348,6 +348,11 @@ struct Cli {
     #[arg(long)]
     debug_only: bool,
 
+    /// List src/main symbols kept alive only by test source sets
+    /// (delete symbol and tests together), then exit
+    #[arg(long)]
+    test_only: bool,
+
     /// Install a pre-commit hook running the fast diff mode, then exit
     #[arg(long)]
     install_hook: bool,
@@ -3340,6 +3345,40 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
                 );
             }
         }
+        return Ok(());
+    }
+
+    // --test-only short-circuits everything after the graph: the
+    // subset of variant lifelines where every keeper is a test set
+    if cli.test_only {
+        const TEST_SETS: &[&str] = &["test", "androidTest", "testFixtures", "sharedTest"];
+        let findings: Vec<_> = analysis::variant_scope::debug_only_symbols(&graph)
+            .into_iter()
+            .filter(|f| f.sets.iter().all(|s| TEST_SETS.contains(&s.as_str())))
+            .collect();
+        if findings.is_empty() {
+            println!("{}", "✓ no test-only production symbols found".green());
+            return Ok(());
+        }
+        println!("{}", "src/main symbols only the tests keep alive:".bold());
+        for finding in findings {
+            let rel = finding
+                .file
+                .strip_prefix(&cli.path)
+                .unwrap_or(&finding.file);
+            println!(
+                "  {} {:<30} kept by: {}  {}",
+                "○".dimmed(),
+                finding.name,
+                finding.sets.join(", "),
+                format!("{}:{}", rel.display(), finding.line).dimmed()
+            );
+        }
+        println!(
+            "{}",
+            "  (production ships them for nothing — delete the symbol and its tests together)"
+                .dimmed()
+        );
         return Ok(());
     }
 
