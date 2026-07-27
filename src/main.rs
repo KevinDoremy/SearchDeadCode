@@ -457,6 +457,10 @@ struct Cli {
     #[arg(long, value_name = "FILE")]
     import_suppressions: Option<PathBuf>,
 
+    /// List cache keys written but never read back, then exit
+    #[arg(long)]
+    write_only_caches: bool,
+
     /// After --delete: run this command (a compile, a test suite) and
     /// restore every touched file automatically when it fails
     #[arg(long, value_name = "CMD")]
@@ -2903,6 +2907,33 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
                 std::process::exit(2);
             }
         }
+    }
+
+    // --write-only-caches short-circuits everything: text scan only
+    if cli.write_only_caches {
+        match analysis::caches::write_only_cache_keys(&cli.path) {
+            None => println!("{}", "no cache writes found — nothing to check".dimmed()),
+            Some(keys) if keys.is_empty() => {
+                println!("{}", "✓ no write-only cache keys found".green())
+            }
+            Some(keys) => {
+                println!("{}", "Cache keys written but never read back:".bold());
+                for entry in keys {
+                    let rel = entry.file.strip_prefix(&cli.path).unwrap_or(&entry.file);
+                    println!(
+                        "  {} \"{}\"  {}",
+                        "○".dimmed(),
+                        entry.key,
+                        format!("{}:{}", rel.display(), entry.line).dimmed()
+                    );
+                }
+                println!(
+                    "{}",
+                    "  (the compute-and-store pipeline behind each runs for nothing)".dimmed()
+                );
+            }
+        }
+        return Ok(());
     }
 
     // --import-suppressions short-circuits everything after the graph
