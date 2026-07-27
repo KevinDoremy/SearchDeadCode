@@ -623,6 +623,7 @@ enum OutputFormat {
     Html,
     Markdown,
     Reviewdog,
+    Csv,
 }
 
 #[derive(clap::ValueEnum, Clone, Copy, Debug, Default)]
@@ -671,6 +672,7 @@ fn determine_report_format(cli: &Cli, config: &Config) -> report::ReportFormat {
         OutputFormat::Html => report::ReportFormat::Html,
         OutputFormat::Markdown => report::ReportFormat::Markdown,
         OutputFormat::Reviewdog => report::ReportFormat::Reviewdog,
+        OutputFormat::Csv => report::ReportFormat::Csv,
     }
 }
 
@@ -1177,6 +1179,7 @@ fn run_analysis_internal(
         OutputFormat::Html => report::ReportFormat::Html,
         OutputFormat::Markdown => report::ReportFormat::Markdown,
         OutputFormat::Reviewdog => report::ReportFormat::Reviewdog,
+        OutputFormat::Csv => report::ReportFormat::Csv,
     };
     let reporter = Reporter::new(report_format, output);
     reporter.report(&dead_code)?;

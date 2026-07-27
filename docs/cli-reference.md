@@ -12,7 +12,7 @@ Options:
   -e, --exclude <PATTERN>  Patterns to exclude (can be repeated)
   -r, --retain <PATTERN>   Patterns to retain as entry points (can be repeated)
   -f, --format <FORMAT>    Output format [default: terminal]
-                           [possible values: terminal, json, sarif]
+                           [possible values: terminal, json, sarif, csv]
   -o, --output <FILE>      Output file for json/sarif formats
       --delete             Enable safe delete mode
       --interactive        Interactive deletion (confirm each item)
