@@ -81,7 +81,7 @@ fn initialize_answers_with_capabilities() {
 fn did_open_publishes_diagnostics_for_the_dead() {
     let temp = tempfile::tempdir().unwrap();
     let (graph, project) = saved_graph(temp.path());
-    let ghost_uri = format!("file://{}", project.join("Ghost.kt").display());
+    let ghost_uri = format!("file://{}", project.join("Ghost.kt").display()).replace('\\', "/");
 
     let responses = serve(
         &graph,
@@ -109,7 +109,7 @@ fn did_open_publishes_diagnostics_for_the_dead() {
 fn a_living_file_gets_empty_diagnostics() {
     let temp = tempfile::tempdir().unwrap();
     let (graph, project) = saved_graph(temp.path());
-    let main_uri = format!("file://{}", project.join("Main.kt").display());
+    let main_uri = format!("file://{}", project.join("Main.kt").display()).replace('\\', "/");
 
     let responses = serve(
         &graph,
@@ -135,7 +135,7 @@ fn a_living_file_gets_empty_diagnostics() {
 fn hover_on_a_dead_symbol_says_dead() {
     let temp = tempfile::tempdir().unwrap();
     let (graph, project) = saved_graph(temp.path());
-    let ghost_uri = format!("file://{}", project.join("Ghost.kt").display());
+    let ghost_uri = format!("file://{}", project.join("Ghost.kt").display()).replace('\\', "/");
 
     // Ghost is declared on line 3 (0-indexed: 2)
     let responses = serve(
@@ -162,7 +162,7 @@ fn hover_on_a_dead_symbol_says_dead() {
 fn hover_on_a_living_symbol_shows_the_life_path() {
     let temp = tempfile::tempdir().unwrap();
     let (graph, project) = saved_graph(temp.path());
-    let main_uri = format!("file://{}", project.join("Main.kt").display());
+    let main_uri = format!("file://{}", project.join("Main.kt").display()).replace('\\', "/");
 
     // main is declared on line 3 (0-indexed: 2)
     let responses = serve(
@@ -189,7 +189,7 @@ fn hover_on_a_living_symbol_shows_the_life_path() {
 fn hover_on_an_empty_line_answers_null() {
     let temp = tempfile::tempdir().unwrap();
     let (graph, project) = saved_graph(temp.path());
-    let main_uri = format!("file://{}", project.join("Main.kt").display());
+    let main_uri = format!("file://{}", project.join("Main.kt").display()).replace('\\', "/");
 
     let responses = serve(
         &graph,

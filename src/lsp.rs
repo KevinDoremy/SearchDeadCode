@@ -68,11 +68,15 @@ pub fn serve(graph: &SavedGraph) -> std::io::Result<()> {
 }
 
 fn diagnostics_for(graph: &SavedGraph, uri: &str) -> Vec<Value> {
-    let path = uri.strip_prefix("file://").unwrap_or(uri);
+    // URIs use forward slashes; the exported node paths follow the OS
+    let path = uri
+        .strip_prefix("file://")
+        .unwrap_or(uri)
+        .replace('\\', "/");
     graph
         .dead_symbols()
         .into_iter()
-        .filter(|node| node.file == path)
+        .filter(|node| node.file.replace('\\', "/") == path)
         .map(|node| {
             let line = node.line.saturating_sub(1) as u64;
             json!({
@@ -91,11 +95,14 @@ fn diagnostics_for(graph: &SavedGraph, uri: &str) -> Vec<Value> {
 /// Life-or-death verdict for the symbol declared on this 0-indexed
 /// line, or null when the line holds none.
 fn hover_for(graph: &SavedGraph, uri: &str, line: u64) -> Value {
-    let path = uri.strip_prefix("file://").unwrap_or(uri);
+    let path = uri
+        .strip_prefix("file://")
+        .unwrap_or(uri)
+        .replace('\\', "/");
     let Some(node) = graph
         .nodes
         .iter()
-        .find(|n| n.file == path && n.line == (line + 1) as usize)
+        .find(|n| n.file.replace('\\', "/") == path && n.line == (line + 1) as usize)
     else {
         return Value::Null;
     };
