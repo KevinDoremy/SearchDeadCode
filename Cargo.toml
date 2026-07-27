@@ -343,6 +343,10 @@ name = "r8_auto"
 path = "tests/integration/r8_auto_tests.rs"
 
 [[test]]
+name = "variant_scope"
+path = "tests/integration/variant_scope_tests.rs"
+
+[[test]]
 name = "generated_mapping"
 path = "tests/integration/generated_mapping_tests.rs"
 

@@ -340,6 +340,11 @@ struct Cli {
     #[arg(long)]
     unobserved: bool,
 
+    /// List src/main symbols referenced only from other source sets
+    /// (debug, flavors, tests) — dead in the release build — then exit
+    #[arg(long)]
+    debug_only: bool,
+
     /// After --delete: run this command (a compile, a test suite) and
     /// restore every touched file automatically when it fails
     #[arg(long, value_name = "CMD")]
@@ -2176,6 +2181,38 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         println!(
             "{}",
             "  (the upstream computation runs for nobody — wire a collector or delete the chain)"
+                .dimmed()
+        );
+        return Ok(());
+    }
+
+    // --debug-only short-circuits everything after the graph
+    if cli.debug_only {
+        let findings = analysis::variant_scope::debug_only_symbols(&graph);
+        if findings.is_empty() {
+            println!("{}", "✓ no debug-only lifelines found".green());
+            return Ok(());
+        }
+        println!(
+            "{}",
+            "src/main symbols alive only through another source set:".bold()
+        );
+        for finding in findings {
+            let rel = finding
+                .file
+                .strip_prefix(&cli.path)
+                .unwrap_or(&finding.file);
+            println!(
+                "  {} {:<30} kept by: {}  {}",
+                "○".dimmed(),
+                finding.name,
+                finding.sets.join(", "),
+                format!("{}:{}", rel.display(), finding.line).dimmed()
+            );
+        }
+        println!(
+            "{}",
+            "  (dead in the release build — move the symbol into that source set or delete it)"
                 .dimmed()
         );
         return Ok(());
