@@ -390,6 +390,11 @@ struct Cli {
     #[arg(long)]
     health: bool,
 
+    /// Replace the report with a paste-ready cleanup-PR description
+    /// (stats, proof of death, residual risks)
+    #[arg(long)]
+    pr_description: bool,
+
     /// Fail when code references a symbol the --baseline judged dead
     /// (someone is resurrecting legacy), then exit
     #[arg(long)]
@@ -1578,6 +1583,67 @@ fn write_badge(
     );
     std::fs::write(path, svg)?;
     Ok(percent)
+}
+
+/// The cleanup PR body, ready to paste: stats, per-symbol proof of
+/// death, and a residual-risks section for what static analysis
+/// cannot fully vouch for.
+fn print_pr_description(dead_code: &[analysis::DeadCode], root: &Path) {
+    let corpses: Vec<&analysis::DeadCode> = dead_code
+        .iter()
+        .filter(|dc| dc.severity != analysis::Severity::Info)
+        .collect();
+    if corpses.is_empty() {
+        println!("nothing to clean — no PR to describe");
+        return;
+    }
+    let files: std::collections::BTreeSet<_> = corpses
+        .iter()
+        .map(|dc| dc.declaration.location.file.clone())
+        .collect();
+    println!(
+        "## Remove dead code ({} finding(s) across {} file(s))\n",
+        corpses.len(),
+        files.len()
+    );
+    println!("Every symbol below has no incoming references in the whole reference graph (0 incoming references), as verified by searchdeadcode.\n");
+    println!("## Findings\n");
+    println!("| Code | Symbol | Kind | Location |");
+    println!("|------|--------|------|----------|");
+    for dc in &corpses {
+        let rel = dc
+            .declaration
+            .location
+            .file
+            .strip_prefix(root)
+            .unwrap_or(&dc.declaration.location.file);
+        println!(
+            "| {} | {} | {} | {}:{} |",
+            dc.issue.code(),
+            dc.declaration.name,
+            dc.declaration.kind.display_name(),
+            rel.display(),
+            dc.declaration.location.line
+        );
+    }
+    let risky: Vec<&&analysis::DeadCode> = corpses
+        .iter()
+        .filter(|dc| dc.risk != analysis::RiskLevel::Low)
+        .collect();
+    println!("\n## Residual risks\n");
+    if risky.is_empty() {
+        println!("None flagged: no string references, reflection or bus signals on any finding.");
+    } else {
+        for dc in risky {
+            println!(
+                "- **{}** ({} risk): {}",
+                dc.declaration.name, dc.risk, dc.message
+            );
+        }
+        println!(
+            "\nDouble-check these before merging — static analysis cannot fully vouch for them."
+        );
+    }
 }
 
 /// A-F report card per module from the dead/total declaration ratio —
@@ -4431,6 +4497,12 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     // --health replaces the report with the module report card
     if cli.health {
         print_health(&graph, &dead_code, &cli.path);
+        return Ok(());
+    }
+
+    // --pr-description replaces the report with a paste-ready PR body
+    if cli.pr_description {
+        print_pr_description(&dead_code, &cli.path);
         return Ok(());
     }
 
