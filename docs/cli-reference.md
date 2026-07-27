@@ -231,6 +231,10 @@ searchdeadcode --completions fish > ~/.config/fish/completions/searchdeadcode.fi
 | `runtime_confirmed` | true if coverage data confirms unused |
 | `fully_qualified_name` | Package path when available |
 
+## Flag precedence
+
+Many flags replace the report entirely (`--explain`, `--health`, `--pr-description`, `--test-only`, …). Combining two of them is not an error: the first one in dispatch order answers, the later one is silently ignored. Symbol queries (`--explain`, `--why-alive`) dispatch before report cards (`--health`, `--pr-description`). When in doubt, pass one report-replacing flag per run.
+
 ## Complete flag list
 
 Generated from `--help`; every flag the binary accepts, alphabetically.
