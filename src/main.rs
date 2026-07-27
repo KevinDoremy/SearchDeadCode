@@ -349,6 +349,11 @@ struct Cli {
     #[arg(long)]
     install_hook: bool,
 
+    /// List exact -keep rules naming project classes that no longer
+    /// exist, then exit
+    #[arg(long)]
+    dead_keep_rules: bool,
+
     /// After --delete: run this command (a compile, a test suite) and
     /// restore every touched file automatically when it fails
     #[arg(long, value_name = "CMD")]
@@ -2238,6 +2243,37 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
             "  (the upstream computation runs for nobody — wire a collector or delete the chain)"
                 .dimmed()
         );
+        return Ok(());
+    }
+
+    // --dead-keep-rules short-circuits everything after the graph
+    if cli.dead_keep_rules {
+        match analysis::keep_rules::dead_keep_rules(&cli.path, &graph) {
+            None => println!("{}", "no proguard rules files (*.pro) found".dimmed()),
+            Some(dead) if dead.is_empty() => {
+                println!(
+                    "{}",
+                    "✓ every verifiable -keep rule still keeps something".green()
+                )
+            }
+            Some(dead) => {
+                println!("{}", "-keep rules pointing at vanished classes:".bold());
+                for rule in dead {
+                    let rel = rule.file.strip_prefix(&cli.path).unwrap_or(&rule.file);
+                    println!(
+                        "  {} {}  {}",
+                        "○".dimmed(),
+                        rule.spec,
+                        rel.display().to_string().dimmed()
+                    );
+                }
+                println!(
+                    "{}",
+                    "  (wildcard and library rules are skipped — unverifiable from sources alone)"
+                        .dimmed()
+                );
+            }
+        }
         return Ok(());
     }
 

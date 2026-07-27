@@ -46,9 +46,9 @@ fn pattern_to_regex(spec: &str) -> Option<Regex> {
     Regex::new(&out).ok()
 }
 
-/// Extract class specs from -keep rules in a rules file
-pub fn parse_keep_patterns(text: &str) -> Vec<KeepPattern> {
-    let mut patterns = Vec::new();
+/// The raw class specs of every -keep rule in a rules file
+fn class_specs(text: &str) -> Vec<String> {
+    let mut specs = Vec::new();
     for raw_line in text.lines() {
         let line = raw_line.trim();
         if line.starts_with('#') || !line.starts_with("-keep") {
@@ -69,17 +69,23 @@ pub fn parse_keep_patterns(text: &str) -> Vec<KeepPattern> {
         if spec.is_empty() || spec.starts_with('@') {
             continue;
         }
-        if let Some(regex) = pattern_to_regex(spec) {
-            patterns.push(KeepPattern { regex });
-        }
+        specs.push(spec.to_string());
     }
-    patterns
+    specs
 }
 
-/// Collect keep patterns from every *.pro file under the root (shallow walk,
-/// build/VCS dirs skipped)
-pub fn collect_keep_patterns(root: &Path) -> Vec<KeepPattern> {
-    let mut patterns = Vec::new();
+/// Extract class specs from -keep rules in a rules file
+pub fn parse_keep_patterns(text: &str) -> Vec<KeepPattern> {
+    class_specs(text)
+        .iter()
+        .filter_map(|spec| pattern_to_regex(spec))
+        .map(|regex| KeepPattern { regex })
+        .collect()
+}
+
+/// Every *.pro file under the root (shallow walk, build/VCS dirs skipped)
+fn pro_files(root: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
     let mut stack: Vec<(PathBuf, usize)> = vec![(root.to_path_buf(), 0)];
     while let Some((dir, depth)) = stack.pop() {
         let Ok(entries) = fs::read_dir(&dir) else {
@@ -99,13 +105,73 @@ pub fn collect_keep_patterns(root: &Path) -> Vec<KeepPattern> {
                     stack.push((path, depth + 1));
                 }
             } else if name.ends_with(".pro") {
-                if let Ok(text) = fs::read_to_string(&path) {
-                    patterns.extend(parse_keep_patterns(&text));
-                }
+                files.push(path);
             }
         }
     }
+    files
+}
+
+/// Collect keep patterns from every *.pro file under the root
+pub fn collect_keep_patterns(root: &Path) -> Vec<KeepPattern> {
+    let mut patterns = Vec::new();
+    for path in pro_files(root) {
+        if let Ok(text) = fs::read_to_string(&path) {
+            patterns.extend(parse_keep_patterns(&text));
+        }
+    }
     patterns
+}
+
+/// A -keep rule naming a project class that no longer exists
+#[derive(Debug)]
+pub struct DeadKeepRule {
+    pub spec: String,
+    pub file: PathBuf,
+}
+
+/// Exact (wildcard-free) -keep specs pointing into a project package
+/// but matching no declaration. Library classes are unverifiable from
+/// sources alone: a spec whose package the graph never declares is
+/// skipped, as is anything with wildcards.
+pub fn dead_keep_rules(root: &Path, graph: &crate::graph::Graph) -> Option<Vec<DeadKeepRule>> {
+    let files = pro_files(root);
+    if files.is_empty() {
+        return None;
+    }
+    let mut fqns: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let mut packages: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for decl in graph.declarations() {
+        if let Some(fqn) = decl.fully_qualified_name.as_deref() {
+            fqns.insert(fqn);
+            if let Some((package, _)) = fqn.rsplit_once('.') {
+                packages.insert(package);
+            }
+        }
+    }
+
+    let mut dead = Vec::new();
+    for file in files {
+        let Ok(text) = fs::read_to_string(&file) else {
+            continue;
+        };
+        for spec in class_specs(&text) {
+            if spec.contains('*') || spec.contains('?') {
+                continue;
+            }
+            let Some((package, _)) = spec.rsplit_once('.') else {
+                continue;
+            };
+            if packages.contains(package) && !fqns.contains(spec.as_str()) {
+                dead.push(DeadKeepRule {
+                    spec,
+                    file: file.clone(),
+                });
+            }
+        }
+    }
+    dead.sort_by(|a, b| a.spec.cmp(&b.spec));
+    Some(dead)
 }
 
 #[cfg(test)]
