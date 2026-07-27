@@ -291,6 +291,10 @@ struct Cli {
     #[arg(long, value_name = "N")]
     top_files: Option<usize>,
 
+    /// Rank findings by deletability: lines x confidence / risk
+    #[arg(long)]
+    score: bool,
+
     /// Report only symbols that became dead since this git reference
     #[arg(long, value_name = "REF")]
     diff_base: Option<String>,
@@ -820,6 +824,57 @@ fn synthetic_finding(
     analysis::DeadCode::new(decl, issue)
         .with_message(message)
         .with_confidence(confidence)
+}
+
+/// One sortable number per finding: lines × confidence ÷ risk.
+/// "Delete in this order."
+fn print_score_ranking(dead_code: &[analysis::DeadCode], base: &std::path::Path) {
+    if dead_code.is_empty() {
+        println!("{}", "✓ Nothing to score — no findings".green());
+        return;
+    }
+
+    let mut rows: Vec<(f64, usize, &analysis::DeadCode)> = dead_code
+        .iter()
+        .map(|dc| {
+            let lines = std::fs::read(&dc.declaration.location.file)
+                .ok()
+                .map(|content| {
+                    let end = dc.declaration.id.end.min(content.len());
+                    let start = dc.declaration.id.start.min(end);
+                    content[start..end].iter().filter(|b| **b == b'\n').count() + 1
+                })
+                .unwrap_or(1);
+            let risk_divisor = match dc.risk {
+                analysis::RiskLevel::Low => 1.0,
+                analysis::RiskLevel::Medium => 2.0,
+                analysis::RiskLevel::High => 4.0,
+            };
+            let score = lines as f64 * dc.confidence.score() / risk_divisor;
+            (score, lines, dc)
+        })
+        .collect();
+    rows.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+
+    println!(
+        "{}",
+        "Deletability ranking (lines × confidence ÷ risk)".bold()
+    );
+    for (score, lines, dc) in rows {
+        let rel = dc
+            .declaration
+            .location
+            .file
+            .strip_prefix(base)
+            .unwrap_or(&dc.declaration.location.file);
+        println!(
+            "  {:>7.1}  {}  {}  {}",
+            score,
+            dc.declaration.name,
+            format!("{}:{}", rel.display(), dc.declaration.location.line).dimmed(),
+            format!("(~{lines}L, {}, risk {})", dc.confidence.as_str(), dc.risk).dimmed()
+        );
+    }
 }
 
 /// Rank files by deletable lines — the Monday-morning "where do I start"
@@ -2654,6 +2709,12 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     // --top-files replaces the report with a per-file impact ranking
     if let Some(limit) = cli.top_files {
         print_top_files(&graph, &dead_code, &cli.path, limit.max(1));
+        return Ok(());
+    }
+
+    // --score replaces the report with a per-finding deletability ranking
+    if cli.score {
+        print_score_ranking(&dead_code, &cli.path);
         return Ok(());
     }
 

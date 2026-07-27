@@ -230,6 +230,10 @@ name = "profiles"
 path = "tests/integration/profile_tests.rs"
 
 [[test]]
+name = "score"
+path = "tests/integration/score_tests.rs"
+
+[[test]]
 name = "cli"
 path = "tests/integration/cli_tests.rs"
 
