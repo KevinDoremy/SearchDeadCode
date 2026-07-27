@@ -980,20 +980,20 @@ fn run_changed_since(files: &[discovery::SourceFile], cli: &Cli, base_ref: &str)
         .into_diagnostic()?;
     let repo_root = PathBuf::from(String::from_utf8_lossy(&repo_root.stdout).trim());
 
+    // Canonicalize BOTH sides: Windows canonical paths carry a \\?\ prefix
+    // and macOS resolves /var symlinks — mixed forms never compare equal
     let changed: HashSet<PathBuf> = String::from_utf8_lossy(&diff.stdout)
         .lines()
         .map(|l| repo_root.join(l.trim()))
+        .map(|p| p.canonicalize().unwrap_or(p))
         .collect();
 
     let changed_sources: Vec<&discovery::SourceFile> = files
         .iter()
         .filter(|f| matches!(f.file_type, FileType::Kotlin | FileType::Java))
         .filter(|f| {
-            f.path
-                .canonicalize()
-                .map(|p| changed.contains(&p))
-                .unwrap_or(false)
-                || changed.contains(&f.path)
+            let canonical = f.path.canonicalize().unwrap_or_else(|_| f.path.clone());
+            changed.contains(&canonical) || changed.contains(&f.path)
         })
         .collect();
 
