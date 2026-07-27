@@ -383,6 +383,14 @@ struct Cli {
     #[arg(long, value_name = "FILE")]
     export_graph: Option<PathBuf>,
 
+    /// A saved --export-graph JSON to answer queries from (no re-scan)
+    #[arg(long, value_name = "FILE")]
+    graph_file: Option<PathBuf>,
+
+    /// Print who references this symbol, answered from --graph-file
+    #[arg(long, value_name = "NAME")]
+    refs_of: Option<String>,
+
     /// After --delete: run this command (a compile, a test suite) and
     /// restore every touched file automatically when it fails
     #[arg(long, value_name = "CMD")]
@@ -708,6 +716,45 @@ fn main() -> Result<()> {
                 std::process::exit(2);
             }
         }
+    }
+
+    // Graph queries answer from a saved file — no scan, no analysis
+    if let Some(ref symbol) = cli.refs_of {
+        let Some(ref graph_path) = cli.graph_file else {
+            eprintln!(
+                "{}: --refs-of needs --graph-file <file> (from --export-graph)",
+                "Error".red()
+            );
+            std::process::exit(2);
+        };
+        let saved = match report::graph_export::SavedGraph::load(graph_path) {
+            Ok(saved) => saved,
+            Err(e) => {
+                eprintln!("{}: cannot read graph file: {}", "Error".red(), e);
+                std::process::exit(2);
+            }
+        };
+        match saved.refs_of(symbol) {
+            report::graph_export::QueryAnswer::UnknownSymbol => {
+                println!("'{symbol}' is not in the graph");
+            }
+            report::graph_export::QueryAnswer::Referencers(refs) if refs.is_empty() => {
+                println!("no references to '{symbol}'");
+            }
+            report::graph_export::QueryAnswer::Referencers(refs) => {
+                println!("{}", format!("References to '{symbol}':").bold());
+                for node in refs {
+                    println!(
+                        "  {} {:<25} {}  {}",
+                        "○".dimmed(),
+                        node.name,
+                        node.kind,
+                        format!("{}:{}", node.file, node.line).dimmed()
+                    );
+                }
+            }
+        }
+        return Ok(());
     }
 
     // Install the packaged pre-commit hook and exit

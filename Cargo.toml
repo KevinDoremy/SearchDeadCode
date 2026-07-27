@@ -387,6 +387,10 @@ name = "export_graph"
 path = "tests/integration/export_graph_tests.rs"
 
 [[test]]
+name = "graph_query"
+path = "tests/integration/graph_query_tests.rs"
+
+[[test]]
 name = "generated_mapping"
 path = "tests/integration/generated_mapping_tests.rs"
 

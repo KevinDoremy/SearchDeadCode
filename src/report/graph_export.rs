@@ -1,11 +1,12 @@
-//! Reference-graph export: JSON for machine consumers (and the future
-//! query mode), DOT for graphviz/Gephi. Format follows the extension.
+//! Reference-graph export and query: JSON for machine consumers, DOT
+//! for graphviz/Gephi, and instant "who references X" answers from a
+//! saved JSON without re-scanning anything.
 
-// consumed by the binary's --export-graph wedge only, invisible to lib users
+// consumed by the binary's graph wedges only, invisible to lib users
 #![allow(dead_code)]
 
 use crate::graph::Graph;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::path::Path;
 
@@ -28,6 +29,66 @@ struct EdgeOut {
 struct GraphOut {
     nodes: Vec<NodeOut>,
     edges: Vec<EdgeOut>,
+}
+
+/// Owned mirror of the export format, for reading a saved graph back.
+#[derive(Deserialize)]
+pub struct SavedNode {
+    pub id: String,
+    pub name: String,
+    pub kind: String,
+    pub file: String,
+    pub line: usize,
+}
+
+#[derive(Deserialize)]
+pub struct SavedEdge {
+    pub from: String,
+    pub to: String,
+}
+
+#[derive(Deserialize)]
+pub struct SavedGraph {
+    pub nodes: Vec<SavedNode>,
+    pub edges: Vec<SavedEdge>,
+}
+
+pub enum QueryAnswer<'a> {
+    /// The symbol exists; referencers listed (possibly empty)
+    Referencers(Vec<&'a SavedNode>),
+    /// No node carries that name at all
+    UnknownSymbol,
+}
+
+impl SavedGraph {
+    pub fn load(path: &Path) -> std::io::Result<Self> {
+        let content = std::fs::read_to_string(path)?;
+        serde_json::from_str(&content).map_err(std::io::Error::other)
+    }
+
+    /// Who references any declaration named `symbol`?
+    pub fn refs_of(&self, symbol: &str) -> QueryAnswer<'_> {
+        let targets: std::collections::HashSet<&str> = self
+            .nodes
+            .iter()
+            .filter(|n| n.name == symbol)
+            .map(|n| n.id.as_str())
+            .collect();
+        if targets.is_empty() {
+            return QueryAnswer::UnknownSymbol;
+        }
+        let by_id: std::collections::HashMap<&str, &SavedNode> =
+            self.nodes.iter().map(|n| (n.id.as_str(), n)).collect();
+        let mut referencers: Vec<&SavedNode> = self
+            .edges
+            .iter()
+            .filter(|e| targets.contains(e.to.as_str()))
+            .filter_map(|e| by_id.get(e.from.as_str()).copied())
+            .collect();
+        referencers.sort_by(|a, b| a.file.cmp(&b.file).then(a.line.cmp(&b.line)));
+        referencers.dedup_by(|a, b| a.id == b.id);
+        QueryAnswer::Referencers(referencers)
+    }
 }
 
 fn collect(graph: &Graph) -> GraphOut {
