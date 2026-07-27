@@ -22,6 +22,7 @@ pub mod kill_list;
 pub mod layouts;
 pub mod migration;
 pub mod module_usage;
+pub mod permissions;
 mod reachability;
 pub mod remote_config;
 pub mod resources;

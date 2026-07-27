@@ -369,6 +369,11 @@ struct Cli {
     #[arg(long)]
     dead_accessors: bool,
 
+    /// List manifest permissions whose API family never appears in the
+    /// code, then exit
+    #[arg(long)]
+    unused_permissions: bool,
+
     /// After --delete: run this command (a compile, a test suite) and
     /// restore every touched file automatically when it fails
     #[arg(long, value_name = "CMD")]
@@ -2111,6 +2116,40 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     let entry_points = entry_points;
 
     info!("Found {} entry points", entry_points.len());
+
+    // --unused-permissions short-circuits everything: manifest + strings
+    if cli.unused_permissions {
+        match analysis::permissions::unused_permissions(&cli.path) {
+            None => println!("{}", "no manifest found — nothing to check".dimmed()),
+            Some(unused) if unused.is_empty() => {
+                println!(
+                    "{}",
+                    "✓ every checkable permission has a matching API in use".green()
+                )
+            }
+            Some(unused) => {
+                println!("{}", "Permissions with no matching API in the code:".bold());
+                for permission in unused {
+                    let rel = permission
+                        .manifest
+                        .strip_prefix(&cli.path)
+                        .unwrap_or(&permission.manifest);
+                    println!(
+                        "  {} {}  {}",
+                        "○".dimmed(),
+                        permission.name,
+                        rel.display().to_string().dimmed()
+                    );
+                }
+                println!(
+                    "{}",
+                    "  (candidates only — libraries may use the capability without these tokens)"
+                        .dimmed()
+                );
+            }
+        }
+        return Ok(());
+    }
 
     // --duplicate-strings short-circuits everything: values files only
     if cli.duplicate_strings {
