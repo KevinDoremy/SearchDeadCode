@@ -295,6 +295,11 @@ struct Cli {
     #[arg(long)]
     score: bool,
 
+    /// Treat the public API as alive (its consumers live outside this
+    /// repo) — report internal deadness only
+    #[arg(long)]
+    library_mode: bool,
+
     /// Report only symbols that became dead since this git reference
     #[arg(long, value_name = "REF")]
     diff_base: Option<String>,
@@ -1750,7 +1755,26 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     // Step 3: Detect entry points
     info!("Detecting entry points...");
     let entry_detector = EntryPointDetector::new(config);
-    let entry_points = entry_detector.detect(&graph, &cli.path)?;
+    let mut entry_points = entry_detector.detect(&graph, &cli.path)?;
+
+    // Library mode: the public surface is consumed outside this repo,
+    // so every public top-level declaration becomes a root
+    if cli.library_mode {
+        let mut public_roots = 0usize;
+        for decl in graph.declarations() {
+            if decl.parent.is_none()
+                && decl.visibility == graph::Visibility::Public
+                && entry_points.insert(decl.id.clone())
+            {
+                public_roots += 1;
+            }
+        }
+        info!(
+            "Library mode: {} public declarations kept as roots",
+            public_roots
+        );
+    }
+    let entry_points = entry_points;
 
     info!("Found {} entry points", entry_points.len());
 
