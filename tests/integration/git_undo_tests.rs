@@ -31,6 +31,10 @@ fn git(dir: &Path, args: &[&str]) -> Output {
 
 fn init_repo(dir: &Path) {
     git(dir, &["init", "--quiet"]);
+    // Windows runners default to autocrlf=true: restoration would come
+    // back CRLF and fail the byte-for-byte check for line-ending
+    // reasons unrelated to the undo mechanism
+    git(dir, &["config", "core.autocrlf", "false"]);
     git(dir, &["add", "."]);
     git(
         dir,
