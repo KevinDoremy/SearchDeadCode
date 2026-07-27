@@ -505,6 +505,10 @@ name = "near_twins"
 path = "tests/integration/near_twins_tests.rs"
 
 [[test]]
+name = "test_only"
+path = "tests/integration/test_only_tests.rs"
+
+[[test]]
 name = "generated_mapping"
 path = "tests/integration/generated_mapping_tests.rs"
 
