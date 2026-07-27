@@ -310,6 +310,11 @@ struct Cli {
     #[arg(long)]
     dead_modules: bool,
 
+    /// Show how many declarations each retention annotation keeps
+    /// alive, broadest first, and exit
+    #[arg(long)]
+    retention_audit: bool,
+
     /// After --delete: run this command (a compile, a test suite) and
     /// restore every touched file automatically when it fails
     #[arg(long, value_name = "CMD")]
@@ -1907,6 +1912,33 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
                     "  (check reflection/manifest usage before deleting a whole module)".dimmed()
                 );
             }
+        }
+        return Ok(());
+    }
+
+    // --retention-audit short-circuits everything after the graph
+    if cli.retention_audit {
+        let counts = entry_detector.annotation_retention_counts(&graph);
+        if counts.is_empty() {
+            println!("{}", "✓ no annotation-retained declarations".green());
+            return Ok(());
+        }
+        let total = graph.declarations().count().max(1);
+        println!(
+            "{}",
+            "Retention audit (declarations kept per annotation)".bold()
+        );
+        for (name, count) in counts {
+            let share = count * 100 / total;
+            let broad = if share >= 20 {
+                " ⚠ broad — consider refining".yellow().to_string()
+            } else {
+                String::new()
+            };
+            println!(
+                "  {count:>5}  @{name}  {}{broad}",
+                format!("({share}% of declarations)").dimmed()
+            );
         }
         return Ok(());
     }

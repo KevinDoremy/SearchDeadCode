@@ -18,6 +18,127 @@ pub struct EntryPointDetector<'a> {
     menu_parser: MenuParser,
 }
 
+/// Annotations that mark retention roots (matched by contains)
+const ENTRY_ANNOTATIONS: &[&str] = &[
+    // Testing
+    "Test",
+    "Before",
+    "After",
+    "BeforeEach",
+    "AfterEach",
+    "BeforeAll",
+    "AfterAll",
+    "ParameterizedTest",
+    "RunWith",
+    "Ignore",
+    // Compose
+    "Composable",
+    "Preview",
+    "PreviewParameter",
+    // Dagger/Hilt — Provides/Binds are handled conditionally in
+    // is_code_entry_point: a provider is a root only when its
+    // produced type is consumed somewhere
+    "Inject",
+    "BindsInstance",
+    "BindsOptionalOf",
+    "Module",
+    "Component",
+    "Subcomponent",
+    "HiltAndroidApp",
+    "AndroidEntryPoint",
+    "HiltViewModel",
+    "EntryPoint",
+    "InstallIn",
+    "Singleton",
+    "Reusable",
+    "ActivityScoped",
+    "FragmentScoped",
+    "ViewModelScoped",
+    "ServiceScoped",
+    // Room Database
+    "Dao",
+    "Database",
+    "Entity",
+    "Query",
+    "Insert",
+    "Update",
+    "Delete",
+    "RawQuery",
+    "Transaction",
+    "TypeConverter",
+    "TypeConverters",
+    "Embedded",
+    "Relation",
+    "ForeignKey",
+    "PrimaryKey",
+    "ColumnInfo",
+    // Retrofit
+    "GET",
+    "POST",
+    "PUT",
+    "DELETE",
+    "PATCH",
+    "HEAD",
+    "OPTIONS",
+    "HTTP",
+    "Path",
+    "Body",
+    "Field",
+    "FieldMap",
+    "Header",
+    "HeaderMap",
+    "Headers",
+    "Multipart",
+    "FormUrlEncoded",
+    "Streaming",
+    "Url",
+    // Serialization
+    "Serializable",
+    "Parcelize",
+    "JsonClass",
+    "Json",
+    "JsonAdapter",
+    "SerializedName",
+    "Expose",
+    "SerialName",
+    "Contextual",
+    "Polymorphic",
+    // Android specific
+    "BindingAdapter",
+    "InverseBindingAdapter",
+    "BindingMethod",
+    "BindingMethods",
+    "BindingConversion",
+    "JvmStatic",
+    "JvmOverloads",
+    "JvmField",
+    "JvmName",
+    // Reflection markers
+    "Keep",
+    "KeepPublicApi",
+    // WorkManager
+    "HiltWorker",
+    // Lifecycle
+    "OnLifecycleEvent",
+    // Navigation
+    "NavGraph",
+    "NavDestination",
+    // Event Bus
+    "Subscribe",
+    // Coroutines/Flow
+    "FlowPreview",
+    "ExperimentalCoroutinesApi",
+    // Kotlin Multiplatform
+    "JsExport",
+    "JsName",
+    // Native
+    "CName",
+    // Koin
+    "KoinViewModel",
+    "Factory",
+    "Single",
+];
+
 impl<'a> EntryPointDetector<'a> {
     pub fn new(config: &'a Config) -> Self {
         Self {
@@ -133,133 +254,30 @@ impl<'a> EntryPointDetector<'a> {
 
     /// Check if an annotation marks an entry point
     fn is_entry_point_annotation(&self, annotation: &str) -> bool {
-        let entry_annotations = [
-            // Testing
-            "Test",
-            "Before",
-            "After",
-            "BeforeEach",
-            "AfterEach",
-            "BeforeAll",
-            "AfterAll",
-            "ParameterizedTest",
-            "RunWith",
-            "Ignore",
-            // Compose
-            "Composable",
-            "Preview",
-            "PreviewParameter",
-            // Dagger/Hilt — Provides/Binds are handled conditionally in
-            // is_code_entry_point: a provider is a root only when its
-            // produced type is consumed somewhere
-            "Inject",
-            "BindsInstance",
-            "BindsOptionalOf",
-            "Module",
-            "Component",
-            "Subcomponent",
-            "HiltAndroidApp",
-            "AndroidEntryPoint",
-            "HiltViewModel",
-            "EntryPoint",
-            "InstallIn",
-            "Singleton",
-            "Reusable",
-            "ActivityScoped",
-            "FragmentScoped",
-            "ViewModelScoped",
-            "ServiceScoped",
-            // Room Database
-            "Dao",
-            "Database",
-            "Entity",
-            "Query",
-            "Insert",
-            "Update",
-            "Delete",
-            "RawQuery",
-            "Transaction",
-            "TypeConverter",
-            "TypeConverters",
-            "Embedded",
-            "Relation",
-            "ForeignKey",
-            "PrimaryKey",
-            "ColumnInfo",
-            // Retrofit
-            "GET",
-            "POST",
-            "PUT",
-            "DELETE",
-            "PATCH",
-            "HEAD",
-            "OPTIONS",
-            "HTTP",
-            "Path",
-            "Body",
-            "Field",
-            "FieldMap",
-            "Header",
-            "HeaderMap",
-            "Headers",
-            "Multipart",
-            "FormUrlEncoded",
-            "Streaming",
-            "Url",
-            // Serialization
-            "Serializable",
-            "Parcelize",
-            "JsonClass",
-            "Json",
-            "JsonAdapter",
-            "SerializedName",
-            "Expose",
-            "SerialName",
-            "Contextual",
-            "Polymorphic",
-            // Android specific
-            "BindingAdapter",
-            "InverseBindingAdapter",
-            "BindingMethod",
-            "BindingMethods",
-            "BindingConversion",
-            "JvmStatic",
-            "JvmOverloads",
-            "JvmField",
-            "JvmName",
-            // Reflection markers
-            "Keep",
-            "KeepPublicApi",
-            // WorkManager
-            "HiltWorker",
-            // Lifecycle
-            "OnLifecycleEvent",
-            // Navigation
-            "NavGraph",
-            "NavDestination",
-            // Event Bus
-            "Subscribe",
-            // Coroutines/Flow
-            "FlowPreview",
-            "ExperimentalCoroutinesApi",
-            // Kotlin Multiplatform
-            "JsExport",
-            "JsName",
-            // Native
-            "CName",
-            // Koin
-            "KoinViewModel",
-            "Factory",
-            "Single",
-        ];
+        ENTRY_ANNOTATIONS.iter().any(|e| annotation.contains(e))
+    }
 
-        for entry in &entry_annotations {
-            if annotation.contains(entry) {
-                return true;
+    /// How many declarations each retention annotation keeps alive —
+    /// with the same `contains` matching the detector itself uses, so
+    /// the audit reflects reality, not an idealized exact-match world.
+    pub fn annotation_retention_counts(&self, graph: &crate::graph::Graph) -> Vec<(String, usize)> {
+        use std::collections::HashMap;
+        let mut counts: HashMap<&str, usize> = HashMap::new();
+        for decl in graph.declarations() {
+            for annotation in &decl.annotations {
+                for entry in ENTRY_ANNOTATIONS {
+                    if annotation.contains(entry) {
+                        *counts.entry(entry).or_default() += 1;
+                    }
+                }
             }
         }
-
-        false
+        let mut ranked: Vec<(String, usize)> = counts
+            .into_iter()
+            .map(|(name, count)| (name.to_string(), count))
+            .collect();
+        ranked.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+        ranked
     }
 
     /// Detect entry points from AndroidManifest.xml
