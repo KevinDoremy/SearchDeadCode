@@ -388,6 +388,10 @@ struct Cli {
     #[arg(long)]
     necromancy: bool,
 
+    /// Write a shields-style SVG badge with the dead-code percentage
+    #[arg(long, value_name = "FILE")]
+    badge: Option<PathBuf>,
+
     /// Write the reference graph to this file (.json or .dot), then exit
     #[arg(long, value_name = "FILE")]
     export_graph: Option<PathBuf>,
@@ -1298,6 +1302,56 @@ fn print_score_ranking(dead_code: &[analysis::DeadCode], base: &std::path::Path)
 }
 
 /// Rank files by deletable lines — the Monday-morning "where do I start"
+/// Shields-style flat badge: grey label, colored value. Zero is green,
+/// a little rot is yellow, more is red.
+fn write_badge(
+    path: &Path,
+    dead_code: &[analysis::DeadCode],
+    total_declarations: usize,
+) -> std::io::Result<u32> {
+    let unique_dead: std::collections::HashSet<_> = dead_code
+        .iter()
+        .map(|dc| dc.declaration.id.clone())
+        .collect();
+    let percent = if total_declarations == 0 {
+        0
+    } else {
+        ((unique_dead.len() as f64 / total_declarations as f64) * 100.0).round() as u32
+    };
+    let color = match percent {
+        0 => "#4c1",
+        1..=5 => "#dfb317",
+        _ => "#e05d44",
+    };
+    let value = format!("{percent}%");
+    // shields "flat" geometry: 6px per char is close enough for a badge
+    let label = "dead code";
+    let label_width = 6 * label.len() as u32 + 10;
+    let value_width = 6 * value.len() as u32 + 10;
+    let width = label_width + value_width;
+    let svg = format!(
+        concat!(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{w}\" height=\"20\" role=\"img\" aria-label=\"{label}: {value}\">",
+            "<rect width=\"{lw}\" height=\"20\" fill=\"#555\"/>",
+            "<rect x=\"{lw}\" width=\"{vw}\" height=\"20\" fill=\"{color}\"/>",
+            "<g fill=\"#fff\" text-anchor=\"middle\" font-family=\"Verdana,DejaVu Sans,sans-serif\" font-size=\"11\">",
+            "<text x=\"{lx}\" y=\"14\">{label}</text>",
+            "<text x=\"{vx}\" y=\"14\">{value}</text>",
+            "</g></svg>"
+        ),
+        w = width,
+        lw = label_width,
+        vw = value_width,
+        color = color,
+        lx = label_width / 2,
+        vx = label_width + value_width / 2,
+        label = label,
+        value = value,
+    );
+    std::fs::write(path, svg)?;
+    Ok(percent)
+}
+
 /// Findings aggregated per Gradle module: count and dominant rule —
 /// the view a lead of a many-module repo actually looks at.
 fn print_by_module(dead_code: &[analysis::DeadCode], root: &Path) {
@@ -3870,6 +3924,21 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     if cli.by_module {
         print_by_module(&dead_code, &cli.path);
         return Ok(());
+    }
+
+    // --badge replaces the report with an SVG for the README
+    if let Some(ref badge_path) = cli.badge {
+        let total = graph.declarations().count();
+        match write_badge(badge_path, &dead_code, total) {
+            Ok(percent) => {
+                println!("✅ Wrote badge ({percent}% dead): {}", badge_path.display());
+                return Ok(());
+            }
+            Err(e) => {
+                eprintln!("{}: failed to write badge: {}", "Error".red(), e);
+                std::process::exit(2);
+            }
+        }
     }
 
     // --score replaces the report with a per-finding deletability ranking

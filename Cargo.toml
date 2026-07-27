@@ -403,6 +403,10 @@ name = "necromancy"
 path = "tests/integration/necromancy_tests.rs"
 
 [[test]]
+name = "badge"
+path = "tests/integration/badge_tests.rs"
+
+[[test]]
 name = "generated_mapping"
 path = "tests/integration/generated_mapping_tests.rs"
 
