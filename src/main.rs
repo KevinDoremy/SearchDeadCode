@@ -461,6 +461,11 @@ struct Cli {
     #[arg(long)]
     write_only_caches: bool,
 
+    /// List same-named functions with near-identical bodies across
+    /// files (migration copy-paste), then exit
+    #[arg(long)]
+    near_twins: bool,
+
     /// After --delete: run this command (a compile, a test suite) and
     /// restore every touched file automatically when it fails
     #[arg(long, value_name = "CMD")]
@@ -3148,6 +3153,40 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         println!(
             "{}",
             "  (delete the module and its providers together — a whole DI cluster)".dimmed()
+        );
+        return Ok(());
+    }
+
+    // --near-twins short-circuits everything after the graph
+    if cli.near_twins {
+        let findings = analysis::near_twins::near_twins(&graph);
+        if findings.is_empty() {
+            println!("{}", "✓ no near twins found".green());
+            return Ok(());
+        }
+        println!(
+            "{}",
+            "Same-named functions with near-identical bodies:".bold()
+        );
+        for twin in findings {
+            let left = twin.left.0.strip_prefix(&cli.path).unwrap_or(&twin.left.0);
+            let right = twin
+                .right
+                .0
+                .strip_prefix(&cli.path)
+                .unwrap_or(&twin.right.0);
+            println!(
+                "  {} {:<20} {:.0}% shared  {} <-> {}",
+                "○".dimmed(),
+                twin.name,
+                twin.similarity * 100.0,
+                format!("{}:{}", left.display(), twin.left.1).dimmed(),
+                format!("{}:{}", right.display(), twin.right.1).dimmed()
+            );
+        }
+        println!(
+            "{}",
+            "  (migration copy-paste — once one side dies, deduplicate the survivor)".dimmed()
         );
         return Ok(());
     }
