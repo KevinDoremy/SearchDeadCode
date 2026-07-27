@@ -371,6 +371,10 @@ name = "get_identifier"
 path = "tests/integration/get_identifier_tests.rs"
 
 [[test]]
+name = "res_xml_roots"
+path = "tests/integration/res_xml_roots_tests.rs"
+
+[[test]]
 name = "generated_mapping"
 path = "tests/integration/generated_mapping_tests.rs"
 

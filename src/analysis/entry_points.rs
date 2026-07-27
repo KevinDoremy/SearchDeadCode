@@ -196,6 +196,10 @@ impl<'a> EntryPointDetector<'a> {
         // (never parsed), but proves the source class is alive
         self.detect_generated_convention_roots(graph, root, &mut entry_points);
 
+        // 9. res/xml roots: preference screens and shortcuts reference
+        // classes by FQN (custom tags, targetClass, app:fragment)
+        self.detect_res_xml_roots(graph, root, &mut entry_points);
+
         info!("Detected {} entry points", entry_points.len());
 
         Ok(entry_points)
@@ -601,6 +605,78 @@ impl<'a> EntryPointDetector<'a> {
             for decl in graph.find_by_name(&base) {
                 debug!("Generated-convention root: {}", decl.name);
                 entry_points.insert(decl.id.clone());
+            }
+        }
+    }
+
+    /// Classes referenced by FQN from res/xml files: custom preference
+    /// tags, shortcut targetClass, preference app:fragment. The graph
+    /// cannot see XML, so these references live nowhere else.
+    fn detect_res_xml_roots(
+        &self,
+        graph: &Graph,
+        root: &Path,
+        entry_points: &mut HashSet<DeclarationId>,
+    ) {
+        use regex::Regex;
+        use std::sync::LazyLock;
+        // custom tags are FQNs with an uppercase last segment; attribute
+        // values go through the same FQN shape
+        static FQN_TAG_RE: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"<([a-z][\w.]*\.[A-Z]\w*)[\s/>]").unwrap());
+        static CLASS_ATTR_RE: LazyLock<Regex> = LazyLock::new(|| {
+            Regex::new(
+                r#"(?:android:targetClass|app:fragment|android:name|class)\s*=\s*"([\w.]+)""#,
+            )
+            .unwrap()
+        });
+
+        let mut fqns: HashSet<String> = HashSet::new();
+        for entry in walkdir::WalkDir::new(root)
+            .into_iter()
+            .filter_entry(|e| {
+                if e.depth() == 0 {
+                    return true;
+                }
+                let name = e.file_name().to_string_lossy();
+                !(name.starts_with('.') || name == "build" || name == "node_modules")
+            })
+            .filter_map(Result::ok)
+            .filter(|e| {
+                e.file_type().is_file()
+                    && e.file_name().to_string_lossy().ends_with(".xml")
+                    && e.path()
+                        .parent()
+                        .and_then(|p| p.file_name())
+                        .map(|n| n == "xml")
+                        .unwrap_or(false)
+            })
+        {
+            let Ok(content) = std::fs::read_to_string(entry.path()) else {
+                continue;
+            };
+            for cap in FQN_TAG_RE.captures_iter(&content) {
+                fqns.insert(cap[1].to_string());
+            }
+            for cap in CLASS_ATTR_RE.captures_iter(&content) {
+                if cap[1].contains('.') {
+                    fqns.insert(cap[1].to_string());
+                }
+            }
+        }
+
+        for fqn in fqns {
+            let simple = fqn.rsplit('.').next().unwrap_or(&fqn);
+            for decl in graph.find_by_name(simple) {
+                let fqn_matches = decl
+                    .fully_qualified_name
+                    .as_deref()
+                    .map(|declared| declared == fqn)
+                    .unwrap_or(true); // no FQN recorded: simple-name match is enough
+                if fqn_matches {
+                    debug!("res/xml root: {}", decl.name);
+                    entry_points.insert(decl.id.clone());
+                }
             }
         }
     }
