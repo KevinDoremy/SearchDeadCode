@@ -2,6 +2,7 @@ mod aggregator;
 mod colors;
 mod compact;
 mod grouped;
+mod html;
 mod json;
 mod sarif;
 pub(crate) mod summary;
@@ -30,6 +31,8 @@ pub enum ReportFormat {
     Grouped(GroupBy),
     /// Summary statistics only
     Summary,
+    /// Self-contained HTML page with filter and sort
+    Html,
     /// JSON machine-readable format
     Json,
     /// SARIF format for IDE integration
@@ -151,6 +154,11 @@ impl Reporter {
             }
             ReportFormat::Json => {
                 let reporter = JsonReporter::new(self.options.output_path.clone());
+                reporter.report(dead_code)
+            }
+            ReportFormat::Html => {
+                let reporter = html::HtmlReporter::new(self.options.output_path.clone())
+                    .with_base_path(self.options.base_path.clone());
                 reporter.report(dead_code)
             }
             ReportFormat::Sarif => {

@@ -255,6 +255,10 @@ name = "doctor"
 path = "tests/integration/doctor_tests.rs"
 
 [[test]]
+name = "html_report"
+path = "tests/integration/html_report_tests.rs"
+
+[[test]]
 name = "cli"
 path = "tests/integration/cli_tests.rs"
 
