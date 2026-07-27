@@ -427,6 +427,10 @@ name = "baseline_stats"
 path = "tests/integration/baseline_stats_tests.rs"
 
 [[test]]
+name = "batch_branches"
+path = "tests/integration/batch_branches_tests.rs"
+
+[[test]]
 name = "generated_mapping"
 path = "tests/integration/generated_mapping_tests.rs"
 
