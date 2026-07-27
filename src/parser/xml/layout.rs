@@ -611,9 +611,9 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_real_lapresse_layout() {
+    fn test_parse_real_world_layout() {
         let parser = LayoutParser::new();
-        // Actual layout from lapresse project
+        // Actual layout shape from a production Android project
         let layout = r#"<?xml version="1.0" encoding="utf-8"?>
 <layout
         xmlns:android="http://schemas.android.com/apk/res/android"
@@ -622,7 +622,7 @@ mod tests {
     <data>
         <variable
                 name="viewModel"
-                type="ca.lapresse.android.lapresseplus.module.openingscenario.viewmodel.WelcomeViewModel" />
+                type="com.example.news.module.openingscenario.viewmodel.WelcomeViewModel" />
     </data>
 
     <androidx.constraintlayout.motion.widget.MotionLayout
@@ -650,25 +650,23 @@ mod tests {
         // Check variable is extracted
         assert_eq!(
             result.binding_variables.get("viewModel"),
-            Some(&"ca.lapresse.android.lapresseplus.module.openingscenario.viewmodel.WelcomeViewModel".to_string())
+            Some(&"com.example.news.module.openingscenario.viewmodel.WelcomeViewModel".to_string())
         );
 
         // Check class reference is extracted
-        assert!(result.class_references.contains(
-            "ca.lapresse.android.lapresseplus.module.openingscenario.viewmodel.WelcomeViewModel"
-        ));
+        assert!(result
+            .class_references
+            .contains("com.example.news.module.openingscenario.viewmodel.WelcomeViewModel"));
 
         // Check method references are extracted
         let connect_ref = MethodReference {
-            class_fqn:
-                "ca.lapresse.android.lapresseplus.module.openingscenario.viewmodel.WelcomeViewModel"
-                    .to_string(),
+            class_fqn: "com.example.news.module.openingscenario.viewmodel.WelcomeViewModel"
+                .to_string(),
             method_name: "onConnectClicked".to_string(),
         };
         let not_now_ref = MethodReference {
-            class_fqn:
-                "ca.lapresse.android.lapresseplus.module.openingscenario.viewmodel.WelcomeViewModel"
-                    .to_string(),
+            class_fqn: "com.example.news.module.openingscenario.viewmodel.WelcomeViewModel"
+                .to_string(),
             method_name: "onNotNowClicked".to_string(),
         };
 
