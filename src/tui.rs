@@ -15,6 +15,8 @@ use std::path::Path;
 pub enum Outcome {
     Continue,
     Quit,
+    /// Hand control back to the caller for a fresh analysis run.
+    Refresh,
 }
 
 #[derive(PartialEq, Eq)]
@@ -184,6 +186,7 @@ impl TuiApp {
         }
         match key {
             'q' => return Outcome::Quit,
+            'r' => return Outcome::Refresh,
             '/' => {
                 self.mode = Mode::Filter;
                 self.query.clear();
@@ -219,7 +222,7 @@ impl TuiApp {
     pub fn render(&self, frame: &mut Frame) {
         if self.mode == Mode::Help {
             let help = Paragraph::new(
-                "keys\n\nj/k  move\n/    filter (esc leaves)\ns    cycle sort\nb    mark for baseline\n?    this help\nq    quit\n\npress any key to close",
+                "keys\n\nj/k  move\n/    filter (esc leaves)\ns    cycle sort\nb    mark for baseline\nr    refresh (re-run the analysis)\n?    this help\nq    quit\n\npress any key to close",
             )
             .block(Block::default().borders(Borders::ALL).title(" help "));
             frame.render_widget(help, frame.area());
@@ -243,7 +246,7 @@ impl TuiApp {
             format!(" findings ({}) — filter: {} ", visible.len(), self.query)
         } else {
             format!(
-                " findings ({}) — marked: {} — sort: {} — j/k, / filter, s sort, b mark, q quit ",
+                " findings ({}) — marked: {} — sort: {} — / s b r refresh q — ? help ",
                 visible.len(),
                 self.rows.iter().filter(|r| r.marked).count(),
                 self.sort.label()
@@ -304,11 +307,20 @@ pub fn append_to_baseline(
     Ok(added)
 }
 
+/// How the terminal loop ended: a normal quit, or a refresh request
+/// the caller honors by re-running the whole analysis.
+#[derive(PartialEq, Eq, Debug)]
+pub enum Exit {
+    Quit,
+    Refresh,
+}
+
 /// Real terminal loop — the only part a test cannot drive.
-pub fn run(findings: &[DeadCode], root: &Path, baseline: Option<&Path>) -> std::io::Result<()> {
+pub fn run(findings: &[DeadCode], root: &Path, baseline: Option<&Path>) -> std::io::Result<Exit> {
     use crossterm::event::{self, Event, KeyCode};
     let mut app = TuiApp::new(findings, root);
     let mut terminal = ratatui::init();
+    let mut exit = Exit::Quit;
     loop {
         terminal.draw(|frame| app.render(frame))?;
         if let Event::Key(key) = event::read()? {
@@ -323,8 +335,13 @@ pub fn run(findings: &[DeadCode], root: &Path, baseline: Option<&Path>) -> std::
                         KeyCode::Enter => ' ',
                         _ => ' ',
                     };
-                    if app.on_key(ch) == Outcome::Quit {
-                        break;
+                    match app.on_key(ch) {
+                        Outcome::Quit => break,
+                        Outcome::Refresh => {
+                            exit = Exit::Refresh;
+                            break;
+                        }
+                        Outcome::Continue => {}
                     }
                 }
             }
@@ -342,7 +359,7 @@ pub fn run(findings: &[DeadCode], root: &Path, baseline: Option<&Path>) -> std::
             );
         }
     }
-    Ok(())
+    Ok(exit)
 }
 
 #[cfg(test)]
@@ -697,5 +714,39 @@ mod tests {
         let app = TuiApp::new(&[], Path::new("/repo"));
         let screen = rendered(&app);
         assert!(screen.contains("no findings"));
+    }
+
+    #[test]
+    fn pressing_r_asks_for_a_fresh_analysis() {
+        let findings = vec![finding("Ghost", 3)];
+        let mut app = TuiApp::new(&findings, Path::new("/repo"));
+        assert_eq!(
+            app.on_key('r'),
+            Outcome::Refresh,
+            "r hands control back for a re-analysis"
+        );
+    }
+
+    #[test]
+    fn r_typed_into_the_filter_stays_a_filter_character() {
+        let findings = vec![finding("Ghost", 3)];
+        let mut app = TuiApp::new(&findings, Path::new("/repo"));
+        app.on_key('/');
+        assert_eq!(
+            app.on_key('r'),
+            Outcome::Continue,
+            "while filtering, r is just a letter"
+        );
+    }
+
+    #[test]
+    fn the_footer_advertises_the_refresh_key() {
+        let findings = vec![finding("Ghost", 3)];
+        let app = TuiApp::new(&findings, Path::new("/repo"));
+        let screen = rendered(&app);
+        assert!(
+            screen.contains("r refresh"),
+            "the key is discoverable:\n{screen}"
+        );
     }
 }

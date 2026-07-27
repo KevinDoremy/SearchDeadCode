@@ -4814,8 +4814,18 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     if cli.tui {
         use std::io::IsTerminal;
         if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
-            tui::run(&dead_code, &cli.path, cli.baseline.as_deref())
+            let exit = tui::run(&dead_code, &cli.path, cli.baseline.as_deref())
                 .map_err(|e| miette::miette!(e))?;
+            if exit == tui::Exit::Refresh {
+                // the analysis pipeline lives above this wedge: re-exec
+                // the binary (incremental cache makes the rerun cheap)
+                let exe = std::env::current_exe().map_err(|e| miette::miette!(e))?;
+                let status = std::process::Command::new(exe)
+                    .args(std::env::args_os().skip(1))
+                    .status()
+                    .map_err(|e| miette::miette!(e))?;
+                std::process::exit(status.code().unwrap_or(0));
+            }
             return Ok(());
         }
         eprintln!("--tui requires a terminal; printing the standard report instead.");
