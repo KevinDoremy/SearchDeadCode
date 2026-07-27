@@ -38,6 +38,9 @@ pub struct IssueFingerprint {
     pub line: usize,
     /// Fully qualified name if available
     pub fqn: Option<String>,
+    /// Rule code that produced the finding (absent in old baselines)
+    #[serde(default)]
+    pub rule: Option<String>,
 }
 
 impl IssueFingerprint {
@@ -58,6 +61,7 @@ impl IssueFingerprint {
             kind: dc.declaration.kind.display_name().to_string(),
             line: dc.declaration.location.line,
             fqn: dc.declaration.fully_qualified_name.clone(),
+            rule: Some(dc.issue.code().to_string()),
         }
     }
 

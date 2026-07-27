@@ -423,6 +423,10 @@ name = "module_config"
 path = "tests/integration/module_config_tests.rs"
 
 [[test]]
+name = "baseline_stats"
+path = "tests/integration/baseline_stats_tests.rs"
+
+[[test]]
 name = "generated_mapping"
 path = "tests/integration/generated_mapping_tests.rs"
 
