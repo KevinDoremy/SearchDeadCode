@@ -59,6 +59,7 @@ pub struct TuiApp {
 struct RowData {
     label: String,
     detail: String,
+    marked: bool,
     sort_file: String,
     sort_rule: String,
     /// higher confidence first
@@ -91,6 +92,7 @@ impl TuiApp {
                         dc.confidence,
                         dc.risk
                     ),
+                    marked: false,
                     sort_file: format!("{}:{:08}", rel.display(), dc.declaration.location.line),
                     sort_rule: dc.issue.code().to_string(),
                     sort_confidence: std::cmp::Reverse((dc.confidence.score() * 100.0) as u32),
@@ -178,6 +180,13 @@ impl TuiApp {
                 self.sort = self.sort.next();
                 self.apply_sort();
             }
+            'b' => {
+                let visible = self.visible();
+                if let Some(&row) = visible.get(self.selected.min(visible.len().saturating_sub(1)))
+                {
+                    self.rows[row].marked = !self.rows[row].marked;
+                }
+            }
             _ => {}
         }
         Outcome::Continue
@@ -192,14 +201,19 @@ impl TuiApp {
         let visible = self.visible();
         let items: Vec<ListItem> = visible
             .iter()
-            .map(|&i| ListItem::new(Line::raw(self.rows[i].label.clone())))
+            .map(|&i| {
+                let row = &self.rows[i];
+                let prefix = if row.marked { "[b] " } else { "    " };
+                ListItem::new(Line::raw(format!("{prefix}{}", row.label)))
+            })
             .collect();
         let title = if self.mode == Mode::Filter {
             format!(" findings ({}) — filter: {} ", visible.len(), self.query)
         } else {
             format!(
-                " findings ({}) — sort: {} — j/k move, / filter, s sort, q quit ",
+                " findings ({}) — marked: {} — sort: {} — j/k, / filter, s sort, b mark, q quit ",
                 visible.len(),
+                self.rows.iter().filter(|r| r.marked).count(),
                 self.sort.label()
             )
         };
@@ -452,6 +466,65 @@ mod tests {
         assert!(
             screen.contains("Session") && !screen.contains("Ghost"),
             "'sess' narrows to Session inside the filter (and did not sort):\n{screen}"
+        );
+    }
+
+    #[test]
+    fn b_toggles_a_mark_on_the_selected_row() {
+        let findings = vec![finding("GhostA", 3), finding("GhostB", 9)];
+        let mut app = TuiApp::new(&findings, Path::new("/repo"));
+
+        app.on_key('b');
+        let screen = rendered(&app);
+        assert!(
+            screen.contains("[b] DC001 GhostA") || screen.contains("[b]"),
+            "the mark shows on the selected row:\n{screen}"
+        );
+        assert!(
+            screen.contains("marked: 1"),
+            "the title counts marks:\n{screen}"
+        );
+
+        app.on_key('b');
+        let screen = rendered(&app);
+        assert!(!screen.contains("[b]"), "b again unmarks:\n{screen}");
+    }
+
+    #[test]
+    fn marks_follow_the_finding_through_a_resort() {
+        let mut zz = finding("ZzLate", 2);
+        zz.declaration.location.file = std::path::PathBuf::from("/repo/src/Zz.kt");
+        zz.declaration.id.file = std::path::PathBuf::from("/repo/src/Zz.kt");
+        let findings = vec![zz, finding("AaEarly", 8)];
+        let mut app = TuiApp::new(&findings, Path::new("/repo"));
+
+        // file order puts AaEarly first; mark it, then resort twice
+        app.on_key('b');
+        app.on_key('s');
+        app.on_key('s');
+        let screen = rendered(&app);
+        let marked_line = screen
+            .lines()
+            .find(|l| l.contains("[b]"))
+            .expect("the mark survived the resort");
+        assert!(
+            marked_line.contains("AaEarly"),
+            "the mark rides the finding, not the slot:\n{screen}"
+        );
+    }
+
+    #[test]
+    fn b_inside_filter_mode_is_just_a_letter() {
+        let findings = vec![finding("Bumble", 3), finding("Ghost", 9)];
+        let mut app = TuiApp::new(&findings, Path::new("/repo"));
+        app.on_key('/');
+        for c in "bumb".chars() {
+            app.on_key(c);
+        }
+        let screen = rendered(&app);
+        assert!(
+            screen.contains("Bumble") && !screen.contains("[b]"),
+            "no marking from inside the filter:\n{screen}"
         );
     }
 
