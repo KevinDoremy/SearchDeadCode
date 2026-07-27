@@ -291,6 +291,7 @@ Generated from `--help`; every flag the binary accepts, alphabetically.
 | `--group-by` | Group results by: rule, category, severity, file |
 | `--include-runtime-dead` | Include runtime-dead code (reachable but never executed) |
 | `--incremental` | Enable incremental analysis with caching (enabled by default) Skips re-parsing unchanged files for faster subsequent runs [default: true] [possible values: true, false] |
+| `--health` | Replace the report with an A-F health grade per module |
 | `--import-suppressions` | Convert @Suppress(\"unused\") annotations into entries of this baseline file (migration from Detekt-style triage), then exit |
 | `--init` | Generate a commented .deadcode.yml matching the project's shape (source sets, DI framework, exclusions) and exit |
 | `--install-hook` | Install a pre-commit hook running the fast diff mode, then exit |
