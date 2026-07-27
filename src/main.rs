@@ -143,6 +143,10 @@ struct Cli {
     #[arg(long, value_name = "SYMBOL")]
     explain: Option<String>,
 
+    /// Show the retention chain keeping a symbol alive (inverse of --explain)
+    #[arg(long, value_name = "SYMBOL")]
+    why_alive: Option<String>,
+
     /// Show everything that falls if this symbol is deleted (exclusive dependents)
     #[arg(long, value_name = "SYMBOL")]
     kill_list: Option<String>,
@@ -1079,6 +1083,118 @@ fn print_kill_list(graph: &graph::Graph, symbol: &str, ids: &[graph::Declaration
 }
 
 /// Print why a symbol is considered dead or alive
+/// The inverse of --explain: walk backwards from a living symbol through
+/// incoming references (and the member-of link) until a root is reached,
+/// then print the chain root-first.
+fn why_alive_symbol(
+    graph: &graph::Graph,
+    entry_points: &std::collections::HashSet<graph::DeclarationId>,
+    reachable: &std::collections::HashSet<graph::DeclarationId>,
+    symbol: &str,
+) {
+    use std::collections::{HashMap, HashSet, VecDeque};
+
+    let candidates: Vec<&graph::Declaration> = match graph.find_by_fqn(symbol) {
+        Some(decl) => vec![decl],
+        None => graph.find_by_name(symbol),
+    };
+    if candidates.is_empty() {
+        println!("Symbol '{}' not found in the analyzed project.", symbol);
+        return;
+    }
+
+    let display = |id: &graph::DeclarationId| -> String {
+        let Some(decl) = graph.get_declaration(id) else {
+            return "<unknown>".to_string();
+        };
+        let name = match decl.parent.as_ref().and_then(|p| graph.get_declaration(p)) {
+            Some(parent) => format!("{}.{}", parent.name, decl.name),
+            None => decl.name.clone(),
+        };
+        format!(
+            "{} ({}:{})",
+            name,
+            decl.location.file.display(),
+            decl.location.line
+        )
+    };
+
+    for decl in candidates.iter().take(3) {
+        println!("\n🌿 Why alive: {}", display(&decl.id));
+
+        if entry_points.contains(&decl.id) {
+            println!("   It is itself an entry point — a retention root.");
+            continue;
+        }
+        if !reachable.contains(&decl.id) {
+            println!(
+                "   It is not alive — this symbol is dead. See: searchdeadcode --explain {}",
+                symbol
+            );
+            continue;
+        }
+
+        // BFS backwards: target ← referencing declaration, plus the
+        // member-of link (a live parent retains its members)
+        let mut preds: HashMap<graph::DeclarationId, (graph::DeclarationId, &'static str)> =
+            HashMap::new();
+        let mut visited: HashSet<graph::DeclarationId> = HashSet::new();
+        let mut queue = VecDeque::from([decl.id.clone()]);
+        visited.insert(decl.id.clone());
+        let mut root: Option<graph::DeclarationId> = None;
+
+        'search: while let Some(current) = queue.pop_front() {
+            let mut steps: Vec<(graph::DeclarationId, &'static str)> = graph
+                .get_references_to(&current)
+                .into_iter()
+                .map(|(source, _)| (source.id.clone(), "referenced by"))
+                .collect();
+            if let Some(parent) = graph
+                .get_declaration(&current)
+                .and_then(|d| d.parent.clone())
+            {
+                steps.push((parent, "member of"));
+            }
+            for (next, how) in steps {
+                if !visited.insert(next.clone()) {
+                    continue;
+                }
+                preds.insert(next.clone(), (current.clone(), how));
+                if entry_points.contains(&next) {
+                    root = Some(next);
+                    break 'search;
+                }
+                queue.push_back(next);
+            }
+        }
+
+        match root {
+            Some(root_id) => {
+                // rebuild root → … → symbol
+                let mut chain = vec![(root_id.clone(), "entry point")];
+                let mut cursor = root_id;
+                while let Some((towards_symbol, how)) = preds.get(&cursor) {
+                    chain.push((towards_symbol.clone(), *how));
+                    cursor = towards_symbol.clone();
+                }
+                for (i, (id, how)) in chain.iter().enumerate() {
+                    if i == 0 {
+                        println!("   {} — {}", display(id), how);
+                    } else {
+                        println!("   → {} ({})", display(id), how);
+                    }
+                }
+            }
+            None => {
+                println!(
+                    "   Alive without a reference chain from a root — retained by \
+                     analyzer policy (member retention, config, or keep rules)."
+                );
+            }
+        }
+    }
+}
+
 fn explain_symbol(
     graph: &graph::Graph,
     entry_points: &std::collections::HashSet<graph::DeclarationId>,
@@ -1562,6 +1678,14 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         let enhanced = EnhancedAnalyzer::new();
         let (_, reachable) = enhanced.analyze(&graph, &entry_points);
         explain_symbol(&graph, &entry_points, &reachable, symbol);
+        return Ok(());
+    }
+
+    // --why-alive short-circuits the normal report
+    if let Some(symbol) = cli.why_alive.as_deref() {
+        let enhanced = EnhancedAnalyzer::new();
+        let (_, reachable) = enhanced.analyze(&graph, &entry_points);
+        why_alive_symbol(&graph, &entry_points, &reachable, symbol);
         return Ok(());
     }
 
