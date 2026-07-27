@@ -20,6 +20,7 @@ pub mod ignore;
 pub mod keep_rules;
 pub mod kill_list;
 pub mod layouts;
+pub mod middlemen;
 pub mod migration;
 pub mod module_usage;
 pub mod permissions;

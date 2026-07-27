@@ -379,6 +379,10 @@ name = "unused_permissions"
 path = "tests/integration/unused_permissions_tests.rs"
 
 [[test]]
+name = "middlemen"
+path = "tests/integration/middlemen_tests.rs"
+
+[[test]]
 name = "generated_mapping"
 path = "tests/integration/generated_mapping_tests.rs"
 
