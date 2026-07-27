@@ -355,6 +355,10 @@ name = "dead_keep"
 path = "tests/integration/dead_keep_tests.rs"
 
 [[test]]
+name = "unused_assets"
+path = "tests/integration/unused_assets_tests.rs"
+
+[[test]]
 name = "generated_mapping"
 path = "tests/integration/generated_mapping_tests.rs"
 
