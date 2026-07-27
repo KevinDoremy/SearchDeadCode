@@ -325,6 +325,7 @@ Generated from `--help`; every flag the binary accepts, alphabetically.
 | `--target` | Target directories to analyze (can be specified multiple times) |
 | `--top` | Number of top issues to show in summary mode [default: 10] |
 | `--top-files` | Rank files by deletable lines instead of reporting findings |
+| `--tui` | Full-screen findings triage (needs a terminal) |
 | `--twins` | Show Xxx/XxxV2-style pairs side by side with reference counts, then exit |
 | `--undo-script` | Generate undo script |
 | `--unobserved` | List exposed LiveData/StateFlow/SharedFlow properties nobody collects or observes, then exit |
