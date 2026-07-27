@@ -76,6 +76,41 @@ pub struct DetectionConfig {
 
     /// Anti-pattern detector groups
     pub anti_patterns: AntiPatternConfig,
+
+    /// Size limits — every team has its own conventions
+    pub thresholds: ThresholdsConfig,
+}
+
+/// Size limits for the anti-pattern detectors
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ThresholdsConfig {
+    /// Lines before a method is flagged long (AP012)
+    pub long_method_lines: usize,
+
+    /// Methods before a class is flagged large (AP013)
+    pub large_class_methods: usize,
+
+    /// Properties before a class is flagged large (AP013)
+    pub large_class_properties: usize,
+
+    /// Parameters before a signature is flagged (AP021)
+    pub long_parameter_list: usize,
+
+    /// Inheritance depth before a hierarchy is flagged (AP002)
+    pub deep_inheritance_depth: usize,
+}
+
+impl Default for ThresholdsConfig {
+    fn default() -> Self {
+        Self {
+            long_method_lines: 50,
+            large_class_methods: 30,
+            large_class_properties: 20,
+            long_parameter_list: 6,
+            deep_inheritance_depth: 3,
+        }
+    }
 }
 
 /// Configuration for anti-pattern detectors
@@ -174,6 +209,7 @@ impl Default for DetectionConfig {
             dead_branch: true,
             redundant_public: true,
             anti_patterns: AntiPatternConfig::default(),
+            thresholds: ThresholdsConfig::default(),
         }
     }
 }

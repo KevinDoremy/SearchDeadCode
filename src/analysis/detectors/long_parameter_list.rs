@@ -67,12 +67,46 @@ impl LongParameterListDetector {
 
     /// Count parameters by looking at child declarations
     fn count_parameters(decl: &crate::graph::Declaration, graph: &Graph) -> usize {
-        graph
+        let graph_count = graph
             .get_children(&decl.id)
             .iter()
             .filter_map(|id| graph.get_declaration(id))
             .filter(|child| matches!(child.kind, DeclarationKind::Parameter))
-            .count()
+            .count();
+        if graph_count > 0 {
+            return graph_count;
+        }
+        // The parsers do not emit Parameter children; count from the
+        // signature text instead. Commas inside generics stay ignored
+        // by tracking <> depth alongside () depth.
+        Self::count_parameters_textually(decl).unwrap_or(0)
+    }
+
+    fn count_parameters_textually(decl: &crate::graph::Declaration) -> Option<usize> {
+        let content = std::fs::read_to_string(&decl.location.file).ok()?;
+        let span = content.get(decl.location.start_byte..decl.location.end_byte)?;
+        let open = span.find('(')?;
+        let mut paren_depth = 0usize;
+        let mut angle_depth = 0usize;
+        let mut commas = 0usize;
+        let mut has_content = false;
+        for ch in span[open..].chars() {
+            match ch {
+                '(' => paren_depth += 1,
+                ')' => {
+                    paren_depth -= 1;
+                    if paren_depth == 0 {
+                        break;
+                    }
+                }
+                '<' => angle_depth += 1,
+                '>' => angle_depth = angle_depth.saturating_sub(1),
+                ',' if paren_depth == 1 && angle_depth == 0 => commas += 1,
+                c if !c.is_whitespace() && paren_depth >= 1 => has_content = true,
+                _ => {}
+            }
+        }
+        Some(if has_content { commas + 1 } else { 0 })
     }
 }
 
@@ -141,6 +175,49 @@ mod tests {
     use super::*;
     use crate::graph::{Declaration, DeclarationId, Language, Location};
     use std::path::PathBuf;
+
+    fn textual_decl(source: &str) -> (Declaration, tempfile::TempDir) {
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("Sig.kt");
+        std::fs::write(&file, source).unwrap();
+        let decl = Declaration::new(
+            DeclarationId::new(file.clone(), 0, source.len()),
+            "f".to_string(),
+            DeclarationKind::Function,
+            Location::new(file, 1, 1, 0, source.len()),
+            Language::Kotlin,
+        );
+        (decl, temp)
+    }
+
+    #[test]
+    fn textual_count_ignores_commas_inside_generics() {
+        let (decl, _tmp) = textual_decl("fun f(m: Map<String, Int>, n: Int) {}\n");
+        assert_eq!(
+            LongParameterListDetector::count_parameters_textually(&decl),
+            Some(2),
+            "the comma inside Map<String, Int> is not a parameter separator"
+        );
+    }
+
+    #[test]
+    fn textual_count_of_an_empty_signature_is_zero() {
+        let (decl, _tmp) = textual_decl("fun f() {}\n");
+        assert_eq!(
+            LongParameterListDetector::count_parameters_textually(&decl),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn textual_count_ignores_nested_lambda_parens() {
+        let (decl, _tmp) = textual_decl("fun f(cb: (Int, Int) -> Int, x: Int) {}\n");
+        assert_eq!(
+            LongParameterListDetector::count_parameters_textually(&decl),
+            Some(2),
+            "the comma inside the lambda type sits at paren depth 2"
+        );
+    }
 
     fn create_function(name: &str, line: usize) -> Declaration {
         let path = PathBuf::from("test.kt");
