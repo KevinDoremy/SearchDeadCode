@@ -2239,10 +2239,11 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         use discovery::FileType;
         let prefs_detector = WriteOnlyPrefsDetector::new();
 
-        // Analyze all Kotlin files for SharedPreferences usage
+        // Analyze Kotlin AND Java files for SharedPreferences usage —
+        // put/get patterns read the same in both languages
         let mut prefs_analysis = analysis::detectors::SharedPrefsAnalysis::new();
         for file in &files {
-            if file.file_type == FileType::Kotlin {
+            if matches!(file.file_type, FileType::Kotlin | FileType::Java) {
                 if let Ok(content) = std::fs::read_to_string(&file.path) {
                     let file_analysis = prefs_detector.analyze_source(&content, &file.path);
                     // Merge results
@@ -2290,10 +2291,11 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         use discovery::FileType;
         let dao_detector = WriteOnlyDaoDetector::new();
 
-        // Analyze all Kotlin files for DAO definitions
+        // Analyze Kotlin AND Java files for DAO definitions — Room
+        // annotations are identical in both languages
         let mut dao_analysis = analysis::detectors::DaoCollectionAnalysis::new();
         for file in &files {
-            if file.file_type == FileType::Kotlin {
+            if matches!(file.file_type, FileType::Kotlin | FileType::Java) {
                 if let Ok(content) = std::fs::read_to_string(&file.path) {
                     let file_analysis = dao_detector.analyze_source(&content, &file.path);
                     dao_analysis.daos.extend(file_analysis.daos);

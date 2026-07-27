@@ -234,6 +234,10 @@ name = "score"
 path = "tests/integration/score_tests.rs"
 
 [[test]]
+name = "java_parity"
+path = "tests/integration/java_parity_tests.rs"
+
+[[test]]
 name = "cli"
 path = "tests/integration/cli_tests.rs"
 
