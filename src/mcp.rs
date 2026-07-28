@@ -77,10 +77,13 @@ fn handle(graph: &SavedGraph, project_root: &Path, request: &Value, id: Value) -
                     },
                     {
                         "name": "search",
-                        "description": "Find symbols by case-insensitive substring of their name",
+                        "description": "Find symbols by case-insensitive substring, 50 per page (offset to continue)",
                         "inputSchema": {
                             "type": "object",
-                            "properties": { "query": { "type": "string" } },
+                            "properties": {
+                                "query": { "type": "string" },
+                                "offset": { "type": "integer" }
+                            },
                             "required": ["query"]
                         }
                     },
@@ -121,7 +124,10 @@ fn handle(graph: &SavedGraph, project_root: &Path, request: &Value, id: Value) -
                     let query = request["params"]["arguments"]["query"]
                         .as_str()
                         .unwrap_or("");
-                    search_text(graph, query)
+                    let offset = request["params"]["arguments"]["offset"]
+                        .as_u64()
+                        .unwrap_or(0) as usize;
+                    search_text(graph, query, offset)
                 }
                 other => {
                     return json!({
@@ -270,7 +276,7 @@ fn why_alive_text(graph: &SavedGraph, symbol: &str) -> String {
     }
 }
 
-fn search_text(graph: &SavedGraph, query: &str) -> String {
+fn search_text(graph: &SavedGraph, query: &str, offset: usize) -> String {
     let needle = query.to_lowercase();
     let mut hits: Vec<_> = graph
         .nodes
@@ -278,16 +284,28 @@ fn search_text(graph: &SavedGraph, query: &str) -> String {
         .filter(|n| !needle.is_empty() && n.name.to_lowercase().contains(&needle))
         .collect();
     hits.sort_by(|a, b| a.name.cmp(&b.name).then(a.file.cmp(&b.file)));
-    hits.truncate(50);
-    if hits.is_empty() {
+    let total = hits.len();
+    if total == 0 {
         return format!("no symbol matches '{query}'");
     }
-    let mut out = format!("{} match(es) for '{query}':\n", hits.len());
-    for node in hits {
+    if offset >= total {
+        return format!("no matches at offset {offset} — {total} match(es) for '{query}'");
+    }
+    let page: Vec<_> = hits.into_iter().skip(offset).take(DEAD_LIST_PAGE).collect();
+    let last = offset + page.len();
+    let mut out = if total > DEAD_LIST_PAGE {
+        format!("matches {}-{last} of {total} for '{query}':\n", offset + 1)
+    } else {
+        format!("{total} match(es) for '{query}':\n")
+    };
+    for node in &page {
         out.push_str(&format!(
             "- {} ({}) at {}:{}\n",
             node.name, node.kind, node.file, node.line
         ));
+    }
+    if last < total {
+        out.push_str(&format!("pass offset={last} for the next page\n"));
     }
     out
 }

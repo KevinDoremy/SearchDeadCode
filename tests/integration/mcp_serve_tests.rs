@@ -439,3 +439,65 @@ fn dead_list_offset_past_the_end_is_a_clean_answer() {
         "past the end: explicit emptiness, no crash, text was:\n{text}"
     );
 }
+
+#[test]
+fn search_announces_its_truncation_and_pages() {
+    let temp = tempfile::tempdir().unwrap();
+    let graph = saved_graph_with_many_corpses(temp.path());
+
+    // every corpse matches "Corpse": 60 hits, one page of 50
+    let responses = serve(
+        &graph,
+        &[
+            r#"{"jsonrpc":"2.0","id":14,"method":"tools/call","params":{"name":"search","arguments":{"query":"Corpse"}}}"#,
+            r#"{"jsonrpc":"2.0","id":15,"method":"tools/call","params":{"name":"search","arguments":{"query":"Corpse","offset":50}}}"#,
+        ],
+    );
+    let first = responses[0]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(
+        first.matches("- ").count() <= 50,
+        "one page max, got:\n{first}"
+    );
+    assert!(
+        first.contains("of 60") && first.contains("offset"),
+        "silent truncation reads as 'that is all there is' — announce it, text was:\n{first}"
+    );
+    let second = responses[1]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(
+        second.matches("- ").count() >= 1,
+        "the second page holds the remainder, text was:\n{second}"
+    );
+    let first_lines: std::collections::HashSet<&str> =
+        first.lines().filter(|l| l.starts_with("- ")).collect();
+    assert!(
+        second
+            .lines()
+            .filter(|l| l.starts_with("- "))
+            .all(|l| !first_lines.contains(l)),
+        "no overlap between pages"
+    );
+}
+
+#[test]
+fn search_under_a_page_stays_unpaginated_in_tone() {
+    let temp = tempfile::tempdir().unwrap();
+    let graph = saved_graph(temp.path());
+
+    let responses = serve(
+        &graph,
+        &[
+            r#"{"jsonrpc":"2.0","id":16,"method":"tools/call","params":{"name":"search","arguments":{"query":"Engine"}}}"#,
+        ],
+    );
+    let text = responses[0]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(
+        !text.contains("offset"),
+        "a complete answer offers no continuation, text was:\n{text}"
+    );
+}
