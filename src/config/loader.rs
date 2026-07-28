@@ -243,15 +243,19 @@ impl Config {
         let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
         match extension {
-            "yml" | "yaml" => serde_yaml::from_str(&contents)
-                .into_diagnostic()
-                .wrap_err("Failed to parse YAML config"),
+            "yml" | "yaml" => {
+                warn_unknown_keys(&contents, path);
+                serde_yaml::from_str(&contents)
+                    .into_diagnostic()
+                    .wrap_err("Failed to parse YAML config")
+            }
             "toml" => toml::from_str(&contents)
                 .into_diagnostic()
                 .wrap_err("Failed to parse TOML config"),
             _ => {
                 // Try YAML first, then TOML
-                if let Ok(config) = serde_yaml::from_str(&contents) {
+                if let Ok(config) = serde_yaml::from_str::<Config>(&contents) {
+                    warn_unknown_keys(&contents, path);
                     Ok(config)
                 } else {
                     toml::from_str(&contents)
@@ -443,4 +447,57 @@ mod tests {
         assert!(config.detection.unused_class);
         assert!(config.android.parse_manifest);
     }
+}
+
+/// serde silently swallows unknown keys: a typo like `exclud` means the
+/// user's guard stops applying with no signal. The known keys come from
+/// serializing Config::default() — no hand-kept list to drift.
+fn warn_unknown_keys(contents: &str, path: &Path) {
+    let Ok(parsed) = serde_yaml::from_str::<serde_yaml::Value>(contents) else {
+        return;
+    };
+    let Some(given) = parsed.as_mapping() else {
+        return;
+    };
+    let Ok(reference) = serde_yaml::to_value(Config::default()) else {
+        return;
+    };
+    let Some(known_map) = reference.as_mapping() else {
+        return;
+    };
+    let known: Vec<String> = known_map
+        .keys()
+        .filter_map(|k| k.as_str().map(str::to_string))
+        .collect();
+    for key in given.keys().filter_map(|k| k.as_str()) {
+        if known.iter().any(|k| k == key) {
+            continue;
+        }
+        let suggestion = known
+            .iter()
+            .min_by_key(|k| edit_distance(key, k))
+            .filter(|k| edit_distance(key, k) <= 3);
+        match suggestion {
+            Some(real) => eprintln!(
+                "Warning: unknown key '{key}' in {} — did you mean '{real}'?",
+                path.display()
+            ),
+            None => eprintln!("Warning: unknown key '{key}' in {}", path.display()),
+        }
+    }
+}
+
+fn edit_distance(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    for (i, ca) in a.iter().enumerate() {
+        let mut current = vec![i + 1];
+        for (j, cb) in b.iter().enumerate() {
+            let cost = usize::from(ca != cb);
+            current.push((prev[j] + cost).min(prev[j + 1] + 1).min(current[j] + 1));
+        }
+        prev = current;
+    }
+    prev[b.len()]
 }
