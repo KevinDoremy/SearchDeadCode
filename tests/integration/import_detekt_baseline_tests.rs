@@ -221,3 +221,51 @@ fn a_missing_xml_is_a_clear_error() {
     );
     assert!(!out.status.success(), "a missing file cannot succeed");
 }
+
+#[test]
+fn manually_suppressed_issues_are_imported_too() {
+    // Detekt splits its baseline into CurrentIssues and
+    // ManuallySuppressedIssues — a triage lives in BOTH sections, and a
+    // future switch to a section-aware XML parser must not drop one
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(
+        temp.path().join("Kept.kt"),
+        "package sample\n\nclass Kept {\n    fun hold() {}\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("Main.kt"),
+        "package sample\n\nfun main() {\n    println(\"alive\")\n}\n",
+    )
+    .unwrap();
+    let xml = temp.path().join("detekt-baseline.xml");
+    fs::write(
+        &xml,
+        concat!(
+            "<?xml version=\"1.0\" ?>\n<SmellBaseline>\n",
+            "  <ManuallySuppressedIssues>\n",
+            "    <ID>UnusedPrivateClass:Kept.kt$class Kept</ID>\n",
+            "  </ManuallySuppressedIssues>\n",
+            "  <CurrentIssues/>\n",
+            "</SmellBaseline>\n",
+        ),
+    )
+    .unwrap();
+    let baseline = temp.path().join("baseline.json");
+
+    let out = bin(
+        temp.path(),
+        &[
+            "--import-detekt-baseline",
+            xml.to_str().unwrap(),
+            "--baseline",
+            baseline.to_str().unwrap(),
+        ],
+    );
+    assert!(out.status.success(), "import failed:\n{out:?}");
+    let json = fs::read_to_string(&baseline).unwrap_or_default();
+    assert!(
+        json.contains("Kept"),
+        "a manually suppressed triage is still a triage, json was:\n{json}"
+    );
+}

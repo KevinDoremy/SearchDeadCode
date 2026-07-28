@@ -63,6 +63,7 @@ struct RowData {
     label: String,
     detail: String,
     marked: bool,
+    marked_delete: bool,
     /// position in the findings slice handed to new()
     finding_index: usize,
     sort_file: String,
@@ -99,6 +100,7 @@ impl TuiApp {
                         dc.risk
                     ),
                     marked: false,
+                    marked_delete: false,
                     finding_index,
                     sort_file: format!("{}:{:08}", rel.display(), dc.declaration.location.line),
                     sort_rule: dc.issue.code().to_string(),
@@ -151,6 +153,18 @@ impl TuiApp {
             .rows
             .iter()
             .filter(|row| row.marked)
+            .map(|row| row.finding_index)
+            .collect();
+        indices.sort_unstable();
+        indices
+    }
+
+    /// Input positions of every deletion-marked finding, in input order.
+    pub fn deletion_indices(&self) -> Vec<usize> {
+        let mut indices: Vec<usize> = self
+            .rows
+            .iter()
+            .filter(|row| row.marked_delete)
             .map(|row| row.finding_index)
             .collect();
         indices.sort_unstable();
@@ -214,6 +228,13 @@ impl TuiApp {
                     self.rows[row].marked = !self.rows[row].marked;
                 }
             }
+            'x' => {
+                let visible = self.visible();
+                if let Some(&row) = visible.get(self.selected.min(visible.len().saturating_sub(1)))
+                {
+                    self.rows[row].marked_delete = !self.rows[row].marked_delete;
+                }
+            }
             _ => {}
         }
         Outcome::Continue
@@ -222,7 +243,7 @@ impl TuiApp {
     pub fn render(&self, frame: &mut Frame) {
         if self.mode == Mode::Help {
             let help = Paragraph::new(
-                "keys\n\nj/k  move\n/    filter (esc leaves)\ns    cycle sort\nb    mark for baseline\nr    refresh (re-run the analysis)\n?    this help\nq    quit\n\npress any key to close",
+                "keys\n\nj/k  move\n/    filter (esc leaves)\ns    cycle sort\nb    mark for baseline\nx    mark for deletion (applied on quit)\nr    refresh (re-run the analysis)\n?    this help\nq    quit\n\npress any key to close",
             )
             .block(Block::default().borders(Borders::ALL).title(" help "));
             frame.render_widget(help, frame.area());
@@ -246,9 +267,10 @@ impl TuiApp {
             format!(" findings ({}) — filter: {} ", visible.len(), self.query)
         } else {
             format!(
-                " findings ({}) — marked: {} — sort: {} — / s b r refresh q — ? help ",
+                " ({}) b:{} x:{} {} — / s b x r refresh q — ? help ",
                 visible.len(),
                 self.rows.iter().filter(|r| r.marked).count(),
+                self.rows.iter().filter(|r| r.marked_delete).count(),
                 self.sort.label()
             )
         };
@@ -359,6 +381,21 @@ pub fn run(findings: &[DeadCode], root: &Path, baseline: Option<&Path>) -> std::
             );
         }
     }
+    let to_delete = app.deletion_indices();
+    if !to_delete.is_empty() {
+        let subset: Vec<DeadCode> = to_delete
+            .iter()
+            .filter_map(|&i| findings.get(i).cloned())
+            .collect();
+        let undo = root.join(".searchdeadcode-undo.sh");
+        let deleter = crate::refactor::safe_delete::SafeDeleter::new(false, false, Some(undo))
+            .with_assume_yes(true);
+        deleter.delete(&subset).map_err(std::io::Error::other)?;
+        println!(
+            "deleted {} finding(s) — undo: .searchdeadcode-undo.sh",
+            subset.len()
+        );
+    }
     Ok(exit)
 }
 
@@ -414,7 +451,7 @@ mod tests {
         app.on_key('j');
         assert_eq!(app.selected, 1, "j moves down");
         let screen = rendered(&app);
-        assert!(screen.contains("findings (2)"));
+        assert!(screen.contains("(2)"));
     }
 
     #[test]
@@ -531,21 +568,21 @@ mod tests {
         app.on_key('s');
         let screen = rendered(&app);
         assert!(
-            screen.contains("sort: rule") || screen.contains("sort: code"),
+            screen.contains("rule — ") || screen.contains("code — "),
             "the sort mode is visible after s:\n{screen}"
         );
 
         app.on_key('s');
         let screen = rendered(&app);
         assert!(
-            screen.contains("sort: confidence"),
+            screen.contains("confidence — "),
             "second s reaches confidence:\n{screen}"
         );
 
         app.on_key('s');
         let screen = rendered(&app);
         assert!(
-            screen.contains("sort: file"),
+            screen.contains("file — "),
             "third s cycles back to file:\n{screen}"
         );
     }
@@ -576,10 +613,7 @@ mod tests {
             screen.contains("[b] DC001 GhostA") || screen.contains("[b]"),
             "the mark shows on the selected row:\n{screen}"
         );
-        assert!(
-            screen.contains("marked: 1"),
-            "the title counts marks:\n{screen}"
-        );
+        assert!(screen.contains("b:1"), "the title counts marks:\n{screen}");
 
         app.on_key('b');
         let screen = rendered(&app);
@@ -748,5 +782,39 @@ mod tests {
             screen.contains("r refresh"),
             "the key is discoverable:\n{screen}"
         );
+    }
+
+    #[test]
+    fn x_toggles_a_deletion_mark() {
+        let findings = vec![finding("Ghost", 3)];
+        let mut app = TuiApp::new(&findings, Path::new("/repo"));
+        app.on_key('x');
+        assert_eq!(app.deletion_indices(), vec![0], "x marks for deletion");
+        app.on_key('x');
+        assert!(app.deletion_indices().is_empty(), "x again unmarks");
+    }
+
+    #[test]
+    fn x_in_filter_mode_stays_a_letter() {
+        let findings = vec![finding("Ghost", 3)];
+        let mut app = TuiApp::new(&findings, Path::new("/repo"));
+        app.on_key('/');
+        app.on_key('x');
+        assert!(
+            app.deletion_indices().is_empty(),
+            "while filtering, x is just a letter"
+        );
+    }
+
+    #[test]
+    fn deletion_and_baseline_marks_are_independent() {
+        let findings = vec![finding("Ghost", 3)];
+        let mut app = TuiApp::new(&findings, Path::new("/repo"));
+        app.on_key('b');
+        assert!(
+            app.deletion_indices().is_empty(),
+            "b is baseline, not deletion"
+        );
+        assert_eq!(app.marked_indices(), vec![0]);
     }
 }
