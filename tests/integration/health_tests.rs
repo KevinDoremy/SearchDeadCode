@@ -246,3 +246,61 @@ fn min_grade_rejects_nonsense_letters() {
         .unwrap();
     assert!(!out.status.success(), "Z is not a grade");
 }
+
+#[test]
+fn min_grade_without_health_is_rejected() {
+    // silently accepting-and-ignoring a CI gate is how rot ships green
+    let temp = tempfile::tempdir().unwrap();
+    write_file(
+        temp.path(),
+        "app/src/main/kotlin/Main.kt",
+        "package sample\n\nfun main() {\n    println(\"alive\")\n}\n",
+    );
+
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+        .arg(temp.path())
+        .args(["--min-grade", "C"])
+        .output()
+        .unwrap();
+    assert!(
+        !out.status.success(),
+        "--min-grade without --health must refuse, not ignore"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("--health"),
+        "the error names the missing flag, stderr was:\n{stderr}"
+    );
+}
+
+#[test]
+fn min_grade_gates_the_json_output_too() {
+    let temp = tempfile::tempdir().unwrap();
+    write_file(
+        temp.path(),
+        "app/src/main/kotlin/Ghost.kt",
+        "package sample\n\nclass Ghost {\n    fun haunt() {}\n}\n",
+    );
+    write_file(
+        temp.path(),
+        "app/src/main/kotlin/Main.kt",
+        "package sample\n\nfun main() {\n    println(\"alive\")\n}\n",
+    );
+
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+        .arg(temp.path())
+        .args(["--health", "--format", "json", "--min-grade", "C"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(3),
+        "the gate applies regardless of output format:\n{out:?}"
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let first_line = stdout.lines().next().unwrap_or("");
+    assert!(
+        serde_json::from_str::<serde_json::Value>(first_line).is_ok(),
+        "the JSON card still lands on stdout before the verdict, stdout was:\n{stdout}"
+    );
+}

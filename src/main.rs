@@ -396,7 +396,7 @@ struct Cli {
     health: bool,
 
     /// With --health: exit 3 when any module grades below this letter
-    #[arg(long, value_name = "GRADE", value_parser = ["A", "B", "C", "D"])]
+    #[arg(long, value_name = "GRADE", value_parser = ["A", "B", "C", "D"], requires = "health")]
     min_grade: Option<String>,
 
     /// Replace the report with a paste-ready cleanup-PR description
