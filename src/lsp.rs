@@ -8,14 +8,28 @@ use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 use std::path::Path;
 
-pub fn serve(graph: &SavedGraph, project_root: &Path) -> std::io::Result<()> {
+pub fn serve(graph: SavedGraph, graph_path: &Path, project_root: &Path) -> std::io::Result<()> {
     let stdin = std::io::stdin();
     let mut reader = stdin.lock();
     let mut stdout = std::io::stdout();
+    let mut graph = graph;
+    let mut loaded_at = std::fs::metadata(graph_path)
+        .and_then(|m| m.modified())
+        .ok();
     while let Some(body) = read_frame(&mut reader)? {
         let Ok(message) = serde_json::from_str::<Value>(&body) else {
             continue;
         };
+        // a re-exported graph file replaces the snapshot; a corrupt or
+        // half-written one must never kill the running server
+        if let Ok(modified) = std::fs::metadata(graph_path).and_then(|m| m.modified()) {
+            if loaded_at != Some(modified) {
+                if let Ok(fresh) = SavedGraph::load(graph_path) {
+                    graph = fresh;
+                }
+                loaded_at = Some(modified);
+            }
+        }
         match message["method"].as_str() {
             Some("initialize") => {
                 let response = json!({
@@ -38,7 +52,7 @@ pub fn serve(graph: &SavedGraph, project_root: &Path) -> std::io::Result<()> {
                 });
                 write_frame(&mut stdout, &response)?;
             }
-            Some("textDocument/didOpen") => {
+            Some("textDocument/didOpen") | Some("textDocument/didSave") => {
                 let uri = message["params"]["textDocument"]["uri"]
                     .as_str()
                     .unwrap_or("");
@@ -47,7 +61,7 @@ pub fn serve(graph: &SavedGraph, project_root: &Path) -> std::io::Result<()> {
                     "method": "textDocument/publishDiagnostics",
                     "params": {
                         "uri": uri,
-                        "diagnostics": diagnostics_for(graph, uri)
+                        "diagnostics": diagnostics_for(&graph, uri)
                     }
                 });
                 write_frame(&mut stdout, &notification)?;
@@ -60,7 +74,7 @@ pub fn serve(graph: &SavedGraph, project_root: &Path) -> std::io::Result<()> {
                 let response = json!({
                     "jsonrpc": "2.0",
                     "id": message["id"],
-                    "result": hover_for(graph, uri, line)
+                    "result": hover_for(&graph, uri, line)
                 });
                 write_frame(&mut stdout, &response)?;
             }
@@ -77,7 +91,7 @@ pub fn serve(graph: &SavedGraph, project_root: &Path) -> std::io::Result<()> {
                 let response = json!({
                     "jsonrpc": "2.0",
                     "id": message["id"],
-                    "result": code_actions_for(graph, uri, start, end)
+                    "result": code_actions_for(&graph, uri, start, end)
                 });
                 write_frame(&mut stdout, &response)?;
             }
@@ -93,7 +107,7 @@ pub fn serve(graph: &SavedGraph, project_root: &Path) -> std::io::Result<()> {
                         .and_then(|a| a.get(1))
                         .and_then(Value::as_str)
                         .unwrap_or("");
-                    add_to_baseline(graph, project_root, uri, name)
+                    add_to_baseline(&graph, project_root, uri, name)
                 } else {
                     Value::Null
                 };

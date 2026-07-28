@@ -374,3 +374,156 @@ fn shutdown_answers_and_the_server_exits_on_eof() {
         "shutdown gets a response — and reaching here proves EOF ends the loop"
     );
 }
+
+#[test]
+fn did_save_republishes_for_the_saved_file() {
+    let temp = tempfile::tempdir().unwrap();
+    let (graph, project) = saved_graph(temp.path());
+    let ghost_uri = format!("file://{}", project.join("Ghost.kt").display()).replace('\\', "/");
+
+    let responses = serve(
+        &graph,
+        &[
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#.to_string(),
+            format!(
+                r#"{{"jsonrpc":"2.0","method":"textDocument/didSave","params":{{"textDocument":{{"uri":"{ghost_uri}"}}}}}}"#
+            ),
+        ],
+    );
+    let publish = responses
+        .iter()
+        .find(|r| r["method"] == "textDocument/publishDiagnostics")
+        .expect("a save refreshes the diagnostics");
+    assert!(
+        publish["params"]["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d["message"].as_str().unwrap_or("").contains("Ghost")),
+        "the corpse is still diagnosed after save, got:\n{publish}"
+    );
+}
+
+#[test]
+fn did_save_picks_up_a_regenerated_graph() {
+    use std::io::Write as _;
+    let temp = tempfile::tempdir().unwrap();
+    let (graph, project) = saved_graph(temp.path());
+    let ghost_uri = format!("file://{}", project.join("Ghost.kt").display()).replace('\\', "/");
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+        .arg(&project)
+        .args(["--graph-file", graph.to_str().unwrap(), "--lsp-serve"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let stdin = child.stdin.as_mut().unwrap();
+    stdin
+        .write_all(&frame(
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+        ))
+        .unwrap();
+    stdin
+        .write_all(&frame(&format!(
+            r#"{{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{{"textDocument":{{"uri":"{ghost_uri}"}}}}}}"#
+        )))
+        .unwrap();
+    stdin.flush().unwrap();
+
+    // the world changes: Main now uses Ghost, the graph is re-exported
+    fs::write(
+        project.join("Main.kt"),
+        "package sample\n\nfun main() {\n    Ghost().haunt()\n}\n",
+    )
+    .unwrap();
+    let export = Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+        .arg(&project)
+        .args(["--export-graph", graph.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(export.status.success());
+
+    let stdin = child.stdin.as_mut().unwrap();
+    stdin
+        .write_all(&frame(&format!(
+            r#"{{"jsonrpc":"2.0","method":"textDocument/didSave","params":{{"textDocument":{{"uri":"{ghost_uri}"}}}}}}"#
+        )))
+        .unwrap();
+    drop(child.stdin.take());
+
+    let out = child.wait_with_output().unwrap();
+    let raw = String::from_utf8_lossy(&out.stdout).to_string();
+    let publishes: Vec<serde_json::Value> = raw
+        .split("Content-Length:")
+        .filter_map(|chunk| {
+            let start = chunk.find('{')?;
+            serde_json::from_str(chunk[start..].trim()).ok()
+        })
+        .filter(|r: &serde_json::Value| r["method"] == "textDocument/publishDiagnostics")
+        .collect();
+    assert!(
+        publishes.len() >= 2,
+        "open + save both publish, got:\n{raw}"
+    );
+    let last = publishes.last().unwrap();
+    assert!(
+        last["params"]["diagnostics"].as_array().unwrap().is_empty(),
+        "the reloaded graph knows Ghost is alive now, got:\n{last}"
+    );
+}
+
+#[test]
+fn a_corrupt_regenerated_graph_keeps_the_old_one() {
+    use std::io::Write as _;
+    let temp = tempfile::tempdir().unwrap();
+    let (graph, project) = saved_graph(temp.path());
+    let ghost_uri = format!("file://{}", project.join("Ghost.kt").display()).replace('\\', "/");
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+        .arg(&project)
+        .args(["--graph-file", graph.to_str().unwrap(), "--lsp-serve"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let stdin = child.stdin.as_mut().unwrap();
+    stdin
+        .write_all(&frame(
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+        ))
+        .unwrap();
+    stdin.flush().unwrap();
+
+    // wait for the initialize response: the initial graph load is done,
+    // so the corruption below can only hit the RE-load path
+    let mut stdout = child.stdout.take().unwrap();
+    let mut first = [0u8; 1];
+    use std::io::Read as _;
+    stdout.read_exact(&mut first).unwrap();
+
+    fs::write(&graph, "{ not json at all").unwrap();
+
+    let stdin = child.stdin.as_mut().unwrap();
+    stdin
+        .write_all(&frame(&format!(
+            r#"{{"jsonrpc":"2.0","method":"textDocument/didSave","params":{{"textDocument":{{"uri":"{ghost_uri}"}}}}}}"#
+        )))
+        .unwrap();
+    drop(child.stdin.take());
+
+    let mut rest = Vec::new();
+    stdout.read_to_end(&mut rest).unwrap();
+    let status = child.wait().unwrap();
+    assert!(
+        status.success(),
+        "a corrupt reload must not kill the server"
+    );
+    let raw = String::from_utf8_lossy(&rest).to_string();
+    assert!(
+        raw.contains("Ghost"),
+        "the old graph still answers, got:\n{raw}"
+    );
+}
