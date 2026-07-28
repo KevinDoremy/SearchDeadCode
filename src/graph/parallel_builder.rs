@@ -155,6 +155,10 @@ impl ParallelGraphBuilder {
     fn resolve_references(&self, graph: &mut Graph, unresolved: Vec<UnresolvedRef>) {
         for unresolved in unresolved {
             let resolved_ids = self.resolve_reference(graph, &unresolved);
+            // Plusieurs candidats = résolution par nom simple, une devinette :
+            // le flag permet aux analyses (kill-list, compare) de ne pas
+            // s'appuyer dessus. Le builder série le posait déjà.
+            let ambiguous = resolved_ids.len() > 1;
 
             for to_id in resolved_ids {
                 // Skip self-references
@@ -172,7 +176,8 @@ impl ParallelGraphBuilder {
                         unresolved.from.end,
                     ),
                     unresolved.name.clone(),
-                );
+                )
+                .with_ambiguous(ambiguous);
                 graph.add_reference(&unresolved.from, &to_id, reference);
             }
         }

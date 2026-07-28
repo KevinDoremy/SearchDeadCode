@@ -2124,7 +2124,14 @@ fn why_alive_symbol(
         println!("\n🌿 Why alive: {}", display(&decl.id));
 
         if entry_points.contains(&decl.id) {
-            println!("   It is itself an entry point — a retention root.");
+            match analysis::EntryPointDetector::entry_annotation_reason(graph, decl) {
+                Some(reason) => println!(
+                    "   It is itself an entry point — a retention root ({reason})."
+                ),
+                None => println!(
+                    "   It is itself an entry point — a retention root (manifest, layout, inheritance or config rule)."
+                ),
+            }
             continue;
         }
         if !reachable.contains(&decl.id) {
@@ -3756,7 +3763,7 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     // --compare short-circuits the normal report
     if let Some(spec) = cli.compare.as_deref() {
         let (old_token, new_token) = spec.split_once('=').unwrap_or((spec, ""));
-        let report = analysis::migration::compare(&graph, old_token);
+        let report = analysis::migration::compare(&graph, old_token, new_token);
         print_migration_report(&graph, old_token, new_token, &report);
         return Ok(());
     }
