@@ -476,7 +476,7 @@ struct Cli {
     write_only_caches: bool,
 
     /// List same-named functions with near-identical bodies across
-    /// files (migration copy-paste), then exit
+    /// files (migration copy-paste; survives local renames), then exit
     #[arg(long)]
     near_twins: bool,
 

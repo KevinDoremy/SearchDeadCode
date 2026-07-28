@@ -337,6 +337,29 @@ pub enum Exit {
     Refresh,
 }
 
+/// Delete the x-marked findings through SafeDeleter with the undo
+/// script — the effector behind the TUI's quit, extracted so a test
+/// can drive it without a TTY. Returns how many findings were passed
+/// to the deleter.
+pub fn delete_marked(
+    findings: &[DeadCode],
+    indices: &[usize],
+    root: &Path,
+) -> std::io::Result<usize> {
+    let subset: Vec<DeadCode> = indices
+        .iter()
+        .filter_map(|&i| findings.get(i).cloned())
+        .collect();
+    if subset.is_empty() {
+        return Ok(0);
+    }
+    let undo = root.join(".searchdeadcode-undo.sh");
+    let deleter = crate::refactor::safe_delete::SafeDeleter::new(false, false, Some(undo))
+        .with_assume_yes(true);
+    deleter.delete(&subset).map_err(std::io::Error::other)?;
+    Ok(subset.len())
+}
+
 /// Real terminal loop — the only part a test cannot drive.
 pub fn run(findings: &[DeadCode], root: &Path, baseline: Option<&Path>) -> std::io::Result<Exit> {
     use crossterm::event::{self, Event, KeyCode};
@@ -383,18 +406,8 @@ pub fn run(findings: &[DeadCode], root: &Path, baseline: Option<&Path>) -> std::
     }
     let to_delete = app.deletion_indices();
     if !to_delete.is_empty() {
-        let subset: Vec<DeadCode> = to_delete
-            .iter()
-            .filter_map(|&i| findings.get(i).cloned())
-            .collect();
-        let undo = root.join(".searchdeadcode-undo.sh");
-        let deleter = crate::refactor::safe_delete::SafeDeleter::new(false, false, Some(undo))
-            .with_assume_yes(true);
-        deleter.delete(&subset).map_err(std::io::Error::other)?;
-        println!(
-            "deleted {} finding(s) — undo: .searchdeadcode-undo.sh",
-            subset.len()
-        );
+        let deleted = delete_marked(findings, &to_delete, root)?;
+        println!("deleted {deleted} finding(s) — undo: .searchdeadcode-undo.sh");
     }
     Ok(exit)
 }
@@ -816,5 +829,52 @@ mod tests {
             "b is baseline, not deletion"
         );
         assert_eq!(app.marked_indices(), vec![0]);
+    }
+
+    #[test]
+    fn delete_marked_removes_the_declaration_and_writes_the_undo() {
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("Ghost.kt");
+        let content = "package sample\n\nclass Ghost {\n    fun haunt() {}\n}\n";
+        std::fs::write(&file, content).unwrap();
+        let start = content.find("class Ghost").unwrap();
+        let end = content.rfind('}').unwrap() + 1;
+        let decl = Declaration::new(
+            DeclarationId::new(file.clone(), start, end),
+            "Ghost".to_string(),
+            DeclarationKind::Class,
+            Location::new(file.clone(), 3, 1, start, end),
+            Language::Kotlin,
+        );
+        let findings = vec![DeadCode::new(decl, DeadCodeIssue::Unreferenced)];
+
+        let deleted = delete_marked(&findings, &[0], temp.path()).unwrap();
+        assert_eq!(deleted, 1);
+        let after = std::fs::read_to_string(&file).unwrap();
+        assert!(
+            !after.contains("class Ghost"),
+            "the declaration is gone, file was:\n{after}"
+        );
+        assert!(
+            after.contains("package sample"),
+            "the rest of the file survives, file was:\n{after}"
+        );
+        assert!(
+            temp.path().join(".searchdeadcode-undo.sh").exists(),
+            "the undo script is written"
+        );
+    }
+
+    #[test]
+    fn delete_marked_with_out_of_range_indices_deletes_nothing() {
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("Safe.kt");
+        std::fs::write(&file, "package sample\n\nclass Safe\n").unwrap();
+        let deleted = delete_marked(&[], &[7], temp.path()).unwrap();
+        assert_eq!(deleted, 0, "nothing to delete, nothing deleted");
+        assert!(
+            std::fs::read_to_string(&file).unwrap().contains("Safe"),
+            "no collateral damage"
+        );
     }
 }
