@@ -1123,6 +1123,45 @@ impl KotlinParser {
                         }
                     }
                 }
+                // "$name" dans un template de chaîne : la grammaire aliase
+                // l'identifiant en interpolated_identifier, il n'apparaît
+                // jamais comme simple_identifier — sans ce bras, la lecture
+                // est invisible et la propriété sort en assign-only.
+                // "${x}" nu : même alias, vers interpolated_expression (leaf).
+                "interpolated_identifier" => {
+                    let name = node_text(current, source).to_string();
+                    let location = point_to_location(
+                        path,
+                        current.start_position(),
+                        current.end_position(),
+                        current.start_byte(),
+                        current.end_byte(),
+                    );
+                    result.references.push(UnresolvedReference {
+                        name,
+                        qualified_name: None,
+                        kind: ReferenceKind::Read,
+                        location,
+                        imports: imports.to_vec(),
+                    });
+                }
+                "interpolated_expression" if current.child_count() == 0 => {
+                    let name = node_text(current, source).to_string();
+                    let location = point_to_location(
+                        path,
+                        current.start_position(),
+                        current.end_position(),
+                        current.start_byte(),
+                        current.end_byte(),
+                    );
+                    result.references.push(UnresolvedReference {
+                        name,
+                        qualified_name: None,
+                        kind: ReferenceKind::Read,
+                        location,
+                        imports: imports.to_vec(),
+                    });
+                }
                 "user_type" => {
                     // Extract just the base type name, stripping generic arguments
                     let full_name = node_text(current, source).to_string();

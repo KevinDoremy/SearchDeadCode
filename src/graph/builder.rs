@@ -204,10 +204,21 @@ impl GraphBuilder {
 
     /// Try to resolve a reference to declarations (may return multiple for overloaded functions)
     fn resolve_reference(&self, unresolved: &UnresolvedRef) -> Vec<DeclarationId> {
+        let single = |decl: &Declaration| -> Vec<DeclarationId> {
+            if matches!(
+                unresolved.kind,
+                ReferenceKind::Call | ReferenceKind::Instantiation
+            ) {
+                self.graph.expand_call_target(&decl.id)
+            } else {
+                vec![decl.id.clone()]
+            }
+        };
+
         // Try fully qualified name first
         if let Some(fqn) = &unresolved.qualified_name {
             if let Some(decl) = self.graph.find_by_fqn(fqn) {
-                return vec![decl.id.clone()];
+                return single(decl);
             }
         }
 
@@ -218,13 +229,13 @@ impl GraphBuilder {
                 let package = &import[..import.len() - 2];
                 let fqn = format!("{}.{}", package, unresolved.name);
                 if let Some(decl) = self.graph.find_by_fqn(&fqn) {
-                    return vec![decl.id.clone()];
+                    return single(decl);
                 }
             }
             // Specific import
             else if import.ends_with(&format!(".{}", unresolved.name)) {
                 if let Some(decl) = self.graph.find_by_fqn(import) {
-                    return vec![decl.id.clone()];
+                    return single(decl);
                 }
             }
             // Aliased import (Kotlin)
@@ -233,7 +244,7 @@ impl GraphBuilder {
                 if alias == unresolved.name {
                     let original = &import[..alias_start];
                     if let Some(decl) = self.graph.find_by_fqn(original) {
-                        return vec![decl.id.clone()];
+                        return single(decl);
                     }
                 }
             }

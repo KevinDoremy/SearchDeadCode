@@ -212,3 +212,58 @@ fn an_ordinary_dead_method_in_an_activity_is_still_reported() {
         "the lifecycle blessing does not cover the neighbors, stdout was:\n{stdout}"
     );
 }
+
+#[test]
+fn a_java_class_constructed_from_kotlin_keeps_its_ctor_callees_alive() {
+    // Cas réel : une classe Java construite depuis un fichier Kotlin
+    // d'un autre package via un import. La résolution par import liait
+    // l'appel à la classe seulement — le constructeur restait sans
+    // arête entrante et ses callees sortaient en "only referenced from
+    // dead code". Le même appel depuis le même package passait par le
+    // fallback nom-simple, qui lie aussi le constructeur (un ctor Java
+    // porte le nom de sa classe).
+    let temp = tempfile::tempdir().unwrap();
+    fs::create_dir(temp.path().join("cursor")).unwrap();
+    fs::write(
+        temp.path().join("Main.kt"),
+        concat!(
+            "package sample.main\n\n",
+            "import sample.cursor.CursorHelper\n\n",
+            "fun main() {\n",
+            "    val helper = CursorHelper(3)\n",
+            "    println(helper)\n",
+            "}\n",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("cursor/CursorHelper.java"),
+        concat!(
+            "package sample.cursor;\n\n",
+            "public class CursorHelper {\n",
+            "    public CursorHelper(int count) {\n",
+            "        initFromConstructor(count);\n",
+            "    }\n\n",
+            "    private void initFromConstructor(int count) {\n",
+            "        System.out.println(count);\n",
+            "    }\n",
+            "}\n",
+        ),
+    )
+    .unwrap();
+
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+        .arg(temp.path())
+        .arg("--deep")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        !stdout.contains("initFromConstructor"),
+        "un callee de constructeur atteint depuis Kotlin via import est vivant, stdout:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("constructor 'CursorHelper' is never used"),
+        "le constructeur appelé depuis Kotlin via import est vivant, stdout:\n{stdout}"
+    );
+}

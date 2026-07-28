@@ -116,6 +116,8 @@ const ENTRY_ANNOTATIONS: &[&str] = &[
     // Reflection markers
     "Keep",
     "KeepPublicApi",
+    // WebView JS bridge: invoked reflectively from page JavaScript
+    "JavascriptInterface",
     // WorkManager
     "HiltWorker",
     // Lifecycle

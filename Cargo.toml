@@ -101,6 +101,18 @@ name = "kill_list"
 path = "tests/integration/kill_list_tests.rs"
 
 [[test]]
+name = "webview_bridge"
+path = "tests/integration/webview_bridge_tests.rs"
+
+[[test]]
+name = "override_chain"
+path = "tests/integration/override_chain_tests.rs"
+
+[[test]]
+name = "string_template_reads"
+path = "tests/integration/string_template_reads_tests.rs"
+
+[[test]]
 name = "clusters"
 path = "tests/integration/cluster_tests.rs"
 
@@ -544,3 +556,4 @@ path = "tests/integration/advanced_tests.rs"
 lto = true
 codegen-units = 1
 panic = "abort"
+
