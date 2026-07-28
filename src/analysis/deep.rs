@@ -200,162 +200,188 @@ impl DeepAnalyzer {
         // 3. Serialization-related members
         // 4. Companion object members that are accessed
 
-        // Pre-compute which classes are instantiated (avoid repeated lookups)
-        let instantiated_classes: HashSet<_> = reachable
-            .iter()
-            .filter(|id| {
+        // Le blessing (overrides, ctors, sealed, interfaces) et la DFS
+        // incrémentale se nourrissent l'un l'autre : une chaîne
+        // override → appel → override casse si la passe ne tourne
+        // qu'une fois — le deuxième override n'est jamais blessé.
+        // Itérer jusqu'au point fixe (croissance monotone, bornée par
+        // le nombre de nœuds).
+        loop {
+            // Pre-compute which classes are instantiated (avoid repeated lookups)
+            let instantiated_classes: HashSet<_> = reachable
+                .iter()
+                .filter(|id| {
+                    graph.get_references_to(id).iter().any(|(_, r)| {
+                        matches!(r.kind, ReferenceKind::Call | ReferenceKind::Instantiation)
+                    })
+                })
+                .cloned()
+                .collect();
+
+            // Single pass over declarations to find additional reachable items
+            let additional: Vec<_> = if self.parallel {
+                let declarations: Vec<_> = graph.declarations().collect();
+                declarations
+                    .par_iter()
+                    .filter_map(|decl| {
+                        if reachable.contains(&decl.id) {
+                            return None;
+                        }
+
+                        let parent_id = decl.parent.as_ref()?;
+                        if !reachable.contains(parent_id) {
+                            return None;
+                        }
+
+                        // Override methods are reachable via polymorphism
+                        if decl.modifiers.iter().any(|m| m == "override")
+                            || decl.annotations.iter().any(|a| a.contains("Override"))
+                        {
+                            return Some(decl.id.clone());
+                        }
+
+                        // Primary constructor is reachable if class is instantiated
+                        if decl.kind == DeclarationKind::Constructor
+                            && decl.name == "constructor"
+                            && instantiated_classes.contains(parent_id)
+                        {
+                            return Some(decl.id.clone());
+                        }
+
+                        // Serialization members
+                        if self.is_serialization_member(decl) {
+                            return Some(decl.id.clone());
+                        }
+
+                        // Companion object
+                        if decl.kind == DeclarationKind::Object
+                            && decl.modifiers.iter().any(|m| m == "companion")
+                        {
+                            return Some(decl.id.clone());
+                        }
+
+                        // Lazy/delegated properties
+                        if decl.kind == DeclarationKind::Property
+                            && decl.modifiers.iter().any(|m| m == "delegated")
+                        {
+                            return Some(decl.id.clone());
+                        }
+
+                        // Suspend functions in reachable classes
+                        if self.is_suspend_function(decl) {
+                            return Some(decl.id.clone());
+                        }
+
+                        // Flow-related declarations
+                        if self.is_flow_pattern(decl) {
+                            return Some(decl.id.clone());
+                        }
+
+                        None
+                    })
+                    .collect()
+            } else {
                 graph
-                    .get_references_to(id)
-                    .iter()
-                    .any(|(_, r)| r.kind == ReferenceKind::Call)
-            })
-            .cloned()
-            .collect();
+                    .declarations()
+                    .filter_map(|decl| {
+                        if reachable.contains(&decl.id) {
+                            return None;
+                        }
 
-        // Single pass over declarations to find additional reachable items
-        let additional: Vec<_> = if self.parallel {
-            let declarations: Vec<_> = graph.declarations().collect();
-            declarations
-                .par_iter()
-                .filter_map(|decl| {
-                    if reachable.contains(&decl.id) {
-                        return None;
-                    }
+                        let parent_id = decl.parent.as_ref()?;
+                        if !reachable.contains(parent_id) {
+                            return None;
+                        }
 
-                    let parent_id = decl.parent.as_ref()?;
-                    if !reachable.contains(parent_id) {
-                        return None;
-                    }
+                        if decl.modifiers.iter().any(|m| m == "override")
+                            || decl.annotations.iter().any(|a| a.contains("Override"))
+                        {
+                            return Some(decl.id.clone());
+                        }
 
-                    // Override methods are reachable via polymorphism
-                    if decl.modifiers.iter().any(|m| m == "override")
-                        || decl.annotations.iter().any(|a| a.contains("Override"))
-                    {
-                        return Some(decl.id.clone());
-                    }
+                        if decl.kind == DeclarationKind::Constructor
+                            && decl.name == "constructor"
+                            && instantiated_classes.contains(parent_id)
+                        {
+                            return Some(decl.id.clone());
+                        }
 
-                    // Primary constructor is reachable if class is instantiated
-                    if decl.kind == DeclarationKind::Constructor
-                        && decl.name == "constructor"
-                        && instantiated_classes.contains(parent_id)
-                    {
-                        return Some(decl.id.clone());
-                    }
+                        if self.is_serialization_member(decl) {
+                            return Some(decl.id.clone());
+                        }
 
-                    // Serialization members
-                    if self.is_serialization_member(decl) {
-                        return Some(decl.id.clone());
-                    }
+                        if decl.kind == DeclarationKind::Object
+                            && decl.modifiers.iter().any(|m| m == "companion")
+                        {
+                            return Some(decl.id.clone());
+                        }
 
-                    // Companion object
-                    if decl.kind == DeclarationKind::Object
-                        && decl.modifiers.iter().any(|m| m == "companion")
-                    {
-                        return Some(decl.id.clone());
-                    }
+                        if decl.kind == DeclarationKind::Property
+                            && decl.modifiers.iter().any(|m| m == "delegated")
+                        {
+                            return Some(decl.id.clone());
+                        }
 
-                    // Lazy/delegated properties
-                    if decl.kind == DeclarationKind::Property
-                        && decl.modifiers.iter().any(|m| m == "delegated")
-                    {
-                        return Some(decl.id.clone());
-                    }
+                        if self.is_suspend_function(decl) {
+                            return Some(decl.id.clone());
+                        }
 
-                    // Suspend functions in reachable classes
-                    if self.is_suspend_function(decl) {
-                        return Some(decl.id.clone());
-                    }
+                        if self.is_flow_pattern(decl) {
+                            return Some(decl.id.clone());
+                        }
 
-                    // Flow-related declarations
-                    if self.is_flow_pattern(decl) {
-                        return Some(decl.id.clone());
-                    }
+                        None
+                    })
+                    .collect()
+            };
 
-                    None
+            // Collect sealed class subtypes and interface implementations
+            let sealed_subtypes = self.collect_sealed_subtypes(graph, &reachable);
+            let interface_impls = self.collect_interface_implementations(graph, &reachable);
+
+            // Combine all newly discovered items for incremental DFS
+            // This includes: override methods, sealed subtypes, interface implementations
+            let new_items: Vec<_> = additional
+                .iter()
+                .chain(sealed_subtypes.iter())
+                .chain(interface_impls.iter())
+                .filter(|id| !reachable.contains(*id))
+                .cloned()
+                .collect();
+
+            // Invariant du point fixe : tout nœud de `reachable` doit avoir
+            // ses arêtes sortantes suivies. Les insertions directes
+            // (ancestors, blessing, membres sérialisation…) ne passent pas
+            // par une DFS — sans ce rattrapage, un override raccroché
+            // tardivement reste "vivant" pendant que ses callees meurent.
+            let unvisited: Vec<_> = reachable
+                .iter()
+                .filter(|id| {
+                    graph
+                        .node_index(id)
+                        .is_some_and(|ix| !visited_indices.contains(&ix))
                 })
-                .collect()
-        } else {
-            graph
-                .declarations()
-                .filter_map(|decl| {
-                    if reachable.contains(&decl.id) {
-                        return None;
-                    }
+                .cloned()
+                .collect();
 
-                    let parent_id = decl.parent.as_ref()?;
-                    if !reachable.contains(parent_id) {
-                        return None;
-                    }
+            if new_items.is_empty() && unvisited.is_empty() {
+                break;
+            }
 
-                    if decl.modifiers.iter().any(|m| m == "override")
-                        || decl.annotations.iter().any(|a| a.contains("Override"))
-                    {
-                        return Some(decl.id.clone());
-                    }
+            reachable.extend(additional);
+            reachable.extend(sealed_subtypes);
+            reachable.extend(interface_impls);
 
-                    if decl.kind == DeclarationKind::Constructor
-                        && decl.name == "constructor"
-                        && instantiated_classes.contains(parent_id)
-                    {
-                        return Some(decl.id.clone());
-                    }
-
-                    if self.is_serialization_member(decl) {
-                        return Some(decl.id.clone());
-                    }
-
-                    if decl.kind == DeclarationKind::Object
-                        && decl.modifiers.iter().any(|m| m == "companion")
-                    {
-                        return Some(decl.id.clone());
-                    }
-
-                    if decl.kind == DeclarationKind::Property
-                        && decl.modifiers.iter().any(|m| m == "delegated")
-                    {
-                        return Some(decl.id.clone());
-                    }
-
-                    if self.is_suspend_function(decl) {
-                        return Some(decl.id.clone());
-                    }
-
-                    if self.is_flow_pattern(decl) {
-                        return Some(decl.id.clone());
-                    }
-
-                    None
-                })
-                .collect()
-        };
-
-        // Collect sealed class subtypes and interface implementations
-        let sealed_subtypes = self.collect_sealed_subtypes(graph, &reachable);
-        let interface_impls = self.collect_interface_implementations(graph, &reachable);
-
-        // Combine all newly discovered items for incremental DFS
-        // This includes: override methods, sealed subtypes, interface implementations
-        let new_items: Vec<_> = additional
-            .iter()
-            .chain(sealed_subtypes.iter())
-            .chain(interface_impls.iter())
-            .filter(|id| !reachable.contains(*id))
-            .cloned()
-            .collect();
-
-        reachable.extend(additional);
-        reachable.extend(sealed_subtypes);
-        reachable.extend(interface_impls);
-
-        // Incremental DFS only from new items
-        if !new_items.is_empty() {
-            for id in &new_items {
+            // Incremental DFS from new items and from any reachable node
+            // whose edges were never walked
+            for id in new_items.iter().chain(unvisited.iter()) {
                 if let Some(start_idx) = graph.node_index(id) {
                     if visited_indices.contains(&start_idx) {
                         continue;
                     }
                     let mut dfs = Dfs::new(inner_graph, start_idx);
                     while let Some(node_idx) = dfs.next(inner_graph) {
+                        visited_indices.insert(node_idx);
                         if let Some(node_id) = inner_graph.node_weight(node_idx) {
                             reachable.insert(node_id.clone());
                         }

@@ -179,10 +179,21 @@ impl ParallelGraphBuilder {
     }
 
     fn resolve_reference(&self, graph: &Graph, unresolved: &UnresolvedRef) -> Vec<DeclarationId> {
+        let single = |decl: &Declaration| -> Vec<DeclarationId> {
+            if matches!(
+                unresolved.kind,
+                ReferenceKind::Call | ReferenceKind::Instantiation
+            ) {
+                graph.expand_call_target(&decl.id)
+            } else {
+                vec![decl.id.clone()]
+            }
+        };
+
         // Try fully qualified name first
         if let Some(fqn) = &unresolved.qualified_name {
             if let Some(decl) = graph.find_by_fqn(fqn) {
-                return vec![decl.id.clone()];
+                return single(decl);
             }
         }
 
@@ -192,18 +203,18 @@ impl ParallelGraphBuilder {
                 let package = &import[..import.len() - 2];
                 let fqn = format!("{}.{}", package, unresolved.name);
                 if let Some(decl) = graph.find_by_fqn(&fqn) {
-                    return vec![decl.id.clone()];
+                    return single(decl);
                 }
             } else if import.ends_with(&format!(".{}", unresolved.name)) {
                 if let Some(decl) = graph.find_by_fqn(import) {
-                    return vec![decl.id.clone()];
+                    return single(decl);
                 }
             } else if let Some(alias_start) = import.find(" as ") {
                 let alias = &import[alias_start + 4..];
                 if alias == unresolved.name {
                     let original = &import[..alias_start];
                     if let Some(decl) = graph.find_by_fqn(original) {
-                        return vec![decl.id.clone()];
+                        return single(decl);
                     }
                 }
             }
