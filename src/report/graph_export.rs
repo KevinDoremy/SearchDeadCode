@@ -214,8 +214,21 @@ pub fn export_json(
     path: &Path,
 ) -> std::io::Result<()> {
     let out = collect(graph, entry_points);
-    let file = std::fs::File::create(path)?;
-    serde_json::to_writer_pretty(std::io::BufWriter::new(file), &out).map_err(std::io::Error::other)
+    // land via rename: the LSP/MCP reload path watches this file and
+    // must never see a half-written export; a failed write must not
+    // destroy the previous one either
+    let staging = path.with_extension("json.staging");
+    {
+        let file = std::fs::File::create(&staging)?;
+        serde_json::to_writer_pretty(std::io::BufWriter::new(file), &out)
+            .map_err(std::io::Error::other)?;
+    }
+    if std::fs::rename(&staging, path).is_err() {
+        // Windows cannot rename over an existing file
+        std::fs::remove_file(path)?;
+        std::fs::rename(&staging, path)?;
+    }
+    Ok(())
 }
 
 pub fn export_dot(
