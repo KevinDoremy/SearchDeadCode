@@ -510,6 +510,12 @@ impl DeepAnalyzer {
                 continue;
             }
 
+            // Java's @Override is optional: a lifecycle-named method in a
+            // class that extends something is a framework callback
+            if is_lifecycle_callback(graph, decl) {
+                continue;
+            }
+
             // Skip constructors
             if decl.kind == DeclarationKind::Constructor {
                 continue;
@@ -831,6 +837,12 @@ impl DeepAnalyzer {
             return true;
         }
         if decl.modifiers.iter().any(|m| m == "override") {
+            return true;
+        }
+
+        // Java's @Override is optional: a lifecycle-named method in a
+        // class that extends something is a framework callback
+        if is_lifecycle_callback(graph, decl) {
             return true;
         }
 
@@ -1191,6 +1203,50 @@ impl Default for DeepAnalyzer {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Android framework callbacks the runtime invokes by name. Retention
+/// requires the parent to extend something — the name alone earns
+/// nothing in a base-less class.
+const LIFECYCLE_METHODS: &[&str] = &[
+    "onCreate",
+    "onStart",
+    "onRestart",
+    "onResume",
+    "onPause",
+    "onStop",
+    "onDestroy",
+    "onAttach",
+    "onDetach",
+    "onCreateView",
+    "onViewCreated",
+    "onDestroyView",
+    "onActivityCreated",
+    "onBind",
+    "onUnbind",
+    "onStartCommand",
+    "onReceive",
+    "onNewIntent",
+    "onActivityResult",
+    "onRequestPermissionsResult",
+    "onSaveInstanceState",
+    "onRestoreInstanceState",
+    "onConfigurationChanged",
+    "onLowMemory",
+    "onTrimMemory",
+];
+
+fn is_lifecycle_callback(graph: &Graph, decl: &Declaration) -> bool {
+    if decl.kind != DeclarationKind::Method || !LIFECYCLE_METHODS.contains(&decl.name.as_str()) {
+        return false;
+    }
+    let Some(parent_id) = &decl.parent else {
+        return false;
+    };
+    graph
+        .get_declaration(parent_id)
+        .map(|parent| !parent.super_types.is_empty())
+        .unwrap_or(false)
 }
 
 /// "is never used" would be false for a zombie: it IS referenced, but

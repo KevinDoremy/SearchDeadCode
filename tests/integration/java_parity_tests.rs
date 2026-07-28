@@ -107,3 +107,108 @@ fn a_java_dao_with_queries_stays_silent() {
         "reads exist, nothing write-only, stdout was:\n{stdout}"
     );
 }
+
+#[test]
+fn a_java_lifecycle_method_without_override_is_retained() {
+    // Java's @Override is optional — a framework callback without it is
+    // still called by the framework, never by user code
+    let temp = tempfile::tempdir().unwrap();
+    write_main(temp.path());
+    fs::write(
+        temp.path().join("CrashActivity.java"),
+        concat!(
+            "package sample;\n\n",
+            "public class CrashActivity extends Activity {\n",
+            "    public void onCreate(Bundle savedInstanceState) {\n",
+            "        super.onCreate(savedInstanceState);\n",
+            "    }\n",
+            "}\n",
+        ),
+    )
+    .unwrap();
+
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+        .arg(temp.path())
+        .arg("--deep")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        !stdout.contains("'onCreate'"),
+        "the framework calls it, not user code, stdout was:\n{stdout}"
+    );
+}
+
+#[test]
+fn a_lifecycle_name_in_a_plain_class_is_not_blessed() {
+    // the retention keys on the parent extending something — a lonely
+    // onCreate in a base-less class is just a dead method with a
+    // familiar name
+    let temp = tempfile::tempdir().unwrap();
+    write_main(temp.path());
+    fs::write(
+        temp.path().join("Impostor.java"),
+        concat!(
+            "package sample;\n\n",
+            "public class Impostor {\n",
+            "    public void onCreate(Object ignored) {\n",
+            "    }\n",
+            "}\n",
+        ),
+    )
+    .unwrap();
+    // Impostor itself is alive (constructed from main), so its members
+    // are judged individually rather than folded into the class
+    fs::write(
+        temp.path().join("UseImpostor.kt"),
+        "package sample\n\nfun main2() {\n    Impostor()\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("Main.kt"),
+        "package sample\n\nfun main() {\n    main2()\n}\n",
+    )
+    .unwrap();
+
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+        .arg(temp.path())
+        .arg("--deep")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("onCreate"),
+        "a lifecycle NAME alone earns nothing, stdout was:\n{stdout}"
+    );
+}
+
+#[test]
+fn an_ordinary_dead_method_in_an_activity_is_still_reported() {
+    let temp = tempfile::tempdir().unwrap();
+    write_main(temp.path());
+    fs::write(
+        temp.path().join("HomeActivity.java"),
+        concat!(
+            "package sample;\n\n",
+            "public class HomeActivity extends Activity {\n",
+            "    public void onCreate(Bundle savedInstanceState) {\n",
+            "        super.onCreate(savedInstanceState);\n",
+            "    }\n",
+            "    public void formatLegacyBanner() {\n",
+            "    }\n",
+            "}\n",
+        ),
+    )
+    .unwrap();
+
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+        .arg(temp.path())
+        .arg("--deep")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("formatLegacyBanner"),
+        "the lifecycle blessing does not cover the neighbors, stdout was:\n{stdout}"
+    );
+}
