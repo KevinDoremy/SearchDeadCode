@@ -416,39 +416,6 @@ fn glob_match(pattern: &str, text: &str) -> bool {
     text == pattern
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_glob_match_suffix() {
-        assert!(glob_match("*Activity", "MainActivity"));
-        assert!(glob_match("*Activity", "LoginActivity"));
-        assert!(!glob_match("*Activity", "ActivityHelper"));
-    }
-
-    #[test]
-    fn test_glob_match_prefix() {
-        assert!(glob_match("Test*", "TestHelper"));
-        assert!(glob_match("Test*", "TestCase"));
-        assert!(!glob_match("Test*", "HelperTest"));
-    }
-
-    #[test]
-    fn test_glob_match_path() {
-        assert!(glob_match("**/build/**", "/project/build/output"));
-        assert!(glob_match("**/build/**", "app/build/generated"));
-        assert!(!glob_match("**/build/**", "/project/src/main"));
-    }
-
-    #[test]
-    fn test_default_config() {
-        let config = Config::default();
-        assert!(config.detection.unused_class);
-        assert!(config.android.parse_manifest);
-    }
-}
-
 /// serde silently swallows unknown keys: a typo like `exclud` means the
 /// user's guard stops applying with no signal. The known keys come from
 /// serializing Config::default() — no hand-kept list to drift.
@@ -501,3 +468,37 @@ fn edit_distance(a: &str, b: &str) -> usize {
     }
     prev[b.len()]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_glob_match_suffix() {
+        assert!(glob_match("*Activity", "MainActivity"));
+        assert!(glob_match("*Activity", "LoginActivity"));
+        assert!(!glob_match("*Activity", "ActivityHelper"));
+    }
+
+    #[test]
+    fn test_glob_match_prefix() {
+        assert!(glob_match("Test*", "TestHelper"));
+        assert!(glob_match("Test*", "TestCase"));
+        assert!(!glob_match("Test*", "HelperTest"));
+    }
+
+    #[test]
+    fn test_glob_match_path() {
+        assert!(glob_match("**/build/**", "/project/build/output"));
+        assert!(glob_match("**/build/**", "app/build/generated"));
+        assert!(!glob_match("**/build/**", "/project/src/main"));
+    }
+
+    #[test]
+    fn test_default_config() {
+        let config = Config::default();
+        assert!(config.detection.unused_class);
+        assert!(config.android.parse_manifest);
+    }
+}
+
