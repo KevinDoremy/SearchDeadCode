@@ -8,13 +8,27 @@ use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 use std::path::Path;
 
-pub fn serve(graph: &SavedGraph, project_root: &Path) -> std::io::Result<()> {
+pub fn serve(graph: SavedGraph, graph_path: &Path, project_root: &Path) -> std::io::Result<()> {
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
+    let mut graph = graph;
+    let mut loaded_at = std::fs::metadata(graph_path)
+        .and_then(|m| m.modified())
+        .ok();
     for line in stdin.lock().lines() {
         let line = line?;
         if line.trim().is_empty() {
             continue;
+        }
+        // a re-exported graph file replaces the snapshot; a corrupt or
+        // half-written one must never kill a long-running agent session
+        if let Ok(modified) = std::fs::metadata(graph_path).and_then(|m| m.modified()) {
+            if loaded_at != Some(modified) {
+                if let Ok(fresh) = SavedGraph::load(graph_path) {
+                    graph = fresh;
+                }
+                loaded_at = Some(modified);
+            }
         }
         let Ok(request) = serde_json::from_str::<Value>(&line) else {
             continue;
@@ -23,7 +37,7 @@ pub fn serve(graph: &SavedGraph, project_root: &Path) -> std::io::Result<()> {
         if id.is_null() {
             continue; // notification: no response owed
         }
-        let response = handle(graph, project_root, &request, id);
+        let response = handle(&graph, project_root, &request, id);
         writeln!(stdout, "{response}")?;
         stdout.flush()?;
     }

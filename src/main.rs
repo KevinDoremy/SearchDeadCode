@@ -859,7 +859,7 @@ fn main() -> Result<()> {
                 std::process::exit(2);
             }
         };
-        mcp::serve(&saved, &cli.path).map_err(|e| miette::miette!(e))?;
+        mcp::serve(saved, graph_path, &cli.path).map_err(|e| miette::miette!(e))?;
         return Ok(());
     }
 

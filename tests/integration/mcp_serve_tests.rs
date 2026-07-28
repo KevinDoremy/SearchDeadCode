@@ -501,3 +501,156 @@ fn search_under_a_page_stays_unpaginated_in_tone() {
         "a complete answer offers no continuation, text was:\n{text}"
     );
 }
+
+#[test]
+fn a_regenerated_graph_is_picked_up_between_requests() {
+    use std::io::{Read as _, Write as _};
+    let temp = tempfile::tempdir().unwrap();
+    let project = temp.path().join("project");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(
+        project.join("Ghost.kt"),
+        "package sample\n\nclass Ghost {\n    fun haunt() {}\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        project.join("Main.kt"),
+        "package sample\n\nfun main() {\n    println(\"alive\")\n}\n",
+    )
+    .unwrap();
+    let graph = temp.path().join("graph.json");
+    let export = Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+        .arg(&project)
+        .args(["--export-graph", graph.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(export.status.success());
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+        .arg(&project)
+        .args(["--graph-file", graph.to_str().unwrap(), "--mcp-serve"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let stdin = child.stdin.as_mut().unwrap();
+    writeln!(
+        stdin,
+        r#"{{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{{"name":"is_dead","arguments":{{"symbol":"Ghost"}}}}}}"#
+    )
+    .unwrap();
+    stdin.flush().unwrap();
+
+    // wait for the first answer: the initial graph is loaded and served
+    let mut stdout = child.stdout.take().unwrap();
+    let mut first_line = Vec::new();
+    let mut byte = [0u8; 1];
+    loop {
+        stdout.read_exact(&mut byte).unwrap();
+        if byte[0] == b'\n' {
+            break;
+        }
+        first_line.push(byte[0]);
+    }
+    let first: serde_json::Value = serde_json::from_slice(&first_line).unwrap();
+    let text = first["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("dead"), "Ghost starts dead, got:\n{text}");
+
+    // the world changes: Ghost gets a caller, the graph is re-exported
+    fs::write(
+        project.join("Main.kt"),
+        "package sample\n\nfun main() {\n    Ghost().haunt()\n}\n",
+    )
+    .unwrap();
+    let export = Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+        .arg(&project)
+        .args(["--export-graph", graph.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(export.status.success());
+
+    let stdin = child.stdin.as_mut().unwrap();
+    writeln!(
+        stdin,
+        r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"is_dead","arguments":{{"symbol":"Ghost"}}}}}}"#
+    )
+    .unwrap();
+    drop(child.stdin.take());
+
+    let mut rest = Vec::new();
+    stdout.read_to_end(&mut rest).unwrap();
+    child.wait().unwrap();
+    let second: serde_json::Value = String::from_utf8_lossy(&rest)
+        .lines()
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .find(|r: &serde_json::Value| r["id"] == 2)
+        .expect("second answer");
+    let text = second["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(
+        text.contains("alive"),
+        "the reloaded graph knows Ghost lives now, got:\n{text}"
+    );
+}
+
+#[test]
+fn a_corrupt_regenerated_graph_keeps_answering_from_the_old_one() {
+    use std::io::{Read as _, Write as _};
+    let temp = tempfile::tempdir().unwrap();
+    let graph = saved_graph(temp.path());
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+        .arg(graph.parent().unwrap())
+        .args(["--graph-file", graph.to_str().unwrap(), "--mcp-serve"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let stdin = child.stdin.as_mut().unwrap();
+    writeln!(
+        stdin,
+        r#"{{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{{"name":"is_dead","arguments":{{"symbol":"Ghost"}}}}}}"#
+    )
+    .unwrap();
+    stdin.flush().unwrap();
+
+    let mut stdout = child.stdout.take().unwrap();
+    let mut byte = [0u8; 1];
+    loop {
+        stdout.read_exact(&mut byte).unwrap();
+        if byte[0] == b'\n' {
+            break;
+        }
+    }
+
+    fs::write(&graph, "{ not json at all").unwrap();
+
+    let stdin = child.stdin.as_mut().unwrap();
+    writeln!(
+        stdin,
+        r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"is_dead","arguments":{{"symbol":"Ghost"}}}}}}"#
+    )
+    .unwrap();
+    drop(child.stdin.take());
+
+    let mut rest = Vec::new();
+    stdout.read_to_end(&mut rest).unwrap();
+    let status = child.wait().unwrap();
+    assert!(
+        status.success(),
+        "a corrupt reload must not kill the server"
+    );
+    let second: serde_json::Value = String::from_utf8_lossy(&rest)
+        .lines()
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .find(|r: &serde_json::Value| r["id"] == 2)
+        .expect("still answers");
+    assert!(
+        second["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("Ghost"),
+        "the old graph still answers"
+    );
+}
