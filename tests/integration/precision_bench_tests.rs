@@ -217,3 +217,124 @@ fn a_zombie_symbol_names_its_real_condition() {
         "a truly unreferenced symbol keeps the plain message"
     );
 }
+
+#[test]
+fn java_ground_truth_holds_the_same_floors() {
+    // half a typical Android repo is Java — parity is measured, not
+    // assumed. Same rules: no living symbol reported, all corpses found.
+    let temp = tempfile::tempdir().unwrap();
+    write_file(
+        temp.path(),
+        "src/main/java/Main.java",
+        concat!(
+            "package sample;\n\n",
+            "public class Main {\n",
+            "    public static void main(String[] args) {\n",
+            "        new JavaEngine().run();\n",
+            "    }\n",
+            "}\n",
+        ),
+    );
+    write_file(
+        temp.path(),
+        "src/main/java/JavaEngine.java",
+        "package sample;\n\npublic class JavaEngine {\n    public void run() {}\n}\n",
+    );
+    write_file(
+        temp.path(),
+        "src/main/java/JavaOrphan.java",
+        "package sample;\n\npublic class JavaOrphan {\n    public void linger() {}\n}\n",
+    );
+    write_file(
+        temp.path(),
+        "src/main/java/JavaZombie.java",
+        "package sample;\n\npublic class JavaZombie {\n    public void rot() {}\n}\n",
+    );
+    write_file(
+        temp.path(),
+        "src/main/java/JavaGhost.java",
+        concat!(
+            "package sample;\n\n",
+            "public class JavaGhost {\n",
+            "    public void wander() {\n",
+            "        new JavaZombie().rot();\n",
+            "    }\n",
+            "}\n",
+        ),
+    );
+
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+        .arg(temp.path())
+        .args(["--format", "json"])
+        .output()
+        .unwrap();
+    let reported = reported_names(&out);
+
+    for alive in ["JavaEngine", "run", "Main", "main"] {
+        assert!(
+            !reported.iter().any(|r| r == alive),
+            "'{alive}' is reachable from main and must not be reported, got: {reported:?}"
+        );
+    }
+    for dead in ["JavaOrphan", "JavaGhost", "JavaZombie"] {
+        assert!(
+            reported.iter().any(|r| r == dead),
+            "'{dead}' is dead by construction and must be found, got: {reported:?}"
+        );
+    }
+}
+
+#[test]
+fn mixed_interop_truth_holds() {
+    // the cross-language edges are where parity usually dies: a Java
+    // class kept alive by living Kotlin, and a Kotlin function whose
+    // only caller is dead Java
+    let temp = tempfile::tempdir().unwrap();
+    write_file(
+        temp.path(),
+        "src/main/kotlin/Main.kt",
+        "package sample\n\nfun main() {\n    JavaBridge().cross()\n}\n",
+    );
+    write_file(
+        temp.path(),
+        "src/main/java/JavaBridge.java",
+        "package sample;\n\npublic class JavaBridge {\n    public void cross() {}\n}\n",
+    );
+    write_file(
+        temp.path(),
+        "src/main/kotlin/KotlinLeaf.kt",
+        "package sample\n\nfun kotlinLeaf() {}\n",
+    );
+    write_file(
+        temp.path(),
+        "src/main/java/DeadCaller.java",
+        concat!(
+            "package sample;\n\n",
+            "public class DeadCaller {\n",
+            "    public void call() {\n",
+            "        MainKt.kotlinLeaf();\n",
+            "    }\n",
+            "}\n",
+        ),
+    );
+
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+        .arg(temp.path())
+        .args(["--format", "json"])
+        .output()
+        .unwrap();
+    let reported = reported_names(&out);
+
+    assert!(
+        !reported.iter().any(|r| r == "JavaBridge" || r == "cross"),
+        "living Kotlin keeps the Java side alive, got: {reported:?}"
+    );
+    assert!(
+        reported.iter().any(|r| r == "DeadCaller"),
+        "the dead Java caller is found, got: {reported:?}"
+    );
+    assert!(
+        reported.iter().any(|r| r == "kotlinLeaf"),
+        "a Kotlin function only dead Java calls is a zombie, got: {reported:?}"
+    );
+}
