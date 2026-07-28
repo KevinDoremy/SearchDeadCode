@@ -172,3 +172,77 @@ fn health_json_carries_no_ansi_noise() {
         "nothing but JSON on stdout"
     );
 }
+
+#[test]
+fn min_grade_fails_the_run_when_a_module_rots_below_it() {
+    let temp = tempfile::tempdir().unwrap();
+    // one corpse out of two declarations: 50% dead, grade F
+    write_file(
+        temp.path(),
+        "app/src/main/kotlin/Ghost.kt",
+        "package sample\n\nclass Ghost {\n    fun haunt() {}\n}\n",
+    );
+    write_file(
+        temp.path(),
+        "app/src/main/kotlin/Main.kt",
+        "package sample\n\nfun main() {\n    println(\"alive\")\n}\n",
+    );
+
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+        .arg(temp.path())
+        .args(["--health", "--min-grade", "C"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(3),
+        "an F module under a C floor is a CI failure:\n{out:?}"
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("min-grade") || stdout.contains("below"),
+        "the verdict says WHY it failed, stdout was:\n{stdout}"
+    );
+}
+
+#[test]
+fn min_grade_passes_a_clean_project() {
+    let temp = tempfile::tempdir().unwrap();
+    write_file(
+        temp.path(),
+        "app/src/main/kotlin/Engine.kt",
+        "package sample\n\nclass Engine {\n    fun run() {}\n}\n",
+    );
+    write_file(
+        temp.path(),
+        "app/src/main/kotlin/Main.kt",
+        "package sample\n\nfun main() {\n    Engine().run()\n}\n",
+    );
+
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+        .arg(temp.path())
+        .args(["--health", "--min-grade", "C"])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "all-A modules pass any floor:\n{out:?}"
+    );
+}
+
+#[test]
+fn min_grade_rejects_nonsense_letters() {
+    let temp = tempfile::tempdir().unwrap();
+    write_file(
+        temp.path(),
+        "app/src/main/kotlin/Main.kt",
+        "package sample\n\nfun main() {\n    println(\"alive\")\n}\n",
+    );
+
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+        .arg(temp.path())
+        .args(["--health", "--min-grade", "Z"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success(), "Z is not a grade");
+}
