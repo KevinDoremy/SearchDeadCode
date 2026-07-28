@@ -55,8 +55,11 @@ fn twin_directories_suggest_a_ready_to_copy_compare_command() {
         stdout.contains("--compare"),
         "deux arborescences jumelles suggèrent --compare, stdout:\n{stdout}"
     );
+    // Windows sépare en `\` — le hint est copiable tel quel pour l'OS,
+    // l'assertion normalise pour rester portable
+    let normalized = stdout.replace('\\', "/");
     assert!(
-        stdout.contains("app/main=") && stdout.contains("app/mainV2"),
+        normalized.contains("app/main=") && normalized.contains("app/mainV2"),
         "la commande est prête à copier, tokens inclus, stdout:\n{stdout}"
     );
 }
