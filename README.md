@@ -137,6 +137,20 @@ cargo install --path .
 
 ## Usage essentials
 
+The default run is the whole product: it detects what's going on in your
+repo and prints the specialized command to dig in, parameters included.
+Mid-migration codebases get this for free:
+
+```text
+Next steps
+  ⚠ Deux arborescences similaires détectées (app/main / app/mainV2) — migration en cours ?
+    searchdeadcode . --compare "app/main=app/mainV2"    vieux monde: supprimable au flip + bloqueurs
+  ⚠ 12 paire(s) de classes V1/V2 (ex. HomeScreen / HomeScreenV2)
+    searchdeadcode . --twins    les paires côte à côte avec leurs références
+```
+
+No flag to memorize: run `searchdeadcode .`, copy the suggestion.
+
 ```bash
 # Basic analysis
 searchdeadcode ./app

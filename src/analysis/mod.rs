@@ -32,6 +32,7 @@ mod reachability;
 pub mod remote_config;
 pub mod resources;
 pub mod risk;
+pub mod situations;
 pub mod strings_dup;
 pub mod test_refs;
 pub mod translations;
