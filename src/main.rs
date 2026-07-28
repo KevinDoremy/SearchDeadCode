@@ -395,6 +395,10 @@ struct Cli {
     #[arg(long)]
     health: bool,
 
+    /// With --health: exit 3 when any module grades below this letter
+    #[arg(long, value_name = "GRADE", value_parser = ["A", "B", "C", "D"])]
+    min_grade: Option<String>,
+
     /// Replace the report with a paste-ready cleanup-PR description
     /// (stats, proof of death, residual risks)
     #[arg(long)]
@@ -4790,6 +4794,24 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
             print_health_json(&graph, &dead_code, &cli.path);
         } else {
             print_health(&graph, &dead_code, &cli.path);
+        }
+        if let Some(ref floor) = cli.min_grade {
+            let failing: Vec<String> = health_rows(&graph, &dead_code, &cli.path)
+                .into_iter()
+                .filter_map(|(module, corpses, total)| {
+                    let percent = corpses as f64 * 100.0 / total.max(1) as f64;
+                    // later letters are worse: a simple ordinal compare
+                    (health_grade(percent) > floor.as_str()).then_some(module)
+                })
+                .collect();
+            if !failing.is_empty() {
+                println!(
+                    "❌ {} module(s) below the min-grade {floor}: {}",
+                    failing.len(),
+                    failing.join(", ")
+                );
+                std::process::exit(3);
+            }
         }
         return Ok(());
     }
