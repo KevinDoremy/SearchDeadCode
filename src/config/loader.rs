@@ -501,4 +501,3 @@ mod tests {
         assert!(config.android.parse_manifest);
     }
 }
-
