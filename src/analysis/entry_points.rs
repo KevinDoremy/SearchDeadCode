@@ -277,6 +277,37 @@ impl<'a> EntryPointDetector<'a> {
         ENTRY_ANNOTATIONS.iter().any(|e| annotation.contains(e))
     }
 
+    /// L'annotation d'entrée qui retient cette déclaration, en la cherchant
+    /// sur la déclaration elle-même puis sur ses membres (un @Inject sur le
+    /// constructeur retient la classe). Pour que --why-alive nomme la cause
+    /// au lieu d'un « it is an entry point » opaque.
+    pub fn entry_annotation_reason(
+        graph: &crate::graph::Graph,
+        decl: &crate::graph::Declaration,
+    ) -> Option<String> {
+        let find = |d: &crate::graph::Declaration| -> Option<String> {
+            d.annotations
+                .iter()
+                .find(|a| ENTRY_ANNOTATIONS.iter().any(|e| a.contains(e)))
+                .cloned()
+        };
+        if let Some(a) = find(decl) {
+            return Some(a);
+        }
+        for child_id in graph.get_children(&decl.id) {
+            if let Some(child) = graph.get_declaration(child_id) {
+                if let Some(a) = find(child) {
+                    let site = match child.kind {
+                        crate::graph::DeclarationKind::Constructor => "constructor",
+                        _ => child.name.as_str(),
+                    };
+                    return Some(format!("{a} on its {site}"));
+                }
+            }
+        }
+        None
+    }
+
     /// How many declarations each retention annotation keeps alive —
     /// with the same `contains` matching the detector itself uses, so
     /// the audit reflects reality, not an idealized exact-match world.
