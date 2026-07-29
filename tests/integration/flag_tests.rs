@@ -115,3 +115,56 @@ fn disabled_behavior_inverts_the_verdict() {
         "disabled kills the then-branch instead, stdout was:\n{stdout}"
     );
 }
+
+#[test]
+fn boolean_flags_accept_their_bare_form() {
+    // --deep alone errored with "a value is required" — hostile for a
+    // flag whose only intent when typed bare is "turn it on"
+    let temp = tempfile::tempdir().unwrap();
+    std::fs::write(
+        temp.path().join("Main.kt"),
+        "package sample\n\nfun main() {\n    println(\"alive\")\n}\n",
+    )
+    .unwrap();
+
+    for flag in ["--deep", "--parallel", "--incremental"] {
+        let out = std::process::Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+            .arg(temp.path())
+            .arg(flag)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "bare {flag} must mean 'on', stderr:\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+}
+
+#[test]
+fn boolean_flags_keep_their_explicit_forms() {
+    let temp = tempfile::tempdir().unwrap();
+    std::fs::write(
+        temp.path().join("Main.kt"),
+        "package sample\n\nfun main() {\n    println(\"alive\")\n}\n",
+    )
+    .unwrap();
+
+    for args in [
+        ["--deep", "true"],
+        ["--deep", "false"],
+        ["--parallel", "false"],
+        ["--incremental", "false"],
+    ] {
+        let out = std::process::Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+            .arg(temp.path())
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "explicit {args:?} stays valid, stderr:\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+}

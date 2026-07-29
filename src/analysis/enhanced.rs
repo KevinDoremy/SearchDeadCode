@@ -183,7 +183,17 @@ impl EnhancedAnalyzer {
                 }
 
                 let issue = self.determine_issue_type(decl);
-                Some(DeadCode::new((*decl).clone(), issue))
+                let mut finding = DeadCode::new((*decl).clone(), issue);
+                // "is never used" would be false for a zombie: it IS
+                // referenced, but only from code that is itself dead
+                if !graph.get_references_to(&decl.id).is_empty() {
+                    finding = finding.with_message(format!(
+                        "{} '{}' is only referenced from dead code — unreachable from any entry point",
+                        decl.kind.display_name(),
+                        decl.name
+                    ));
+                }
+                Some(finding)
             })
             .collect()
     }
@@ -227,6 +237,20 @@ impl EnhancedAnalyzer {
                     return true;
                 }
             }
+        }
+
+        // Un constructeur privé sans paramètre est l'idiome
+        // anti-instanciation des classes utilitaires : son but EST de ne
+        // jamais être appelé, le supprimer réintroduirait le ctor public
+        if decl.kind == DeclarationKind::Constructor
+            && decl.visibility == crate::graph::Visibility::Private
+            && graph.get_children(&decl.id).iter().all(|c| {
+                graph
+                    .get_declaration(c)
+                    .map_or(true, |d| d.kind != DeclarationKind::Parameter)
+            })
+        {
+            return true;
         }
 
         // Skip override methods

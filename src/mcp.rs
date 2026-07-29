@@ -6,14 +6,29 @@
 use crate::report::graph_export::{QueryAnswer, SavedGraph};
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
+use std::path::Path;
 
-pub fn serve(graph: &SavedGraph) -> std::io::Result<()> {
+pub fn serve(graph: SavedGraph, graph_path: &Path, project_root: &Path) -> std::io::Result<()> {
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
+    let mut graph = graph;
+    let mut loaded_at = std::fs::metadata(graph_path)
+        .and_then(|m| m.modified())
+        .ok();
     for line in stdin.lock().lines() {
         let line = line?;
         if line.trim().is_empty() {
             continue;
+        }
+        // a re-exported graph file replaces the snapshot; a corrupt or
+        // half-written one must never kill a long-running agent session
+        if let Ok(modified) = std::fs::metadata(graph_path).and_then(|m| m.modified()) {
+            if loaded_at != Some(modified) {
+                if let Ok(fresh) = SavedGraph::load(graph_path) {
+                    graph = fresh;
+                }
+                loaded_at = Some(modified);
+            }
         }
         let Ok(request) = serde_json::from_str::<Value>(&line) else {
             continue;
@@ -22,14 +37,14 @@ pub fn serve(graph: &SavedGraph) -> std::io::Result<()> {
         if id.is_null() {
             continue; // notification: no response owed
         }
-        let response = handle(graph, &request, id);
+        let response = handle(&graph, project_root, &request, id);
         writeln!(stdout, "{response}")?;
         stdout.flush()?;
     }
     Ok(())
 }
 
-fn handle(graph: &SavedGraph, request: &Value, id: Value) -> Value {
+fn handle(graph: &SavedGraph, project_root: &Path, request: &Value, id: Value) -> Value {
     match request["method"].as_str() {
         Some("initialize") => json!({
             "jsonrpc": "2.0",
@@ -59,8 +74,11 @@ fn handle(graph: &SavedGraph, request: &Value, id: Value) -> Value {
                     },
                     {
                         "name": "dead_list",
-                        "description": "Every symbol with zero incoming references in the graph",
-                        "inputSchema": { "type": "object", "properties": {} }
+                        "description": "Symbols with zero incoming references, 50 per page (offset to continue)",
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": { "offset": { "type": "integer" } }
+                        }
                     },
                     {
                         "name": "why_alive",
@@ -73,10 +91,13 @@ fn handle(graph: &SavedGraph, request: &Value, id: Value) -> Value {
                     },
                     {
                         "name": "search",
-                        "description": "Find symbols by case-insensitive substring of their name",
+                        "description": "Find symbols by case-insensitive substring, 50 per page (offset to continue)",
                         "inputSchema": {
                             "type": "object",
-                            "properties": { "query": { "type": "string" } },
+                            "properties": {
+                                "query": { "type": "string" },
+                                "offset": { "type": "integer" }
+                            },
                             "required": ["query"]
                         }
                     },
@@ -88,6 +109,11 @@ fn handle(graph: &SavedGraph, request: &Value, id: Value) -> Value {
                             "properties": { "symbol": { "type": "string" } },
                             "required": ["symbol"]
                         }
+                    },
+                    {
+                        "name": "health",
+                        "description": "A-F dead-code grade per module, worst first — where to clean up next",
+                        "inputSchema": { "type": "object", "properties": {} }
                     }
                 ]
             }
@@ -100,13 +126,22 @@ fn handle(graph: &SavedGraph, request: &Value, id: Value) -> Value {
             let text = match tool {
                 "refs_of" => refs_of_text(graph, symbol),
                 "is_dead" => is_dead_text(graph, symbol),
-                "dead_list" => dead_list_text(graph),
+                "dead_list" => {
+                    let offset = request["params"]["arguments"]["offset"]
+                        .as_u64()
+                        .unwrap_or(0) as usize;
+                    dead_list_text(graph, offset)
+                }
+                "health" => health_text(graph, project_root),
                 "why_alive" => why_alive_text(graph, symbol),
                 "search" => {
                     let query = request["params"]["arguments"]["query"]
                         .as_str()
                         .unwrap_or("");
-                    search_text(graph, query)
+                    let offset = request["params"]["arguments"]["offset"]
+                        .as_u64()
+                        .unwrap_or(0) as usize;
+                    search_text(graph, query, offset)
                 }
                 other => {
                     return json!({
@@ -161,16 +196,75 @@ fn is_dead_text(graph: &SavedGraph, symbol: &str) -> String {
     }
 }
 
-fn dead_list_text(graph: &SavedGraph) -> String {
-    let dead = graph.dead_symbols();
+/// An agent context is finite: 50 rows per page, deterministic order.
+const DEAD_LIST_PAGE: usize = 50;
+
+fn dead_list_text(graph: &SavedGraph, offset: usize) -> String {
+    let mut dead = graph.dead_symbols();
     if dead.is_empty() {
         return "no unreferenced symbols in the graph".to_string();
     }
-    let mut out = format!("{} unreferenced symbol(s):\n", dead.len());
-    for node in dead {
+    dead.sort_by(|a, b| a.name.cmp(&b.name).then(a.file.cmp(&b.file)));
+    let total = dead.len();
+    if offset >= total {
+        return format!(
+            "no symbols at offset {offset} — the graph has {total} unreferenced symbol(s)"
+        );
+    }
+    let page: Vec<_> = dead.into_iter().skip(offset).take(DEAD_LIST_PAGE).collect();
+    let last = offset + page.len();
+    let mut out = format!("unreferenced symbols {}-{last} of {total}:\n", offset + 1);
+    for node in &page {
         out.push_str(&format!(
             "- {} ({}) at {}:{}\n",
             node.name, node.kind, node.file, node.line
+        ));
+    }
+    if last < total {
+        out.push_str(&format!("pass offset={last} for the next page\n"));
+    }
+    out
+}
+
+/// A-F grade per module, worst first — same thresholds as --health.
+fn health_text(graph: &SavedGraph, project_root: &Path) -> String {
+    use std::collections::{HashMap, HashSet};
+    let mut totals: HashMap<String, usize> = HashMap::new();
+    for node in &graph.nodes {
+        let module = crate::analysis::strings_dup::module_of(project_root, Path::new(&node.file));
+        *totals.entry(module).or_default() += 1;
+    }
+    let mut dead: HashMap<String, HashSet<String>> = HashMap::new();
+    for node in graph.dead_symbols() {
+        let module = crate::analysis::strings_dup::module_of(project_root, Path::new(&node.file));
+        dead.entry(module)
+            .or_default()
+            .insert(format!("{}:{}", node.file, node.line));
+    }
+    let mut rows: Vec<(String, usize, usize)> = totals
+        .into_iter()
+        .map(|(module, total)| {
+            let corpses = dead.get(&module).map(HashSet::len).unwrap_or(0);
+            (module, corpses, total)
+        })
+        .collect();
+    rows.sort_by(|a, b| {
+        let ratio_a = a.1 as f64 / a.2.max(1) as f64;
+        let ratio_b = b.1 as f64 / b.2.max(1) as f64;
+        ratio_b.partial_cmp(&ratio_a).unwrap().then(a.0.cmp(&b.0))
+    });
+    let mut out = String::from("module health (dead/total declarations), worst first:\n");
+    for (module, corpses, total) in rows {
+        let percent = corpses as f64 * 100.0 / total.max(1) as f64;
+        let grade = match percent {
+            p if p <= 1.0 => "A",
+            p if p <= 3.0 => "B",
+            p if p <= 8.0 => "C",
+            p if p <= 15.0 => "D",
+            _ => "F",
+        };
+        out.push_str(&format!(
+            "- {grade} {module}: {corpses}/{total} dead ({percent:.1}%)\n"
         ));
     }
     out
@@ -196,7 +290,7 @@ fn why_alive_text(graph: &SavedGraph, symbol: &str) -> String {
     }
 }
 
-fn search_text(graph: &SavedGraph, query: &str) -> String {
+fn search_text(graph: &SavedGraph, query: &str, offset: usize) -> String {
     let needle = query.to_lowercase();
     let mut hits: Vec<_> = graph
         .nodes
@@ -204,16 +298,28 @@ fn search_text(graph: &SavedGraph, query: &str) -> String {
         .filter(|n| !needle.is_empty() && n.name.to_lowercase().contains(&needle))
         .collect();
     hits.sort_by(|a, b| a.name.cmp(&b.name).then(a.file.cmp(&b.file)));
-    hits.truncate(50);
-    if hits.is_empty() {
+    let total = hits.len();
+    if total == 0 {
         return format!("no symbol matches '{query}'");
     }
-    let mut out = format!("{} match(es) for '{query}':\n", hits.len());
-    for node in hits {
+    if offset >= total {
+        return format!("no matches at offset {offset} — {total} match(es) for '{query}'");
+    }
+    let page: Vec<_> = hits.into_iter().skip(offset).take(DEAD_LIST_PAGE).collect();
+    let last = offset + page.len();
+    let mut out = if total > DEAD_LIST_PAGE {
+        format!("matches {}-{last} of {total} for '{query}':\n", offset + 1)
+    } else {
+        format!("{total} match(es) for '{query}':\n")
+    };
+    for node in &page {
         out.push_str(&format!(
             "- {} ({}) at {}:{}\n",
             node.name, node.kind, node.file, node.line
         ));
+    }
+    if last < total {
+        out.push_str(&format!("pass offset={last} for the next page\n"));
     }
     out
 }

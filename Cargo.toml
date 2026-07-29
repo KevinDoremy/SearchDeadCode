@@ -1,6 +1,6 @@
 [package]
 name = "searchdeadcode"
-version = "0.10.2"
+version = "0.13.0"
 edition = "2021"
 default-run = "searchdeadcode"
 rust-version = "1.80"  # MSRV - Minimum Supported Rust Version (LazyLock)
@@ -67,6 +67,8 @@ notify-debouncer-mini = "0.7"
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+ratatui = "0.29"
+crossterm = "0.28"
 
 [dev-dependencies]
 tempfile = "3.9"
@@ -97,6 +99,18 @@ path = "tests/integration/explain_tests.rs"
 [[test]]
 name = "kill_list"
 path = "tests/integration/kill_list_tests.rs"
+
+[[test]]
+name = "webview_bridge"
+path = "tests/integration/webview_bridge_tests.rs"
+
+[[test]]
+name = "override_chain"
+path = "tests/integration/override_chain_tests.rs"
+
+[[test]]
+name = "string_template_reads"
+path = "tests/integration/string_template_reads_tests.rs"
 
 [[test]]
 name = "clusters"
@@ -217,6 +231,18 @@ path = "tests/integration/top_files_tests.rs"
 [[test]]
 name = "diff_base"
 path = "tests/integration/diff_base_tests.rs"
+
+[[test]]
+name = "kotlin_accessor_from_java"
+path = "tests/integration/kotlin_accessor_from_java_tests.rs"
+
+[[test]]
+name = "lambda_property"
+path = "tests/integration/lambda_property_tests.rs"
+
+[[test]]
+name = "situation_hints"
+path = "tests/integration/situation_hints_tests.rs"
 
 [[test]]
 name = "why_alive"
@@ -443,6 +469,82 @@ name = "action"
 path = "tests/integration/action_tests.rs"
 
 [[test]]
+name = "lsp_serve"
+path = "tests/integration/lsp_serve_tests.rs"
+
+[[test]]
+name = "tui"
+path = "tests/integration/tui_tests.rs"
+
+[[test]]
+name = "promises"
+path = "tests/integration/promises_tests.rs"
+
+[[test]]
+name = "fail_on_findings"
+path = "tests/integration/fail_on_findings_tests.rs"
+
+[[test]]
+name = "csv_format"
+path = "tests/integration/csv_format_tests.rs"
+
+[[test]]
+name = "unscheduled_workers"
+path = "tests/integration/unscheduled_workers_tests.rs"
+
+[[test]]
+name = "gitlab_format"
+path = "tests/integration/gitlab_format_tests.rs"
+
+[[test]]
+name = "legend"
+path = "tests/integration/legend_tests.rs"
+
+[[test]]
+name = "honest_docs"
+path = "tests/integration/honest_docs_tests.rs"
+
+[[test]]
+name = "rule_completions"
+path = "tests/integration/rule_completions_tests.rs"
+
+[[test]]
+name = "import_suppressions"
+path = "tests/integration/import_suppressions_tests.rs"
+
+[[test]]
+name = "health"
+path = "tests/integration/health_tests.rs"
+
+[[test]]
+name = "pr_description"
+path = "tests/integration/pr_description_tests.rs"
+
+[[test]]
+name = "write_only_caches"
+path = "tests/integration/write_only_caches_tests.rs"
+
+[[test]]
+name = "near_twins"
+path = "tests/integration/near_twins_tests.rs"
+
+[[test]]
+name = "test_only"
+path = "tests/integration/test_only_tests.rs"
+
+[[test]]
+name = "import_detekt_baseline"
+path = "tests/integration/import_detekt_baseline_tests.rs"
+
+[[test]]
+name = "wedge_precedence"
+path = "tests/integration/wedge_precedence_tests.rs"
+
+[[test]]
+name = "precision_bench"
+path = "tests/integration/precision_bench_tests.rs"
+
+[[test]]
 name = "generated_mapping"
 path = "tests/integration/generated_mapping_tests.rs"
 
@@ -466,3 +568,4 @@ path = "tests/integration/advanced_tests.rs"
 lto = true
 codegen-units = 1
 panic = "abort"
+

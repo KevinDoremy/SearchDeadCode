@@ -37,17 +37,28 @@ fn in_world(decl: &Declaration, token: &str) -> bool {
 }
 
 /// Compare the old world against everything else.
-pub fn compare(graph: &Graph, old_token: &str) -> MigrationReport {
+///
+/// `new_token` doit être exclu explicitement : quand le vieux monde est un
+/// préfixe de chaîne du nouveau (main / mainV2 — le cas typique d'une
+/// migration), `contains(old)` avale tout le nouveau monde. Les internes du
+/// nouveau monde sortaient « deletable », et un symbole du vieux monde
+/// référencé PAR le nouveau était classé deletable (référence « interne »)
+/// alors que sa suppression casserait le nouveau monde.
+pub fn compare(graph: &Graph, old_token: &str, new_token: &str) -> MigrationReport {
+    let in_old_world = |decl: &Declaration| -> bool {
+        in_world(decl, old_token) && (new_token.is_empty() || !in_world(decl, new_token))
+    };
+
     // Group old-world declarations under their outermost old-world ancestor
     let mut groups: HashMap<DeclarationId, Vec<&Declaration>> = HashMap::new();
     for decl in graph.declarations() {
-        if !in_world(decl, old_token) {
+        if !in_old_world(decl) {
             continue;
         }
         let mut outermost = decl;
         while let Some(parent_id) = &outermost.parent {
             match graph.get_declaration(parent_id) {
-                Some(parent) if in_world(parent, old_token) => outermost = parent,
+                Some(parent) if in_old_world(parent) => outermost = parent,
                 _ => break,
             }
         }
@@ -65,7 +76,7 @@ pub fn compare(graph: &Graph, old_token: &str) -> MigrationReport {
                 if reference.ambiguous {
                     continue;
                 }
-                if !in_world(referencer, old_token) {
+                if !in_old_world(referencer) {
                     blocked_by = Some(referencer.id.clone());
                     break 'members;
                 }

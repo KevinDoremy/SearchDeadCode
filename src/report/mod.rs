@@ -1,13 +1,15 @@
 mod aggregator;
 mod colors;
 mod compact;
+mod csv;
+mod gitlab;
 pub(crate) mod graph_export;
 mod grouped;
 mod html;
 mod json;
 mod markdown;
 mod reviewdog;
-mod sarif;
+pub(crate) mod sarif;
 pub(crate) mod summary;
 mod terminal;
 
@@ -40,6 +42,10 @@ pub enum ReportFormat {
     Markdown,
     /// Reviewdog Diagnostic JSON Lines (rdjsonl)
     Reviewdog,
+    /// Spreadsheet rows for team triage
+    Csv,
+    /// GitLab Code Quality JSON for the MR widget
+    Gitlab,
     /// JSON machine-readable format
     Json,
     /// SARIF format for IDE integration
@@ -170,6 +176,16 @@ impl Reporter {
             }
             ReportFormat::Reviewdog => {
                 let reporter = reviewdog::ReviewdogReporter::new(self.options.output_path.clone())
+                    .with_base_path(self.options.base_path.clone());
+                reporter.report(dead_code)
+            }
+            ReportFormat::Csv => {
+                let reporter = csv::CsvReporter::new(self.options.output_path.clone())
+                    .with_base_path(self.options.base_path.clone());
+                reporter.report(dead_code)
+            }
+            ReportFormat::Gitlab => {
+                let reporter = gitlab::GitlabReporter::new(self.options.output_path.clone())
                     .with_base_path(self.options.base_path.clone());
                 reporter.report(dead_code)
             }

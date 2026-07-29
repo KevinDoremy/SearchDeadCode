@@ -13,11 +13,13 @@ mod coverage;
 mod discovery;
 mod graph;
 mod interactive;
+mod lsp;
 mod mcp;
 mod parser;
 mod proguard;
 mod refactor;
 mod report;
+mod tui;
 mod watch;
 
 use proguard::{ProguardUsage, ReportGenerator};
@@ -93,483 +95,552 @@ use report::Reporter;
 #[command(author, version, about, long_about = None)]
 struct Cli {
     /// Path to the project directory to analyze
-    #[arg(default_value = ".")]
+    #[arg(help_heading = "Target & config", default_value = ".")]
     path: PathBuf,
 
     /// Path to configuration file
-    #[arg(short, long)]
+    #[arg(help_heading = "Target & config", short, long)]
     config: Option<PathBuf>,
 
     /// Target directories to analyze (can be specified multiple times)
-    #[arg(short, long)]
+    #[arg(help_heading = "Target & config", short, long)]
     target: Vec<PathBuf>,
 
     /// Patterns to exclude (can be specified multiple times)
-    #[arg(short, long)]
+    #[arg(help_heading = "Target & config", short, long)]
     exclude: Vec<String>,
 
     /// Patterns to retain - never report as dead (can be specified multiple times)
-    #[arg(short, long)]
+    #[arg(help_heading = "Target & config", short, long)]
     retain: Vec<String>,
 
     /// Output format (defaults to report.format from .deadcode.yml, else terminal)
-    #[arg(short, long, value_enum)]
+    #[arg(help_heading = "Output & formats", short, long, value_enum)]
     format: Option<OutputFormat>,
 
     /// Output file (for json/sarif formats)
-    #[arg(short, long)]
+    #[arg(help_heading = "Output & formats", short, long)]
     output: Option<PathBuf>,
 
     /// Enable safe delete mode
-    #[arg(long)]
+    #[arg(help_heading = "Refactoring & writing", long)]
     delete: bool,
 
     /// Interactive mode for deletions (confirm each)
-    #[arg(long)]
+    #[arg(help_heading = "Refactoring & writing", long)]
     interactive: bool,
 
     /// Dry run - show what would be deleted without making changes
-    #[arg(long)]
+    #[arg(help_heading = "Refactoring & writing", long)]
     dry_run: bool,
 
     /// Generate undo script
-    #[arg(long)]
+    #[arg(help_heading = "Refactoring & writing", long)]
     undo_script: Option<PathBuf>,
 
     /// Detection types to run (comma-separated)
-    #[arg(long)]
+    #[arg(help_heading = "Detectors", long)]
     detect: Option<String>,
 
     /// Explain why a symbol (simple name or FQN) is considered dead or alive
-    #[arg(long, value_name = "SYMBOL")]
+    #[arg(help_heading = "Specialized views", long, value_name = "SYMBOL")]
     explain: Option<String>,
 
     /// Show the retention chain keeping a symbol alive (inverse of --explain)
-    #[arg(long, value_name = "SYMBOL")]
+    #[arg(help_heading = "Specialized views", long, value_name = "SYMBOL")]
     why_alive: Option<String>,
 
     /// Show everything that falls if this symbol is deleted (exclusive dependents)
-    #[arg(long, value_name = "SYMBOL")]
+    #[arg(help_heading = "Specialized views", long, value_name = "SYMBOL")]
     kill_list: Option<String>,
 
     /// Group dead code findings into connected, deletable clusters
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     clusters: bool,
 
     /// Only the findings safe to delete blind: whole cluster dead, every
     /// member low risk
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     quick_wins: bool,
 
     /// Apply zero-risk fixes automatically (unused imports). Combine with
     /// --dry-run to preview. Always writes an undo script.
-    #[arg(long)]
+    #[arg(help_heading = "Refactoring & writing", long)]
     fix: bool,
 
     /// PR-scoped analysis: judge only files changed since this git ref,
     /// reporting only symbols provably unreferenced project-wide
-    #[arg(long, value_name = "REF")]
+    #[arg(help_heading = "Filtering & confidence", long, value_name = "REF")]
     changed_since: Option<String>,
 
     /// Migration diff: OLD=NEW worlds (package prefix or path fragment).
     /// Lists old-world symbols deletable at the flip and the blockers.
-    #[arg(long, value_name = "OLD=NEW")]
+    #[arg(help_heading = "Specialized views", long, value_name = "OLD=NEW")]
     compare: Option<String>,
 
     /// Attribute a shared module's symbols to their real consumers:
     /// unreferenced, internal-only, or used by which directories
-    #[arg(long, value_name = "MODULE")]
+    #[arg(help_heading = "Specialized views", long, value_name = "MODULE")]
     module_usage: Option<String>,
 
     /// Generate a commented .deadcode.yml matching the project's shape
     /// (source sets, DI framework, exclusions) and exit
-    #[arg(long)]
+    #[arg(help_heading = "Target & config", long)]
     init: bool,
 
     /// Feature flag cleanup: name (or key) of the flag being settled
-    #[arg(long, value_name = "NAME")]
+    #[arg(help_heading = "Specialized views", long, value_name = "NAME")]
     flag: Option<String>,
 
     /// Assumed final behavior of --flag
-    #[arg(long, value_enum, default_value = "enabled")]
+    #[arg(
+        help_heading = "Specialized views",
+        long,
+        value_enum,
+        default_value = "enabled"
+    )]
     behavior: FlagBehavior,
 
     /// Coverage files (JaCoCo XML, Kover XML, or LCOV format)
     /// Can be specified multiple times for merged coverage
-    #[arg(long, value_name = "FILE")]
+    #[arg(help_heading = "Filtering & confidence", long, value_name = "FILE")]
     coverage: Vec<PathBuf>,
 
     /// Minimum confidence level to report (low, medium, high, confirmed).
     /// Defaults to medium, or to the --profile choice
-    #[arg(long)]
+    #[arg(help_heading = "Filtering & confidence", long)]
     min_confidence: Option<String>,
 
     /// Preset for an audience: ci (strict, high confidence only) or
     /// explore (everything down to low)
-    #[arg(long, value_enum)]
+    #[arg(help_heading = "Filtering & confidence", long, value_enum)]
     profile: Option<Profile>,
 
     /// Only show findings confirmed by runtime coverage
-    #[arg(long)]
+    #[arg(help_heading = "Detectors", long)]
     runtime_only: bool,
 
     /// Include runtime-dead code (reachable but never executed)
-    #[arg(long)]
+    #[arg(help_heading = "Detectors", long)]
     include_runtime_dead: bool,
 
     /// Detect and report zombie code cycles (mutually dependent dead code)
-    #[arg(long)]
+    #[arg(help_heading = "Detectors", long)]
     detect_cycles: bool,
 
     /// ProGuard/R8 usage.txt file for enhanced detection
     /// This file lists code that R8 determined is unused
-    #[arg(long, value_name = "FILE")]
+    #[arg(help_heading = "Filtering & confidence", long, value_name = "FILE")]
     proguard_usage: Option<PathBuf>,
 
     /// Generate a filtered dead code report from ProGuard usage.txt
     /// Filters out generated code (Dagger, Hilt, _Factory, _Impl, etc.)
-    #[arg(long, value_name = "FILE")]
+    #[arg(help_heading = "Specialized views", long, value_name = "FILE")]
     generate_report: Option<PathBuf>,
 
     /// Package prefix to include in report (e.g., "com.example")
     /// Only classes matching this prefix will be included
-    #[arg(long, value_name = "PREFIX")]
+    #[arg(help_heading = "Specialized views", long, value_name = "PREFIX")]
     report_package: Option<String>,
 
     /// Enable parallel processing for faster analysis (enabled by default)
-    #[arg(long, default_value = "true", action = clap::ArgAction::Set)]
+    #[arg(help_heading = "Detectors", long, default_value = "true", default_missing_value = "true", num_args = 0..=1, action = clap::ArgAction::Set)]
     parallel: bool,
 
     /// Enable enhanced detection mode with ProGuard cross-validation
-    #[arg(long)]
+    #[arg(help_heading = "Detectors", long)]
     enhanced: bool,
 
     /// Enable deep analysis mode - more aggressive detection (enabled by default)
     /// Does not auto-mark class members as reachable
     /// Detects unused members even in reachable classes
-    #[arg(long, default_value = "true", action = clap::ArgAction::Set)]
+    #[arg(help_heading = "Detectors", long, default_value = "true", default_missing_value = "true", num_args = 0..=1, action = clap::ArgAction::Set)]
     deep: bool,
 
     /// Enable unused parameter detection (enabled by default)
     /// Finds function parameters that are declared but never used
-    #[arg(long, default_value = "true", action = clap::ArgAction::Set)]
+    #[arg(help_heading = "Detectors", long, default_value = "true", action = clap::ArgAction::Set)]
     unused_params: bool,
 
     /// Enable unused resource detection (off by default - slower)
     /// Finds Android resources (strings, colors, etc.) that are never referenced
-    #[arg(long)]
+    #[arg(help_heading = "Detectors", long)]
     unused_resources: bool,
 
     /// Enable write-only variable detection (enabled by default)
     /// Finds variables that are assigned but never read
-    #[arg(long, default_value = "true", action = clap::ArgAction::Set)]
+    #[arg(help_heading = "Detectors", long, default_value = "true", action = clap::ArgAction::Set)]
     write_only: bool,
 
     /// Enable unused sealed variant detection (enabled by default)
     /// Finds sealed class variants that are never instantiated
-    #[arg(long, default_value = "true", action = clap::ArgAction::Set)]
+    #[arg(help_heading = "Detectors", long, default_value = "true", action = clap::ArgAction::Set)]
     sealed_variants: bool,
 
     /// Enable redundant override detection (off by default - can be intentional)
     /// Finds method overrides that only call super
-    #[arg(long)]
+    #[arg(help_heading = "Detectors", long)]
     redundant_overrides: bool,
 
     /// Style lints: redundant this, doubled parentheses, size==0 (DC014-16)
-    #[arg(long)]
+    #[arg(help_heading = "Detectors", long)]
     style: bool,
 
     /// Annotate each finding with its last author and date (one git call per finding)
-    #[arg(long)]
+    #[arg(help_heading = "Filtering & confidence", long)]
     blame: bool,
 
     /// With --baseline: fail on new issues (exit 3) and rewrite the
     /// baseline downward on progress — the count can only decrease
-    #[arg(long)]
+    #[arg(help_heading = "Filtering & confidence", long)]
     ratchet: bool,
 
     /// Rank files by deletable lines instead of reporting findings
-    #[arg(long, value_name = "N")]
+    #[arg(help_heading = "Output & formats", long, value_name = "N")]
     top_files: Option<usize>,
 
     /// Rank findings by deletability: lines x confidence / risk
-    #[arg(long)]
+    #[arg(help_heading = "Output & formats", long)]
     score: bool,
 
     /// Treat the public API as alive (its consumers live outside this
     /// repo) — report internal deadness only
-    #[arg(long)]
+    #[arg(help_heading = "Filtering & confidence", long)]
     library_mode: bool,
 
     /// Check the config against the repo's reality (dead globs,
     /// unknown entry points, missing targets) and exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     doctor: bool,
 
     /// List Gradle modules nobody depends on (whole-module deletion
     /// candidates) and exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     dead_modules: bool,
 
     /// List Gradle dependencies declared in build files but never
     /// imported by any source file, then exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     unused_deps: bool,
 
     /// Show how many declarations each retention annotation keeps
     /// alive, broadest first, and exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     retention_audit: bool,
 
     /// List boolean Remote Config flags with their defaults and the
     /// ready-made --flag probe for each, then exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     stale_flags: bool,
 
     /// Show Xxx/XxxV2-style pairs side by side with reference counts,
     /// then exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     twins: bool,
 
     /// Split @Deprecated symbols into ready-to-delete (no references)
     /// and unfinished migrations (still referenced), then exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     deprecated: bool,
 
     /// List exposed LiveData/StateFlow/SharedFlow properties nobody
     /// collects or observes, then exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     unobserved: bool,
 
     /// List src/main symbols referenced only from other source sets
     /// (debug, flavors, tests) — dead in the release build — then exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     debug_only: bool,
 
+    /// List src/main symbols kept alive only by test source sets
+    /// (delete symbol and tests together), then exit
+    #[arg(help_heading = "Specialized views", long)]
+    test_only: bool,
+
     /// Install a pre-commit hook running the fast diff mode, then exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     install_hook: bool,
 
     /// List exact -keep rules naming project classes that no longer
     /// exist, then exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     dead_keep_rules: bool,
 
     /// List assets/ files whose path or name appears nowhere in the
     /// sources, then exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     unused_assets: bool,
 
     /// List string values declared in several modules (centralization
     /// candidates), then exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     duplicate_strings: bool,
 
     /// List JavaBean properties whose getter nobody calls (write-only
     /// or fully dead groups), then exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     dead_accessors: bool,
 
     /// List manifest permissions whose API family never appears in the
     /// code, then exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     unused_permissions: bool,
 
     /// List classes whose every method forwards to the same delegate,
     /// then exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     middlemen: bool,
 
     /// Replace the report with a per-module summary (count, top rule)
-    #[arg(long)]
+    #[arg(help_heading = "Output & formats", long)]
     by_module: bool,
+
+    /// Replace the report with an A-F health grade per module
+    #[arg(help_heading = "Output & formats", long)]
+    health: bool,
+
+    /// With --health: exit 3 when any module grades below this letter
+    #[arg(help_heading = "Output & formats", long, value_name = "GRADE", value_parser = ["A", "B", "C", "D"], requires = "health")]
+    min_grade: Option<String>,
+
+    /// Replace the report with a paste-ready cleanup-PR description
+    /// (stats, proof of death, residual risks)
+    #[arg(help_heading = "Output & formats", long)]
+    pr_description: bool,
 
     /// Fail when code references a symbol the --baseline judged dead
     /// (someone is resurrecting legacy), then exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     necromancy: bool,
 
     /// Write a shields-style SVG badge with the dead-code percentage
-    #[arg(long, value_name = "FILE")]
+    #[arg(help_heading = "Output & formats", long, value_name = "FILE")]
     badge: Option<PathBuf>,
 
     /// List DI modules whose every binding produces an unconsumed type,
     /// then exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     dead_di_modules: bool,
 
     /// List @Serializable classes with zero incoming references (kept
     /// only by their annotation), then exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     dead_serializables: bool,
 
     /// Write the reference graph to this file (.json or .dot), then exit
-    #[arg(long, value_name = "FILE")]
+    #[arg(help_heading = "Specialized views", long, value_name = "FILE")]
     export_graph: Option<PathBuf>,
 
     /// A saved --export-graph JSON to answer queries from (no re-scan)
-    #[arg(long, value_name = "FILE")]
+    #[arg(help_heading = "Baseline & cache", long, value_name = "FILE")]
     graph_file: Option<PathBuf>,
 
     /// Print who references this symbol, answered from --graph-file
-    #[arg(long, value_name = "NAME")]
+    #[arg(help_heading = "Specialized views", long, value_name = "NAME")]
     refs_of: Option<String>,
 
     /// Serve MCP tools (refs_of, is_dead) over stdio from --graph-file
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     mcp_serve: bool,
+
+    /// Serve LSP diagnostics over stdio from --graph-file
+    #[arg(help_heading = "Specialized views", long)]
+    lsp_serve: bool,
+
+    /// Full-screen findings triage (needs a terminal)
+    #[arg(help_heading = "Specialized views", long)]
+    tui: bool,
+
+    /// Cross TODO remove / FIXME delete comments with the symbol's
+    /// real reference count, then exit
+    #[arg(help_heading = "Specialized views", long)]
+    promises: bool,
+
+    /// Exit 1 when findings remain after filtering (baseline included)
+    /// — the scriptable CI gate
+    #[arg(help_heading = "Filtering & confidence", long)]
+    fail_on_findings: bool,
+
+    /// List Worker/JobService classes nobody ever enqueues, then exit
+    #[arg(help_heading = "Specialized views", long)]
+    unscheduled_workers: bool,
+
+    /// Convert @Suppress("unused") annotations into entries of this
+    /// baseline file (migration from Detekt-style triage), then exit
+    #[arg(help_heading = "Specialized views", long, value_name = "FILE")]
+    import_suppressions: Option<PathBuf>,
+
+    /// Convert the Unused* entries of a detekt-baseline.xml into the
+    /// baseline given by --baseline, then exit
+    #[arg(
+        help_heading = "Specialized views",
+        long,
+        value_name = "XML",
+        requires = "baseline"
+    )]
+    import_detekt_baseline: Option<PathBuf>,
+
+    /// List cache keys written but never read back, then exit
+    #[arg(help_heading = "Specialized views", long)]
+    write_only_caches: bool,
+
+    /// List same-named functions with near-identical bodies across
+    /// files (migration copy-paste; survives local renames), then exit
+    #[arg(help_heading = "Specialized views", long)]
+    near_twins: bool,
 
     /// After --delete: run this command (a compile, a test suite) and
     /// restore every touched file automatically when it fails
-    #[arg(long, value_name = "CMD")]
+    #[arg(help_heading = "Refactoring & writing", long, value_name = "CMD")]
     verify_cmd: Option<String>,
 
     /// With --delete: skip confirmation prompts (the CI path)
-    #[arg(long)]
+    #[arg(help_heading = "Refactoring & writing", long)]
     yes: bool,
 
     /// With --delete --dry-run: write the would-be deletion as a
     /// unified diff, reviewable and applicable with git apply
-    #[arg(long, value_name = "FILE")]
+    #[arg(help_heading = "Refactoring & writing", long, value_name = "FILE")]
     patch: Option<std::path::PathBuf>,
 
     /// Report only symbols that became dead since this git reference
-    #[arg(long, value_name = "REF")]
+    #[arg(help_heading = "Filtering & confidence", long, value_name = "REF")]
     diff_base: Option<String>,
 
     /// Enable unused Intent extra detection (enabled by default)
     /// Finds putExtra() keys that are never retrieved via getXxxExtra()
-    #[arg(long, default_value = "true", action = clap::ArgAction::Set)]
+    #[arg(help_heading = "Detectors", long, default_value = "true", action = clap::ArgAction::Set)]
     unused_extras: bool,
 
     /// Enable write-only SharedPreferences detection (enabled by default)
     /// Finds SharedPreferences keys that are written but never read
-    #[arg(long, default_value = "true", action = clap::ArgAction::Set)]
+    #[arg(help_heading = "Detectors", long, default_value = "true", action = clap::ArgAction::Set)]
     write_only_prefs: bool,
 
     /// Enable write-only Room DAO detection (enabled by default)
     /// Finds Room DAOs that have @Insert but no @Query methods
-    #[arg(long, default_value = "true", action = clap::ArgAction::Set)]
+    #[arg(help_heading = "Detectors", long, default_value = "true", action = clap::ArgAction::Set)]
     write_only_dao: bool,
 
     /// Enable all anti-pattern detectors (AP001-AP034)
     /// Includes: architecture, performance, Kotlin, Android, and Compose patterns
-    #[arg(long)]
+    #[arg(help_heading = "Detectors", long)]
     anti_patterns: bool,
 
     /// Enable architecture anti-pattern detectors (AP001-AP006)
     /// Detects: deep inheritance, EventBus, global mutable state, single-impl interfaces
-    #[arg(long)]
+    #[arg(help_heading = "Detectors", long)]
     architecture_patterns: bool,
 
     /// Enable Kotlin anti-pattern detectors (AP007-AP010, AP021-AP025)
     /// Detects: GlobalScope, heavy ViewModel, lateinit abuse, scope function chaining,
     /// nullability overload, reflection overuse, long parameter lists, complex conditions
-    #[arg(long)]
+    #[arg(help_heading = "Detectors", long)]
     kotlin_patterns: bool,
 
     /// Enable performance anti-pattern detectors (AP011-AP015)
     /// Detects: memory leaks, long methods, large classes, collection inefficiencies, loop allocations
-    #[arg(long)]
+    #[arg(help_heading = "Detectors", long)]
     performance_patterns: bool,
 
     /// Enable Android-specific anti-pattern detectors (AP016-AP020, AP026-AP030)
     /// Detects: mutable state exposure, view logic in ViewModel, missing UseCase,
     /// nested callbacks, hardcoded dispatchers, unclosed resources, main thread DB,
     /// WakeLock abuse, AsyncTask usage, onDraw allocations
-    #[arg(long)]
+    #[arg(help_heading = "Detectors", long)]
     android_patterns: bool,
 
     /// Enable Compose-specific anti-pattern detectors (AP031-AP034)
     /// Detects: state without remember, LaunchedEffect without key, business logic in composables,
     /// NavController passing to children
-    #[arg(long)]
+    #[arg(help_heading = "Detectors", long)]
     compose_patterns: bool,
 
     /// Enable incremental analysis with caching (enabled by default)
     /// Skips re-parsing unchanged files for faster subsequent runs
-    #[arg(long, default_value = "true", action = clap::ArgAction::Set)]
+    #[arg(help_heading = "Baseline & cache", long, default_value = "true", default_missing_value = "true", num_args = 0..=1, action = clap::ArgAction::Set)]
     incremental: bool,
 
     /// Clear the analysis cache before running
-    #[arg(long)]
+    #[arg(help_heading = "Baseline & cache", long)]
     clear_cache: bool,
 
     /// Custom cache file path (default: .searchdeadcode-cache.json)
-    #[arg(long, value_name = "FILE")]
+    #[arg(help_heading = "Baseline & cache", long, value_name = "FILE")]
     cache_path: Option<PathBuf>,
 
     /// Baseline file for ignoring existing issues
     /// New issues not in baseline will be reported
-    #[arg(long, value_name = "FILE")]
+    #[arg(help_heading = "Baseline & cache", long, value_name = "FILE")]
     baseline: Option<PathBuf>,
 
     /// Generate a baseline file from current results
-    #[arg(long, value_name = "FILE")]
+    #[arg(help_heading = "Baseline & cache", long, value_name = "FILE")]
     generate_baseline: Option<PathBuf>,
 
     /// List the entries of the --baseline file, then exit
-    #[arg(long)]
+    #[arg(help_heading = "Baseline & cache", long)]
     baseline_show: bool,
 
     /// Remove entries matching this name (or FQN) from the --baseline
     /// file, then exit
-    #[arg(long, value_name = "NAME")]
+    #[arg(help_heading = "Baseline & cache", long, value_name = "NAME")]
     baseline_rm: Option<String>,
 
     /// Drop baseline entries whose finding no longer exists (resolved),
     /// rewriting the --baseline file
-    #[arg(long)]
+    #[arg(help_heading = "Baseline & cache", long)]
     baseline_prune: bool,
 
     /// Show baseline entries counted per rule (where the tool cries
     /// wolf the most), then exit
-    #[arg(long)]
+    #[arg(help_heading = "Baseline & cache", long)]
     baseline_stats: bool,
 
     /// Create one local git branch per dead top-level class, each with
     /// one commit carrying the proof of death, then exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     batch_branches: bool,
 
     /// Watch mode - continuously monitor for changes
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     watch: bool,
 
     /// Verbose output
-    #[arg(short, long)]
+    #[arg(help_heading = "Output & formats", short, long)]
     verbose: bool,
 
     /// Quiet mode - only output results
-    #[arg(short, long)]
+    #[arg(help_heading = "Output & formats", short, long)]
     quiet: bool,
 
     /// Generate shell completions
-    #[arg(long, value_name = "SHELL")]
+    #[arg(help_heading = "Target & config", long, value_name = "SHELL")]
     completions: Option<Shell>,
 
     /// Summary output - show statistics and top issues only
-    #[arg(long)]
+    #[arg(help_heading = "Output & formats", long)]
     summary: bool,
 
     /// Compact output - one line per issue
-    #[arg(long)]
+    #[arg(help_heading = "Output & formats", long)]
     compact: bool,
 
     /// Group results by: rule, category, severity, file
-    #[arg(long, value_name = "MODE")]
+    #[arg(help_heading = "Output & formats", long, value_name = "MODE")]
     group_by: Option<String>,
 
     /// Expand all collapsed groups (show every issue)
-    #[arg(long)]
+    #[arg(help_heading = "Output & formats", long)]
     expand: bool,
 
     /// Expand a specific rule's issues (e.g., --expand-rule AP017)
-    #[arg(long, value_name = "RULE")]
+    #[arg(help_heading = "Output & formats", long, value_name = "RULE", value_parser = ["DC001", "DC002", "DC003", "DC004", "DC005", "DC006", "DC007", "DC008", "DC009", "DC010", "DC011", "DC012", "DC013", "DC014", "DC015", "DC016", "DC017", "DC018", "DC019", "DC020", "DC021", "DC022", "AP001", "AP002", "AP003", "AP004", "AP005", "AP006", "AP007", "AP008", "AP009", "AP010", "AP011", "AP012", "AP013", "AP014", "AP015", "AP016", "AP017", "AP018", "AP019", "AP020", "AP021", "AP022", "AP023", "AP024", "AP025", "AP026", "AP027", "AP028", "AP029", "AP030", "AP031", "AP032", "AP033", "AP034"])]
     expand_rule: Option<String>,
 
     /// Number of top issues to show in summary mode
-    #[arg(long, default_value = "10")]
+    #[arg(help_heading = "Output & formats", long, default_value = "10")]
     top: usize,
 }
 
@@ -603,6 +674,8 @@ enum OutputFormat {
     Html,
     Markdown,
     Reviewdog,
+    Csv,
+    Gitlab,
 }
 
 #[derive(clap::ValueEnum, Clone, Copy, Debug, Default)]
@@ -651,6 +724,8 @@ fn determine_report_format(cli: &Cli, config: &Config) -> report::ReportFormat {
         OutputFormat::Html => report::ReportFormat::Html,
         OutputFormat::Markdown => report::ReportFormat::Markdown,
         OutputFormat::Reviewdog => report::ReportFormat::Reviewdog,
+        OutputFormat::Csv => report::ReportFormat::Csv,
+        OutputFormat::Gitlab => report::ReportFormat::Gitlab,
     }
 }
 
@@ -758,6 +833,26 @@ fn main() -> Result<()> {
         }
     }
 
+    // --lsp-serve: LSP stdio server over the saved graph — no scan
+    if cli.lsp_serve {
+        let Some(ref graph_path) = cli.graph_file else {
+            eprintln!(
+                "{}: --lsp-serve needs --graph-file <file> (from --export-graph)",
+                "Error".red()
+            );
+            std::process::exit(2);
+        };
+        let saved = match report::graph_export::SavedGraph::load(graph_path) {
+            Ok(saved) => saved,
+            Err(e) => {
+                eprintln!("{}: cannot read graph file: {}", "Error".red(), e);
+                std::process::exit(2);
+            }
+        };
+        lsp::serve(saved, graph_path, &cli.path).map_err(|e| miette::miette!(e))?;
+        return Ok(());
+    }
+
     // --mcp-serve: MCP stdio server over the saved graph — no scan
     if cli.mcp_serve {
         let Some(ref graph_path) = cli.graph_file else {
@@ -774,7 +869,7 @@ fn main() -> Result<()> {
                 std::process::exit(2);
             }
         };
-        mcp::serve(&saved).map_err(|e| miette::miette!(e))?;
+        mcp::serve(saved, graph_path, &cli.path).map_err(|e| miette::miette!(e))?;
         return Ok(());
     }
 
@@ -1137,6 +1232,8 @@ fn run_analysis_internal(
         OutputFormat::Html => report::ReportFormat::Html,
         OutputFormat::Markdown => report::ReportFormat::Markdown,
         OutputFormat::Reviewdog => report::ReportFormat::Reviewdog,
+        OutputFormat::Csv => report::ReportFormat::Csv,
+        OutputFormat::Gitlab => report::ReportFormat::Gitlab,
     };
     let reporter = Reporter::new(report_format, output);
     reporter.report(&dead_code)?;
@@ -1521,6 +1618,161 @@ fn write_badge(
     Ok(percent)
 }
 
+/// The cleanup PR body, ready to paste: stats, per-symbol proof of
+/// death, and a residual-risks section for what static analysis
+/// cannot fully vouch for.
+fn pr_description_text(dead_code: &[analysis::DeadCode], root: &Path) -> String {
+    use std::fmt::Write as _;
+    let corpses: Vec<&analysis::DeadCode> = dead_code
+        .iter()
+        .filter(|dc| dc.severity != analysis::Severity::Info)
+        .collect();
+    if corpses.is_empty() {
+        return "nothing to clean — no PR to describe\n".to_string();
+    }
+    let files: std::collections::BTreeSet<_> = corpses
+        .iter()
+        .map(|dc| dc.declaration.location.file.clone())
+        .collect();
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "## Remove dead code ({} finding(s) across {} file(s))\n",
+        corpses.len(),
+        files.len()
+    );
+    out.push_str("Every symbol below has no incoming references in the whole reference graph (0 incoming references), as verified by searchdeadcode.\n\n");
+    out.push_str("## Findings\n\n");
+    out.push_str("| Code | Symbol | Kind | Location |\n");
+    out.push_str("|------|--------|------|----------|\n");
+    for dc in &corpses {
+        let rel = dc
+            .declaration
+            .location
+            .file
+            .strip_prefix(root)
+            .unwrap_or(&dc.declaration.location.file);
+        let _ = writeln!(
+            out,
+            "| {} | {} | {} | {}:{} |",
+            dc.issue.code(),
+            dc.declaration.name,
+            dc.declaration.kind.display_name(),
+            rel.display(),
+            dc.declaration.location.line
+        );
+    }
+    let risky: Vec<&&analysis::DeadCode> = corpses
+        .iter()
+        .filter(|dc| dc.risk != analysis::RiskLevel::Low)
+        .collect();
+    out.push_str("\n## Residual risks\n\n");
+    if risky.is_empty() {
+        out.push_str(
+            "None flagged: no string references, reflection or bus signals on any finding.\n",
+        );
+    } else {
+        for dc in risky {
+            let _ = writeln!(
+                out,
+                "- **{}** ({} risk): {}",
+                dc.declaration.name, dc.risk, dc.message
+            );
+        }
+        out.push_str(
+            "\nDouble-check these before merging — static analysis cannot fully vouch for them.\n",
+        );
+    }
+    out
+}
+
+/// A-F report card per module from the dead/total declaration ratio —
+/// the light gamification that lands in a team review.
+fn health_rows(
+    graph: &graph::Graph,
+    dead_code: &[analysis::DeadCode],
+    root: &Path,
+) -> Vec<(String, usize, usize)> {
+    use std::collections::{HashMap, HashSet};
+    let mut totals: HashMap<String, usize> = HashMap::new();
+    for decl in graph.declarations() {
+        *totals
+            .entry(analysis::strings_dup::module_of(root, &decl.location.file))
+            .or_default() += 1;
+    }
+    let mut dead: HashMap<String, HashSet<String>> = HashMap::new();
+    for dc in dead_code {
+        // health measures death, not advice: info-level findings
+        // (visibility hints, style) do not rot a module
+        if dc.severity == analysis::Severity::Info {
+            continue;
+        }
+        dead.entry(analysis::strings_dup::module_of(
+            root,
+            &dc.declaration.location.file,
+        ))
+        .or_default()
+        .insert(dc.declaration.id.to_string());
+    }
+    let mut rows: Vec<(String, usize, usize)> = totals
+        .into_iter()
+        .map(|(module, total)| {
+            let corpses = dead.get(&module).map(HashSet::len).unwrap_or(0);
+            (module, corpses, total)
+        })
+        .collect();
+    rows.sort_by(|a, b| {
+        let ratio_a = a.1 as f64 / a.2.max(1) as f64;
+        let ratio_b = b.1 as f64 / b.2.max(1) as f64;
+        ratio_b.partial_cmp(&ratio_a).unwrap().then(a.0.cmp(&b.0))
+    });
+    rows
+}
+
+fn health_grade(percent: f64) -> &'static str {
+    match percent {
+        p if p <= 1.0 => "A",
+        p if p <= 3.0 => "B",
+        p if p <= 8.0 => "C",
+        p if p <= 15.0 => "D",
+        _ => "F",
+    }
+}
+
+fn print_health_json(graph: &graph::Graph, dead_code: &[analysis::DeadCode], root: &Path) {
+    let modules: Vec<serde_json::Value> = health_rows(graph, dead_code, root)
+        .into_iter()
+        .map(|(module, corpses, total)| {
+            let percent = corpses as f64 * 100.0 / total.max(1) as f64;
+            serde_json::json!({
+                "module": module,
+                "grade": health_grade(percent),
+                "dead": corpses,
+                "total": total,
+                "percent": (percent * 10.0).round() / 10.0
+            })
+        })
+        .collect();
+    println!("{}", serde_json::json!({ "modules": modules }));
+}
+
+fn print_health(graph: &graph::Graph, dead_code: &[analysis::DeadCode], root: &Path) {
+    println!("{}", "Module health (dead/total declarations):".bold());
+    for (module, corpses, total) in health_rows(graph, dead_code, root) {
+        let percent = corpses as f64 * 100.0 / total.max(1) as f64;
+        let grade = health_grade(percent);
+        let colored_grade = match grade {
+            "A" => grade.green().bold().to_string(),
+            "B" | "C" => grade.yellow().bold().to_string(),
+            _ => grade.red().bold().to_string(),
+        };
+        println!(
+            "  {colored_grade} {:<30} {corpses}/{total} dead ({percent:.1}%)",
+            module
+        );
+    }
+}
+
 /// Findings aggregated per Gradle module: count and dominant rule —
 /// the view a lead of a many-module repo actually looks at.
 fn print_by_module(dead_code: &[analysis::DeadCode], root: &Path) {
@@ -1882,7 +2134,14 @@ fn why_alive_symbol(
         println!("\n🌿 Why alive: {}", display(&decl.id));
 
         if entry_points.contains(&decl.id) {
-            println!("   It is itself an entry point — a retention root.");
+            match analysis::EntryPointDetector::entry_annotation_reason(graph, decl) {
+                Some(reason) => println!(
+                    "   It is itself an entry point — a retention root ({reason})."
+                ),
+                None => println!(
+                    "   It is itself an entry point — a retention root (manifest, layout, inheritance or config rule)."
+                ),
+            }
             continue;
         }
         if !reachable.contains(&decl.id) {
@@ -1966,7 +2225,39 @@ fn explain_symbol(
     };
 
     if candidates.is_empty() {
-        println!("Symbol '{}' not found in the analyzed project.", symbol);
+        // detector findings (prefs keys, flags, resources) are string
+        // literals, not graph nodes — locate them instead of shrugging
+        let quoted = format!("\"{symbol}\"");
+        let files: std::collections::BTreeSet<_> = graph
+            .declarations()
+            .map(|d| d.location.file.clone())
+            .collect();
+        let mut sites: Vec<(std::path::PathBuf, usize)> = Vec::new();
+        for file in files {
+            let Ok(content) = std::fs::read_to_string(&file) else {
+                continue;
+            };
+            for (index, line) in content.lines().enumerate() {
+                if line.contains(&quoted) {
+                    sites.push((file.clone(), index + 1));
+                }
+            }
+        }
+        if sites.is_empty() {
+            println!("Symbol '{}' not found in the analyzed project.", symbol);
+            return;
+        }
+        println!(
+            "'{}' is not a declaration in the reference graph, but appears as a string literal at {} site(s):",
+            symbol,
+            sites.len()
+        );
+        for (file, line) in sites.iter().take(5) {
+            println!("  - {}:{}", file.display(), line);
+        }
+        println!(
+            "String keys are judged by detectors (write-only prefs, stale flags, caches), not by graph reachability."
+        );
         return;
     }
 
@@ -2722,6 +3013,278 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         }
     }
 
+    // --write-only-caches short-circuits everything: text scan only
+    if cli.write_only_caches {
+        match analysis::caches::write_only_cache_keys(&cli.path) {
+            None => println!("{}", "no cache writes found — nothing to check".dimmed()),
+            Some(keys) if keys.is_empty() => {
+                println!("{}", "✓ no write-only cache keys found".green())
+            }
+            Some(keys) => {
+                println!("{}", "Cache keys written but never read back:".bold());
+                for entry in keys {
+                    let rel = entry.file.strip_prefix(&cli.path).unwrap_or(&entry.file);
+                    println!(
+                        "  {} \"{}\"  {}",
+                        "○".dimmed(),
+                        entry.key,
+                        format!("{}:{}", rel.display(), entry.line).dimmed()
+                    );
+                }
+                println!(
+                    "{}",
+                    "  (the compute-and-store pipeline behind each runs for nothing)".dimmed()
+                );
+            }
+        }
+        return Ok(());
+    }
+
+    // --import-suppressions short-circuits everything after the graph
+    if let Some(ref baseline_path) = cli.import_suppressions {
+        let mut baseline = if baseline_path.exists() {
+            match baseline::Baseline::load(baseline_path) {
+                Ok(b) => b,
+                Err(e) => {
+                    eprintln!("{}: cannot read baseline: {}", "Error".red(), e);
+                    std::process::exit(2);
+                }
+            }
+        } else {
+            baseline::Baseline::from_findings(&[], &cli.path)
+        };
+        let mut imported = 0usize;
+        for decl in graph.declarations() {
+            let suppressed_unused = decl
+                .annotations
+                .iter()
+                .any(|a| a.contains("Suppress") && a.to_lowercase().contains("unused"));
+            if !suppressed_unused {
+                continue;
+            }
+            let synthetic =
+                analysis::DeadCode::new(decl.clone(), analysis::DeadCodeIssue::Unreferenced);
+            if baseline.is_baselined(&synthetic, &cli.path) {
+                continue;
+            }
+            baseline
+                .issues
+                .push(baseline::IssueFingerprint::from_dead_code(
+                    &synthetic, &cli.path,
+                ));
+            imported += 1;
+        }
+        if imported > 0 {
+            if let Err(e) = baseline.save(baseline_path) {
+                eprintln!("{}: cannot write baseline: {}", "Error".red(), e);
+                std::process::exit(2);
+            }
+        }
+        println!(
+            "✅ Imported {imported} suppression(s) into {} ({} total entries)",
+            baseline_path.display(),
+            baseline.issues.len()
+        );
+        return Ok(());
+    }
+
+    // --import-detekt-baseline short-circuits everything after the graph
+    if let Some(ref xml_path) = cli.import_detekt_baseline {
+        let baseline_path = cli.baseline.as_ref().expect("clap requires --baseline");
+        let xml = match std::fs::read_to_string(xml_path) {
+            Ok(content) => content,
+            Err(e) => {
+                eprintln!(
+                    "{}: cannot read {}: {}",
+                    "Error".red(),
+                    xml_path.display(),
+                    e
+                );
+                std::process::exit(2);
+            }
+        };
+        let mut baseline = if baseline_path.exists() {
+            match baseline::Baseline::load(baseline_path) {
+                Ok(b) => b,
+                Err(e) => {
+                    eprintln!("{}: cannot read baseline: {}", "Error".red(), e);
+                    std::process::exit(2);
+                }
+            }
+        } else {
+            baseline::Baseline::from_findings(&[], &cli.path)
+        };
+        let mut imported = 0usize;
+        let mut skipped = 0usize;
+        for id in xml
+            .split("<ID>")
+            .skip(1)
+            .filter_map(|chunk| chunk.split("</ID>").next())
+        {
+            // Detekt IDs read RuleId:FileName.kt$Signature
+            let Some((rule, rest)) = id.split_once(':') else {
+                continue;
+            };
+            if !rule.starts_with("Unused") {
+                continue;
+            }
+            let Some((file_name, signature)) = rest.split_once('$') else {
+                skipped += 1;
+                continue;
+            };
+            // the signature quotes the declaration; its last keyword-led
+            // identifier is the symbol name
+            let symbol = signature
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .windows(2)
+                .rev()
+                .find(|w| {
+                    matches!(
+                        w[0],
+                        "fun" | "class" | "object" | "interface" | "val" | "var"
+                    )
+                })
+                .map(|w| {
+                    w[1].trim_end_matches(|c: char| !c.is_alphanumeric() && c != '_')
+                        .split('(')
+                        .next()
+                        .unwrap_or("")
+                        .to_string()
+                });
+            let Some(symbol) = symbol.filter(|s| !s.is_empty()) else {
+                skipped += 1;
+                continue;
+            };
+            let matched = graph.declarations().find(|decl| {
+                decl.name == symbol
+                    && decl
+                        .id
+                        .file
+                        .file_name()
+                        .map(|f| f.to_string_lossy() == file_name)
+                        .unwrap_or(false)
+            });
+            let Some(decl) = matched else {
+                skipped += 1;
+                continue;
+            };
+            let synthetic =
+                analysis::DeadCode::new(decl.clone(), analysis::DeadCodeIssue::Unreferenced);
+            if baseline.is_baselined(&synthetic, &cli.path) {
+                continue;
+            }
+            baseline
+                .issues
+                .push(baseline::IssueFingerprint::from_dead_code(
+                    &synthetic, &cli.path,
+                ));
+            imported += 1;
+        }
+        if imported > 0 {
+            if let Err(e) = baseline.save(baseline_path) {
+                eprintln!("{}: cannot write baseline: {}", "Error".red(), e);
+                std::process::exit(2);
+            }
+        }
+        println!(
+            "✅ Imported {imported} Detekt entr{} into {} ({} total entries, {skipped} skipped)",
+            if imported == 1 { "y" } else { "ies" },
+            baseline_path.display(),
+            baseline.issues.len()
+        );
+        return Ok(());
+    }
+
+    // --unscheduled-workers short-circuits everything after the graph
+    if cli.unscheduled_workers {
+        const WORKER_BASES: &[&str] = &[
+            "Worker",
+            "CoroutineWorker",
+            "ListenableWorker",
+            "RxWorker",
+            "JobService",
+            "JobIntentService",
+        ];
+        let mut orphans: Vec<&graph::Declaration> = graph
+            .declarations()
+            .filter(|decl| {
+                decl.kind.is_type()
+                    && decl.super_types.iter().any(|s| {
+                        let base = s.split('(').next().unwrap_or(s).trim();
+                        let simple = base.rsplit('.').next().unwrap_or(base);
+                        WORKER_BASES.contains(&simple)
+                    })
+                    && graph.get_references_to(&decl.id).is_empty()
+            })
+            .collect();
+        if orphans.is_empty() {
+            println!("{}", "✓ no unscheduled workers found".green());
+            return Ok(());
+        }
+        orphans.sort_by(|a, b| {
+            a.location
+                .file
+                .cmp(&b.location.file)
+                .then(a.location.line.cmp(&b.location.line))
+        });
+        println!("{}", "Workers nobody ever enqueues:".bold());
+        for decl in orphans {
+            let rel = decl
+                .location
+                .file
+                .strip_prefix(&cli.path)
+                .unwrap_or(&decl.location.file);
+            println!(
+                "  {} {:<25} {}",
+                "○".dimmed(),
+                decl.name,
+                format!("{}:{}", rel.display(), decl.location.line).dimmed()
+            );
+        }
+        println!(
+            "{}",
+            "  (no WorkRequest, no enqueue, no schedule — background code that never runs)"
+                .dimmed()
+        );
+        return Ok(());
+    }
+
+    // --promises short-circuits everything after the graph
+    if cli.promises {
+        let promises = analysis::promises::deletion_promises(&graph);
+        if promises.is_empty() {
+            println!(
+                "{}",
+                "no deletion promises found (TODO remove / FIXME delete)".dimmed()
+            );
+            return Ok(());
+        }
+        println!("{}", "Written deletion promises:".bold());
+        for promise in promises {
+            let verdict = match promise.state {
+                analysis::promises::PromiseState::Ready => {
+                    "ready to honor (0 references)".green().to_string()
+                }
+                analysis::promises::PromiseState::StillReferenced(n) => {
+                    format!("still referenced ({n})").yellow().to_string()
+                }
+            };
+            let rel = promise
+                .file
+                .strip_prefix(&cli.path)
+                .unwrap_or(&promise.file);
+            println!(
+                "  {} {:<25} {}  {}",
+                "○".dimmed(),
+                promise.symbol,
+                verdict,
+                format!("{}:{}", rel.display(), promise.line).dimmed()
+            );
+        }
+        return Ok(());
+    }
+
     // --dead-serializables short-circuits everything after the graph:
     // kotlinx.serialization needs a static reference, so a DTO with
     // zero incoming references survives only through its annotation
@@ -2797,6 +3360,40 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         println!(
             "{}",
             "  (delete the module and its providers together — a whole DI cluster)".dimmed()
+        );
+        return Ok(());
+    }
+
+    // --near-twins short-circuits everything after the graph
+    if cli.near_twins {
+        let findings = analysis::near_twins::near_twins(&graph);
+        if findings.is_empty() {
+            println!("{}", "✓ no near twins found".green());
+            return Ok(());
+        }
+        println!(
+            "{}",
+            "Same-named functions with near-identical bodies:".bold()
+        );
+        for twin in findings {
+            let left = twin.left.0.strip_prefix(&cli.path).unwrap_or(&twin.left.0);
+            let right = twin
+                .right
+                .0
+                .strip_prefix(&cli.path)
+                .unwrap_or(&twin.right.0);
+            println!(
+                "  {} {:<20} {:.0}% shared  {} <-> {}",
+                "○".dimmed(),
+                twin.name,
+                twin.similarity * 100.0,
+                format!("{}:{}", left.display(), twin.left.1).dimmed(),
+                format!("{}:{}", right.display(), twin.right.1).dimmed()
+            );
+        }
+        println!(
+            "{}",
+            "  (migration copy-paste — once one side dies, deduplicate the survivor)".dimmed()
         );
         return Ok(());
     }
@@ -2950,6 +3547,40 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
                 );
             }
         }
+        return Ok(());
+    }
+
+    // --test-only short-circuits everything after the graph: the
+    // subset of variant lifelines where every keeper is a test set
+    if cli.test_only {
+        const TEST_SETS: &[&str] = &["test", "androidTest", "testFixtures", "sharedTest"];
+        let findings: Vec<_> = analysis::variant_scope::debug_only_symbols(&graph)
+            .into_iter()
+            .filter(|f| f.sets.iter().all(|s| TEST_SETS.contains(&s.as_str())))
+            .collect();
+        if findings.is_empty() {
+            println!("{}", "✓ no test-only production symbols found".green());
+            return Ok(());
+        }
+        println!("{}", "src/main symbols only the tests keep alive:".bold());
+        for finding in findings {
+            let rel = finding
+                .file
+                .strip_prefix(&cli.path)
+                .unwrap_or(&finding.file);
+            println!(
+                "  {} {:<30} kept by: {}  {}",
+                "○".dimmed(),
+                finding.name,
+                finding.sets.join(", "),
+                format!("{}:{}", rel.display(), finding.line).dimmed()
+            );
+        }
+        println!(
+            "{}",
+            "  (production ships them for nothing — delete the symbol and its tests together)"
+                .dimmed()
+        );
         return Ok(());
     }
 
@@ -3142,7 +3773,7 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     // --compare short-circuits the normal report
     if let Some(spec) = cli.compare.as_deref() {
         let (old_token, new_token) = spec.split_once('=').unwrap_or((spec, ""));
-        let report = analysis::migration::compare(&graph, old_token);
+        let report = analysis::migration::compare(&graph, old_token, new_token);
         print_migration_report(&graph, old_token, new_token, &report);
         return Ok(());
     }
@@ -3536,8 +4167,9 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         }
     }
 
-    // Step 9f3: Event-bus orphans (cheap regex pass over the sources)
-    {
+    // Step 9f3: Event-bus orphans (cheap regex pass over the sources).
+    // Hissé hors du bloc : les hints de fin de rapport le réutilisent.
+    let bus_report = {
         let mut corpus = String::new();
         for file in &files {
             if matches!(
@@ -3550,7 +4182,9 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
                 }
             }
         }
-        let bus_report = analysis::bus::analyze(&corpus);
+        analysis::bus::analyze(&corpus)
+    };
+    {
         if !bus_report.is_empty() && !cli.quiet {
             println!();
             println!("{}", "🚌 Event bus orphans:".yellow().bold());
@@ -4174,6 +4808,72 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         return Ok(());
     }
 
+    // --health replaces the report with the module report card
+    if cli.health {
+        if matches!(cli.format, Some(OutputFormat::Json)) {
+            print_health_json(&graph, &dead_code, &cli.path);
+        } else {
+            print_health(&graph, &dead_code, &cli.path);
+        }
+        if let Some(ref floor) = cli.min_grade {
+            let failing: Vec<String> = health_rows(&graph, &dead_code, &cli.path)
+                .into_iter()
+                .filter_map(|(module, corpses, total)| {
+                    let percent = corpses as f64 * 100.0 / total.max(1) as f64;
+                    // later letters are worse: a simple ordinal compare
+                    (health_grade(percent) > floor.as_str()).then_some(module)
+                })
+                .collect();
+            if !failing.is_empty() {
+                println!(
+                    "❌ {} module(s) below the min-grade {floor}: {}",
+                    failing.len(),
+                    failing.join(", ")
+                );
+                std::process::exit(3);
+            }
+        }
+        return Ok(());
+    }
+
+    // --pr-description replaces the report with a paste-ready PR body
+    if cli.pr_description {
+        let body = pr_description_text(&dead_code, &cli.path);
+        match &cli.output {
+            Some(path) => {
+                if let Err(e) = std::fs::write(path, &body) {
+                    eprintln!("{}: cannot write {}: {}", "Error".red(), path.display(), e);
+                    std::process::exit(2);
+                }
+                println!("✅ PR description written to {}", path.display());
+            }
+            None => print!("{body}"),
+        }
+        return Ok(());
+    }
+
+    // --tui replaces the report with the full-screen triage
+    if cli.tui {
+        use std::io::IsTerminal;
+        if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
+            let exit = tui::run(&dead_code, &cli.path, cli.baseline.as_deref())
+                .map_err(|e| miette::miette!(e))?;
+            if exit == tui::Exit::Refresh {
+                // the analysis pipeline lives above this wedge: re-exec
+                // the binary (incremental cache makes the rerun cheap)
+                let exe = std::env::current_exe().map_err(|e| miette::miette!(e))?;
+                let status = std::process::Command::new(exe)
+                    .args(std::env::args_os().skip(1))
+                    .status()
+                    .map_err(|e| miette::miette!(e))?;
+                std::process::exit(status.code().unwrap_or(0));
+            }
+            return Ok(());
+        }
+        eprintln!("--tui requires a terminal; printing the standard report instead.");
+        // fall through to the normal report
+    }
+
     // --batch-branches replaces the report with branch surgery
     if cli.batch_branches {
         match run_batch_branches(&cli.path, &dead_code) {
@@ -4252,17 +4952,25 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         let reporter = Reporter::with_options(report_format, report_options);
         reporter.report(&dead_code)?;
 
-        // Guide the next move — terminal output with findings only
+        // Guide the next move — situations détectées + commandes prêtes à
+        // copier, uniquement en sortie humaine (des jumeaux méritent un
+        // hint même à zéro finding)
         let is_terminal = matches!(
             resolve_output_format(cli, config),
             OutputFormat::Terminal | OutputFormat::Compact
         );
-        if is_terminal && cli.output.is_none() && !cli.quiet && !dead_code.is_empty() {
-            println!("\n{}", "Next steps".bold());
-            println!("  searchdeadcode --interactive       triage findings from the keyboard");
-            println!("  searchdeadcode --clusters          group findings into deletable units");
-            println!("  searchdeadcode --explain <name>    see why a symbol is considered dead");
-            println!("  searchdeadcode --delete --dry-run  preview the cleanup, touch nothing");
+        if is_terminal && cli.output.is_none() && !cli.quiet {
+            let hints =
+                analysis::situations::detect(&graph, &cli.path, &bus_report, dead_code.len());
+            if !hints.is_empty() {
+                println!("\n{}", "Next steps".bold());
+                for hint in hints {
+                    if !hint.message.is_empty() {
+                        println!("  {} {}", "⚠".yellow(), hint.message);
+                    }
+                    println!("    {}", hint.command.dimmed());
+                }
+            }
         }
     }
 
@@ -4354,6 +5062,12 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     // user what crossed the ceiling
     if ratchet_failed {
         std::process::exit(3);
+    }
+
+    // the scriptable gate: 1 = findings, after the report printed and
+    // the baseline filtered — new findings only
+    if cli.fail_on_findings && !dead_code.is_empty() {
+        std::process::exit(1);
     }
 
     Ok(())
