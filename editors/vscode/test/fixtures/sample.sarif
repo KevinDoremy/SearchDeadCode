@@ -1,0 +1,96 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "searchdeadcode",
+          "version": "0.13.0",
+          "rules": [
+            {
+              "id": "DC001",
+              "name": "unreferenced-declaration",
+              "shortDescription": { "text": "Declaration is never referenced" },
+              "helpUri": "https://github.com/KevinDoremy/searchdeadcode/blob/main/docs/detectors.md#dc001",
+              "defaultConfiguration": { "level": "warning" }
+            },
+            {
+              "id": "DC004",
+              "name": "unused-import",
+              "shortDescription": { "text": "Import is never used" },
+              "defaultConfiguration": { "level": "note" }
+            },
+            {
+              "id": "AP023",
+              "name": "long-parameter-list",
+              "shortDescription": { "text": "Too many parameters" },
+              "defaultConfiguration": { "level": "warning" }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "DC001",
+          "level": "warning",
+          "message": { "text": "class 'LegacyEncoder' is never used" },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "app/src/main/kotlin/Legacy.kt" },
+                "region": { "startLine": 15, "startColumn": 1 }
+              }
+            }
+          ],
+          "partialFingerprints": { "searchdeadcode/v1": "a1b2c3" },
+          "fixes": [
+            {
+              "description": { "text": "delete unused class 'LegacyEncoder'" },
+              "artifactChanges": [
+                {
+                  "artifactLocation": { "uri": "app/src/main/kotlin/Legacy.kt" },
+                  "replacements": [
+                    {
+                      "deletedRegion": { "startLine": 15, "endLine": 42 },
+                      "insertedContent": { "text": "" }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ruleId": "DC004",
+          "message": { "text": "import 'java.util.Date' is never used" },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "app/src/main/kotlin/Main.kt" },
+                "region": { "startLine": 3 }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "AP023",
+          "level": "warning",
+          "message": { "text": "function 'configure' has 9 parameters" },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "app/src/main/kotlin/Config.kt" },
+                "region": { "startLine": 7, "startColumn": 5 }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "DC001",
+          "message": { "text": "malformed: no location at all" }
+        }
+      ]
+    }
+  ]
+}
