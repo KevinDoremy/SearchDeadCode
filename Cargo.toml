@@ -16,8 +16,12 @@ categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
 # Parsing
+# tree-sitter is pinned below 0.23 by tree-sitter-kotlin (0.3.8 requires
+# >=0.21,<0.23). tree-sitter-java 0.23+ wants ^0.24, and tree-sitter sets
+# links = "tree-sitter" so only one copy can exist — the two grammars are
+# mutually exclusive past 0.22. Nothing to bump here until upstream Kotlin moves.
 tree-sitter = "0.22"
-tree-sitter-kotlin = "0.3.6"
+tree-sitter-kotlin = "0.3.8"
 tree-sitter-java = "0.21"
 
 # Graph
@@ -26,14 +30,14 @@ petgraph = "0.8"
 # File discovery
 ignore = "0.4"
 globset = "0.4"
-walkdir = "2.4"
+walkdir = "2.5"
 
 # Parallelism
-rayon = "1.8"
+rayon = "1.12"
 
 # CLI
-clap = { version = "4.4", features = ["derive"] }
-clap_complete = "4.4"
+clap = { version = "4.6", features = ["derive"] }
+clap_complete = "4.6"
 
 # Config
 serde = { version = "1.0", features = ["derive"] }
@@ -45,10 +49,10 @@ toml = "1.1"
 quick-xml = "0.38"
 
 # Regex for resource detection
-regex = "1.10"
+regex = "1.13"
 
 # Terminal UI
-colored = "3.0"
+colored = "3.1"
 indicatif = "0.18"
 console = "0.16"
 
@@ -61,7 +65,7 @@ anyhow = "1.0"
 dialoguer = { version = "0.12", features = ["fuzzy-select"] }
 
 # File watching
-notify = "8.0"
+notify = "8.2"
 notify-debouncer-mini = "0.7"
 
 # Logging
@@ -71,9 +75,9 @@ ratatui = "0.29"
 crossterm = "0.28"
 
 [dev-dependencies]
-tempfile = "3.9"
-assert_cmd = "2.0"
-predicates = "3.0"
+tempfile = "3.27"
+assert_cmd = "2.2"
+predicates = "3.1"
 criterion = "0.8"
 
 [[bench]]
