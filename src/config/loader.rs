@@ -245,7 +245,7 @@ impl Config {
         match extension {
             "yml" | "yaml" => {
                 warn_unknown_keys(&contents, path);
-                serde_yaml::from_str(&contents)
+                serde_yaml_bw::from_str(&contents)
                     .into_diagnostic()
                     .wrap_err("Failed to parse YAML config")
             }
@@ -254,7 +254,7 @@ impl Config {
                 .wrap_err("Failed to parse TOML config"),
             _ => {
                 // Try YAML first, then TOML
-                if let Ok(config) = serde_yaml::from_str::<Config>(&contents) {
+                if let Ok(config) = serde_yaml_bw::from_str::<Config>(&contents) {
                     warn_unknown_keys(&contents, path);
                     Ok(config)
                 } else {
@@ -420,13 +420,13 @@ fn glob_match(pattern: &str, text: &str) -> bool {
 /// user's guard stops applying with no signal. The known keys come from
 /// serializing Config::default() — no hand-kept list to drift.
 fn warn_unknown_keys(contents: &str, path: &Path) {
-    let Ok(parsed) = serde_yaml::from_str::<serde_yaml::Value>(contents) else {
+    let Ok(parsed) = serde_yaml_bw::from_str::<serde_yaml_bw::Value>(contents) else {
         return;
     };
     let Some(given) = parsed.as_mapping() else {
         return;
     };
-    let Ok(reference) = serde_yaml::to_value(Config::default()) else {
+    let Ok(reference) = serde_yaml_bw::to_value(Config::default()) else {
         return;
     };
     let Some(known_map) = reference.as_mapping() else {
