@@ -867,7 +867,7 @@ impl DeepAnalyzer {
             && graph.get_children(&decl.id).iter().all(|c| {
                 graph
                     .get_declaration(c)
-                    .is_none_or(|d| d.kind != DeclarationKind::Parameter)
+                    .map_or(true, |d| d.kind != DeclarationKind::Parameter)
             })
         {
             return true;
