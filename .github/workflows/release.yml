@@ -3,7 +3,10 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      # Digit-anchored so this never fires on the extension's vscode-v* tags.
+      # A bare 'v*' matches those too, and tagging the extension would cut a
+      # full crate release.
+      - 'v[0-9]*'
 
 env:
   CARGO_TERM_COLOR: always
