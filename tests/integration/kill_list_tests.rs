@@ -100,3 +100,45 @@ fn kill_list_for_unknown_symbol() {
         "an unknown symbol yields a clear message, stdout was:\n{stdout}"
     );
 }
+
+#[test]
+fn an_ambiguous_homonym_in_another_class_does_not_fall_with_the_target() {
+    // Cas réel : la kill-list d'une activity embarquait des `onStart` de
+    // modules sans aucun lien — la fermeture avant suivait les arêtes
+    // ambiguës (résolution par nom simple : un appel `x.refresh()` lie
+    // TOUS les `refresh` du repo). Une devinette par homonymie ne
+    // condamne pas un symbole d'un autre module.
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(
+        temp.path().join("Main.kt"),
+        "package sample\n\nfun main() {\n    Doomed().go()\n    Survivor().keepAlive()\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("Doomed.kt"),
+        "package sample\n\nclass Doomed {\n    fun go() {\n        Buddy().refresh()\n    }\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("Buddy.kt"),
+        "package sample\n\nclass Buddy {\n    fun refresh() {}\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("Survivor.kt"),
+        concat!(
+            "package sample\n\n",
+            "class Survivor {\n",
+            "    fun keepAlive() {}\n\n",
+            "    fun refresh() {}\n",
+            "}\n",
+        ),
+    )
+    .unwrap();
+
+    let stdout = stdout_of(&run_kill_list(temp.path(), "Doomed"));
+    assert!(
+        !stdout.contains("Survivor.kt"),
+        "l'homonyme `refresh` d'une classe vivante ne tombe pas avec Doomed, stdout:\n{stdout}"
+    );
+}

@@ -95,542 +95,552 @@ use report::Reporter;
 #[command(author, version, about, long_about = None)]
 struct Cli {
     /// Path to the project directory to analyze
-    #[arg(default_value = ".")]
+    #[arg(help_heading = "Target & config", default_value = ".")]
     path: PathBuf,
 
     /// Path to configuration file
-    #[arg(short, long)]
+    #[arg(help_heading = "Target & config", short, long)]
     config: Option<PathBuf>,
 
     /// Target directories to analyze (can be specified multiple times)
-    #[arg(short, long)]
+    #[arg(help_heading = "Target & config", short, long)]
     target: Vec<PathBuf>,
 
     /// Patterns to exclude (can be specified multiple times)
-    #[arg(short, long)]
+    #[arg(help_heading = "Target & config", short, long)]
     exclude: Vec<String>,
 
     /// Patterns to retain - never report as dead (can be specified multiple times)
-    #[arg(short, long)]
+    #[arg(help_heading = "Target & config", short, long)]
     retain: Vec<String>,
 
     /// Output format (defaults to report.format from .deadcode.yml, else terminal)
-    #[arg(short, long, value_enum)]
+    #[arg(help_heading = "Output & formats", short, long, value_enum)]
     format: Option<OutputFormat>,
 
     /// Output file (for json/sarif formats)
-    #[arg(short, long)]
+    #[arg(help_heading = "Output & formats", short, long)]
     output: Option<PathBuf>,
 
     /// Enable safe delete mode
-    #[arg(long)]
+    #[arg(help_heading = "Refactoring & writing", long)]
     delete: bool,
 
     /// Interactive mode for deletions (confirm each)
-    #[arg(long)]
+    #[arg(help_heading = "Refactoring & writing", long)]
     interactive: bool,
 
     /// Dry run - show what would be deleted without making changes
-    #[arg(long)]
+    #[arg(help_heading = "Refactoring & writing", long)]
     dry_run: bool,
 
     /// Generate undo script
-    #[arg(long)]
+    #[arg(help_heading = "Refactoring & writing", long)]
     undo_script: Option<PathBuf>,
 
     /// Detection types to run (comma-separated)
-    #[arg(long)]
+    #[arg(help_heading = "Detectors", long)]
     detect: Option<String>,
 
     /// Explain why a symbol (simple name or FQN) is considered dead or alive
-    #[arg(long, value_name = "SYMBOL")]
+    #[arg(help_heading = "Specialized views", long, value_name = "SYMBOL")]
     explain: Option<String>,
 
     /// Show the retention chain keeping a symbol alive (inverse of --explain)
-    #[arg(long, value_name = "SYMBOL")]
+    #[arg(help_heading = "Specialized views", long, value_name = "SYMBOL")]
     why_alive: Option<String>,
 
     /// Show everything that falls if this symbol is deleted (exclusive dependents)
-    #[arg(long, value_name = "SYMBOL")]
+    #[arg(help_heading = "Specialized views", long, value_name = "SYMBOL")]
     kill_list: Option<String>,
 
     /// Group dead code findings into connected, deletable clusters
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     clusters: bool,
 
     /// Only the findings safe to delete blind: whole cluster dead, every
     /// member low risk
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     quick_wins: bool,
 
     /// Apply zero-risk fixes automatically (unused imports). Combine with
     /// --dry-run to preview. Always writes an undo script.
-    #[arg(long)]
+    #[arg(help_heading = "Refactoring & writing", long)]
     fix: bool,
 
     /// PR-scoped analysis: judge only files changed since this git ref,
     /// reporting only symbols provably unreferenced project-wide
-    #[arg(long, value_name = "REF")]
+    #[arg(help_heading = "Filtering & confidence", long, value_name = "REF")]
     changed_since: Option<String>,
 
     /// Migration diff: OLD=NEW worlds (package prefix or path fragment).
     /// Lists old-world symbols deletable at the flip and the blockers.
-    #[arg(long, value_name = "OLD=NEW")]
+    #[arg(help_heading = "Specialized views", long, value_name = "OLD=NEW")]
     compare: Option<String>,
 
     /// Attribute a shared module's symbols to their real consumers:
     /// unreferenced, internal-only, or used by which directories
-    #[arg(long, value_name = "MODULE")]
+    #[arg(help_heading = "Specialized views", long, value_name = "MODULE")]
     module_usage: Option<String>,
 
     /// Generate a commented .deadcode.yml matching the project's shape
     /// (source sets, DI framework, exclusions) and exit
-    #[arg(long)]
+    #[arg(help_heading = "Target & config", long)]
     init: bool,
 
     /// Feature flag cleanup: name (or key) of the flag being settled
-    #[arg(long, value_name = "NAME")]
+    #[arg(help_heading = "Specialized views", long, value_name = "NAME")]
     flag: Option<String>,
 
     /// Assumed final behavior of --flag
-    #[arg(long, value_enum, default_value = "enabled")]
+    #[arg(
+        help_heading = "Specialized views",
+        long,
+        value_enum,
+        default_value = "enabled"
+    )]
     behavior: FlagBehavior,
 
     /// Coverage files (JaCoCo XML, Kover XML, or LCOV format)
     /// Can be specified multiple times for merged coverage
-    #[arg(long, value_name = "FILE")]
+    #[arg(help_heading = "Filtering & confidence", long, value_name = "FILE")]
     coverage: Vec<PathBuf>,
 
     /// Minimum confidence level to report (low, medium, high, confirmed).
     /// Defaults to medium, or to the --profile choice
-    #[arg(long)]
+    #[arg(help_heading = "Filtering & confidence", long)]
     min_confidence: Option<String>,
 
     /// Preset for an audience: ci (strict, high confidence only) or
     /// explore (everything down to low)
-    #[arg(long, value_enum)]
+    #[arg(help_heading = "Filtering & confidence", long, value_enum)]
     profile: Option<Profile>,
 
     /// Only show findings confirmed by runtime coverage
-    #[arg(long)]
+    #[arg(help_heading = "Detectors", long)]
     runtime_only: bool,
 
     /// Include runtime-dead code (reachable but never executed)
-    #[arg(long)]
+    #[arg(help_heading = "Detectors", long)]
     include_runtime_dead: bool,
 
     /// Detect and report zombie code cycles (mutually dependent dead code)
-    #[arg(long)]
+    #[arg(help_heading = "Detectors", long)]
     detect_cycles: bool,
 
     /// ProGuard/R8 usage.txt file for enhanced detection
     /// This file lists code that R8 determined is unused
-    #[arg(long, value_name = "FILE")]
+    #[arg(help_heading = "Filtering & confidence", long, value_name = "FILE")]
     proguard_usage: Option<PathBuf>,
 
     /// Generate a filtered dead code report from ProGuard usage.txt
     /// Filters out generated code (Dagger, Hilt, _Factory, _Impl, etc.)
-    #[arg(long, value_name = "FILE")]
+    #[arg(help_heading = "Specialized views", long, value_name = "FILE")]
     generate_report: Option<PathBuf>,
 
     /// Package prefix to include in report (e.g., "com.example")
     /// Only classes matching this prefix will be included
-    #[arg(long, value_name = "PREFIX")]
+    #[arg(help_heading = "Specialized views", long, value_name = "PREFIX")]
     report_package: Option<String>,
 
     /// Enable parallel processing for faster analysis (enabled by default)
-    #[arg(long, default_value = "true", default_missing_value = "true", num_args = 0..=1, action = clap::ArgAction::Set)]
+    #[arg(help_heading = "Detectors", long, default_value = "true", default_missing_value = "true", num_args = 0..=1, action = clap::ArgAction::Set)]
     parallel: bool,
 
     /// Enable enhanced detection mode with ProGuard cross-validation
-    #[arg(long)]
+    #[arg(help_heading = "Detectors", long)]
     enhanced: bool,
 
     /// Enable deep analysis mode - more aggressive detection (enabled by default)
     /// Does not auto-mark class members as reachable
     /// Detects unused members even in reachable classes
-    #[arg(long, default_value = "true", default_missing_value = "true", num_args = 0..=1, action = clap::ArgAction::Set)]
+    #[arg(help_heading = "Detectors", long, default_value = "true", default_missing_value = "true", num_args = 0..=1, action = clap::ArgAction::Set)]
     deep: bool,
 
     /// Enable unused parameter detection (enabled by default)
     /// Finds function parameters that are declared but never used
-    #[arg(long, default_value = "true", action = clap::ArgAction::Set)]
+    #[arg(help_heading = "Detectors", long, default_value = "true", action = clap::ArgAction::Set)]
     unused_params: bool,
 
     /// Enable unused resource detection (off by default - slower)
     /// Finds Android resources (strings, colors, etc.) that are never referenced
-    #[arg(long)]
+    #[arg(help_heading = "Detectors", long)]
     unused_resources: bool,
 
     /// Enable write-only variable detection (enabled by default)
     /// Finds variables that are assigned but never read
-    #[arg(long, default_value = "true", action = clap::ArgAction::Set)]
+    #[arg(help_heading = "Detectors", long, default_value = "true", action = clap::ArgAction::Set)]
     write_only: bool,
 
     /// Enable unused sealed variant detection (enabled by default)
     /// Finds sealed class variants that are never instantiated
-    #[arg(long, default_value = "true", action = clap::ArgAction::Set)]
+    #[arg(help_heading = "Detectors", long, default_value = "true", action = clap::ArgAction::Set)]
     sealed_variants: bool,
 
     /// Enable redundant override detection (off by default - can be intentional)
     /// Finds method overrides that only call super
-    #[arg(long)]
+    #[arg(help_heading = "Detectors", long)]
     redundant_overrides: bool,
 
     /// Style lints: redundant this, doubled parentheses, size==0 (DC014-16)
-    #[arg(long)]
+    #[arg(help_heading = "Detectors", long)]
     style: bool,
 
     /// Annotate each finding with its last author and date (one git call per finding)
-    #[arg(long)]
+    #[arg(help_heading = "Filtering & confidence", long)]
     blame: bool,
 
     /// With --baseline: fail on new issues (exit 3) and rewrite the
     /// baseline downward on progress — the count can only decrease
-    #[arg(long)]
+    #[arg(help_heading = "Filtering & confidence", long)]
     ratchet: bool,
 
     /// Rank files by deletable lines instead of reporting findings
-    #[arg(long, value_name = "N")]
+    #[arg(help_heading = "Output & formats", long, value_name = "N")]
     top_files: Option<usize>,
 
     /// Rank findings by deletability: lines x confidence / risk
-    #[arg(long)]
+    #[arg(help_heading = "Output & formats", long)]
     score: bool,
 
     /// Treat the public API as alive (its consumers live outside this
     /// repo) — report internal deadness only
-    #[arg(long)]
+    #[arg(help_heading = "Filtering & confidence", long)]
     library_mode: bool,
 
     /// Check the config against the repo's reality (dead globs,
     /// unknown entry points, missing targets) and exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     doctor: bool,
 
     /// List Gradle modules nobody depends on (whole-module deletion
     /// candidates) and exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     dead_modules: bool,
 
     /// List Gradle dependencies declared in build files but never
     /// imported by any source file, then exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     unused_deps: bool,
 
     /// Show how many declarations each retention annotation keeps
     /// alive, broadest first, and exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     retention_audit: bool,
 
     /// List boolean Remote Config flags with their defaults and the
     /// ready-made --flag probe for each, then exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     stale_flags: bool,
 
     /// Show Xxx/XxxV2-style pairs side by side with reference counts,
     /// then exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     twins: bool,
 
     /// Split @Deprecated symbols into ready-to-delete (no references)
     /// and unfinished migrations (still referenced), then exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     deprecated: bool,
 
     /// List exposed LiveData/StateFlow/SharedFlow properties nobody
     /// collects or observes, then exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     unobserved: bool,
 
     /// List src/main symbols referenced only from other source sets
     /// (debug, flavors, tests) — dead in the release build — then exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     debug_only: bool,
 
     /// List src/main symbols kept alive only by test source sets
     /// (delete symbol and tests together), then exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     test_only: bool,
 
     /// Install a pre-commit hook running the fast diff mode, then exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     install_hook: bool,
 
     /// List exact -keep rules naming project classes that no longer
     /// exist, then exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     dead_keep_rules: bool,
 
     /// List assets/ files whose path or name appears nowhere in the
     /// sources, then exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     unused_assets: bool,
 
     /// List string values declared in several modules (centralization
     /// candidates), then exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     duplicate_strings: bool,
 
     /// List JavaBean properties whose getter nobody calls (write-only
     /// or fully dead groups), then exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     dead_accessors: bool,
 
     /// List manifest permissions whose API family never appears in the
     /// code, then exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     unused_permissions: bool,
 
     /// List classes whose every method forwards to the same delegate,
     /// then exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     middlemen: bool,
 
     /// Replace the report with a per-module summary (count, top rule)
-    #[arg(long)]
+    #[arg(help_heading = "Output & formats", long)]
     by_module: bool,
 
     /// Replace the report with an A-F health grade per module
-    #[arg(long)]
+    #[arg(help_heading = "Output & formats", long)]
     health: bool,
 
     /// With --health: exit 3 when any module grades below this letter
-    #[arg(long, value_name = "GRADE", value_parser = ["A", "B", "C", "D"], requires = "health")]
+    #[arg(help_heading = "Output & formats", long, value_name = "GRADE", value_parser = ["A", "B", "C", "D"], requires = "health")]
     min_grade: Option<String>,
 
     /// Replace the report with a paste-ready cleanup-PR description
     /// (stats, proof of death, residual risks)
-    #[arg(long)]
+    #[arg(help_heading = "Output & formats", long)]
     pr_description: bool,
 
     /// Fail when code references a symbol the --baseline judged dead
     /// (someone is resurrecting legacy), then exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     necromancy: bool,
 
     /// Write a shields-style SVG badge with the dead-code percentage
-    #[arg(long, value_name = "FILE")]
+    #[arg(help_heading = "Output & formats", long, value_name = "FILE")]
     badge: Option<PathBuf>,
 
     /// List DI modules whose every binding produces an unconsumed type,
     /// then exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     dead_di_modules: bool,
 
     /// List @Serializable classes with zero incoming references (kept
     /// only by their annotation), then exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     dead_serializables: bool,
 
     /// Write the reference graph to this file (.json or .dot), then exit
-    #[arg(long, value_name = "FILE")]
+    #[arg(help_heading = "Specialized views", long, value_name = "FILE")]
     export_graph: Option<PathBuf>,
 
     /// A saved --export-graph JSON to answer queries from (no re-scan)
-    #[arg(long, value_name = "FILE")]
+    #[arg(help_heading = "Baseline & cache", long, value_name = "FILE")]
     graph_file: Option<PathBuf>,
 
     /// Print who references this symbol, answered from --graph-file
-    #[arg(long, value_name = "NAME")]
+    #[arg(help_heading = "Specialized views", long, value_name = "NAME")]
     refs_of: Option<String>,
 
     /// Serve MCP tools (refs_of, is_dead) over stdio from --graph-file
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     mcp_serve: bool,
 
     /// Serve LSP diagnostics over stdio from --graph-file
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     lsp_serve: bool,
 
     /// Full-screen findings triage (needs a terminal)
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     tui: bool,
 
     /// Cross TODO remove / FIXME delete comments with the symbol's
     /// real reference count, then exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     promises: bool,
 
     /// Exit 1 when findings remain after filtering (baseline included)
     /// — the scriptable CI gate
-    #[arg(long)]
+    #[arg(help_heading = "Filtering & confidence", long)]
     fail_on_findings: bool,
 
     /// List Worker/JobService classes nobody ever enqueues, then exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     unscheduled_workers: bool,
 
     /// Convert @Suppress("unused") annotations into entries of this
     /// baseline file (migration from Detekt-style triage), then exit
-    #[arg(long, value_name = "FILE")]
+    #[arg(help_heading = "Specialized views", long, value_name = "FILE")]
     import_suppressions: Option<PathBuf>,
 
     /// Convert the Unused* entries of a detekt-baseline.xml into the
     /// baseline given by --baseline, then exit
-    #[arg(long, value_name = "XML", requires = "baseline")]
+    #[arg(
+        help_heading = "Specialized views",
+        long,
+        value_name = "XML",
+        requires = "baseline"
+    )]
     import_detekt_baseline: Option<PathBuf>,
 
     /// List cache keys written but never read back, then exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     write_only_caches: bool,
 
     /// List same-named functions with near-identical bodies across
     /// files (migration copy-paste; survives local renames), then exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     near_twins: bool,
 
     /// After --delete: run this command (a compile, a test suite) and
     /// restore every touched file automatically when it fails
-    #[arg(long, value_name = "CMD")]
+    #[arg(help_heading = "Refactoring & writing", long, value_name = "CMD")]
     verify_cmd: Option<String>,
 
     /// With --delete: skip confirmation prompts (the CI path)
-    #[arg(long)]
+    #[arg(help_heading = "Refactoring & writing", long)]
     yes: bool,
 
     /// With --delete --dry-run: write the would-be deletion as a
     /// unified diff, reviewable and applicable with git apply
-    #[arg(long, value_name = "FILE")]
+    #[arg(help_heading = "Refactoring & writing", long, value_name = "FILE")]
     patch: Option<std::path::PathBuf>,
 
     /// Report only symbols that became dead since this git reference
-    #[arg(long, value_name = "REF")]
+    #[arg(help_heading = "Filtering & confidence", long, value_name = "REF")]
     diff_base: Option<String>,
 
     /// Enable unused Intent extra detection (enabled by default)
     /// Finds putExtra() keys that are never retrieved via getXxxExtra()
-    #[arg(long, default_value = "true", action = clap::ArgAction::Set)]
+    #[arg(help_heading = "Detectors", long, default_value = "true", action = clap::ArgAction::Set)]
     unused_extras: bool,
 
     /// Enable write-only SharedPreferences detection (enabled by default)
     /// Finds SharedPreferences keys that are written but never read
-    #[arg(long, default_value = "true", action = clap::ArgAction::Set)]
+    #[arg(help_heading = "Detectors", long, default_value = "true", action = clap::ArgAction::Set)]
     write_only_prefs: bool,
 
     /// Enable write-only Room DAO detection (enabled by default)
     /// Finds Room DAOs that have @Insert but no @Query methods
-    #[arg(long, default_value = "true", action = clap::ArgAction::Set)]
+    #[arg(help_heading = "Detectors", long, default_value = "true", action = clap::ArgAction::Set)]
     write_only_dao: bool,
 
     /// Enable all anti-pattern detectors (AP001-AP034)
     /// Includes: architecture, performance, Kotlin, Android, and Compose patterns
-    #[arg(long)]
+    #[arg(help_heading = "Detectors", long)]
     anti_patterns: bool,
 
     /// Enable architecture anti-pattern detectors (AP001-AP006)
     /// Detects: deep inheritance, EventBus, global mutable state, single-impl interfaces
-    #[arg(long)]
+    #[arg(help_heading = "Detectors", long)]
     architecture_patterns: bool,
 
     /// Enable Kotlin anti-pattern detectors (AP007-AP010, AP021-AP025)
     /// Detects: GlobalScope, heavy ViewModel, lateinit abuse, scope function chaining,
     /// nullability overload, reflection overuse, long parameter lists, complex conditions
-    #[arg(long)]
+    #[arg(help_heading = "Detectors", long)]
     kotlin_patterns: bool,
 
     /// Enable performance anti-pattern detectors (AP011-AP015)
     /// Detects: memory leaks, long methods, large classes, collection inefficiencies, loop allocations
-    #[arg(long)]
+    #[arg(help_heading = "Detectors", long)]
     performance_patterns: bool,
 
     /// Enable Android-specific anti-pattern detectors (AP016-AP020, AP026-AP030)
     /// Detects: mutable state exposure, view logic in ViewModel, missing UseCase,
     /// nested callbacks, hardcoded dispatchers, unclosed resources, main thread DB,
     /// WakeLock abuse, AsyncTask usage, onDraw allocations
-    #[arg(long)]
+    #[arg(help_heading = "Detectors", long)]
     android_patterns: bool,
 
     /// Enable Compose-specific anti-pattern detectors (AP031-AP034)
     /// Detects: state without remember, LaunchedEffect without key, business logic in composables,
     /// NavController passing to children
-    #[arg(long)]
+    #[arg(help_heading = "Detectors", long)]
     compose_patterns: bool,
 
     /// Enable incremental analysis with caching (enabled by default)
     /// Skips re-parsing unchanged files for faster subsequent runs
-    #[arg(long, default_value = "true", default_missing_value = "true", num_args = 0..=1, action = clap::ArgAction::Set)]
+    #[arg(help_heading = "Baseline & cache", long, default_value = "true", default_missing_value = "true", num_args = 0..=1, action = clap::ArgAction::Set)]
     incremental: bool,
 
     /// Clear the analysis cache before running
-    #[arg(long)]
+    #[arg(help_heading = "Baseline & cache", long)]
     clear_cache: bool,
 
     /// Custom cache file path (default: .searchdeadcode-cache.json)
-    #[arg(long, value_name = "FILE")]
+    #[arg(help_heading = "Baseline & cache", long, value_name = "FILE")]
     cache_path: Option<PathBuf>,
 
     /// Baseline file for ignoring existing issues
     /// New issues not in baseline will be reported
-    #[arg(long, value_name = "FILE")]
+    #[arg(help_heading = "Baseline & cache", long, value_name = "FILE")]
     baseline: Option<PathBuf>,
 
     /// Generate a baseline file from current results
-    #[arg(long, value_name = "FILE")]
+    #[arg(help_heading = "Baseline & cache", long, value_name = "FILE")]
     generate_baseline: Option<PathBuf>,
 
     /// List the entries of the --baseline file, then exit
-    #[arg(long)]
+    #[arg(help_heading = "Baseline & cache", long)]
     baseline_show: bool,
 
     /// Remove entries matching this name (or FQN) from the --baseline
     /// file, then exit
-    #[arg(long, value_name = "NAME")]
+    #[arg(help_heading = "Baseline & cache", long, value_name = "NAME")]
     baseline_rm: Option<String>,
 
     /// Drop baseline entries whose finding no longer exists (resolved),
     /// rewriting the --baseline file
-    #[arg(long)]
+    #[arg(help_heading = "Baseline & cache", long)]
     baseline_prune: bool,
 
     /// Show baseline entries counted per rule (where the tool cries
     /// wolf the most), then exit
-    #[arg(long)]
+    #[arg(help_heading = "Baseline & cache", long)]
     baseline_stats: bool,
 
     /// Create one local git branch per dead top-level class, each with
     /// one commit carrying the proof of death, then exit
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     batch_branches: bool,
 
     /// Watch mode - continuously monitor for changes
-    #[arg(long)]
+    #[arg(help_heading = "Specialized views", long)]
     watch: bool,
 
     /// Verbose output
-    #[arg(short, long)]
+    #[arg(help_heading = "Output & formats", short, long)]
     verbose: bool,
 
     /// Quiet mode - only output results
-    #[arg(short, long)]
+    #[arg(help_heading = "Output & formats", short, long)]
     quiet: bool,
 
     /// Generate shell completions
-    #[arg(long, value_name = "SHELL")]
+    #[arg(help_heading = "Target & config", long, value_name = "SHELL")]
     completions: Option<Shell>,
 
     /// Summary output - show statistics and top issues only
-    #[arg(long)]
+    #[arg(help_heading = "Output & formats", long)]
     summary: bool,
 
     /// Compact output - one line per issue
-    #[arg(long)]
+    #[arg(help_heading = "Output & formats", long)]
     compact: bool,
 
     /// Group results by: rule, category, severity, file
-    #[arg(long, value_name = "MODE")]
+    #[arg(help_heading = "Output & formats", long, value_name = "MODE")]
     group_by: Option<String>,
 
     /// Expand all collapsed groups (show every issue)
-    #[arg(long)]
+    #[arg(help_heading = "Output & formats", long)]
     expand: bool,
 
     /// Expand a specific rule's issues (e.g., --expand-rule AP017)
-    #[arg(long, value_name = "RULE", value_parser = ["DC001", "DC002", "DC003", "DC004", "DC005", "DC006", "DC007", "DC008", "DC009", "DC010", "DC011", "DC012", "DC013", "DC014", "DC015", "DC016", "DC017", "DC018", "DC019", "DC020", "DC021", "DC022", "AP001", "AP002", "AP003", "AP004", "AP005", "AP006", "AP007", "AP008", "AP009", "AP010", "AP011", "AP012", "AP013", "AP014", "AP015", "AP016", "AP017", "AP018", "AP019", "AP020", "AP021", "AP022", "AP023", "AP024", "AP025", "AP026", "AP027", "AP028", "AP029", "AP030", "AP031", "AP032", "AP033", "AP034"])]
+    #[arg(help_heading = "Output & formats", long, value_name = "RULE", value_parser = ["DC001", "DC002", "DC003", "DC004", "DC005", "DC006", "DC007", "DC008", "DC009", "DC010", "DC011", "DC012", "DC013", "DC014", "DC015", "DC016", "DC017", "DC018", "DC019", "DC020", "DC021", "DC022", "AP001", "AP002", "AP003", "AP004", "AP005", "AP006", "AP007", "AP008", "AP009", "AP010", "AP011", "AP012", "AP013", "AP014", "AP015", "AP016", "AP017", "AP018", "AP019", "AP020", "AP021", "AP022", "AP023", "AP024", "AP025", "AP026", "AP027", "AP028", "AP029", "AP030", "AP031", "AP032", "AP033", "AP034"])]
     expand_rule: Option<String>,
 
     /// Number of top issues to show in summary mode
-    #[arg(long, default_value = "10")]
+    #[arg(help_heading = "Output & formats", long, default_value = "10")]
     top: usize,
 }
 
@@ -2124,7 +2134,14 @@ fn why_alive_symbol(
         println!("\n🌿 Why alive: {}", display(&decl.id));
 
         if entry_points.contains(&decl.id) {
-            println!("   It is itself an entry point — a retention root.");
+            match analysis::EntryPointDetector::entry_annotation_reason(graph, decl) {
+                Some(reason) => println!(
+                    "   It is itself an entry point — a retention root ({reason})."
+                ),
+                None => println!(
+                    "   It is itself an entry point — a retention root (manifest, layout, inheritance or config rule)."
+                ),
+            }
             continue;
         }
         if !reachable.contains(&decl.id) {
@@ -3756,7 +3773,7 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     // --compare short-circuits the normal report
     if let Some(spec) = cli.compare.as_deref() {
         let (old_token, new_token) = spec.split_once('=').unwrap_or((spec, ""));
-        let report = analysis::migration::compare(&graph, old_token);
+        let report = analysis::migration::compare(&graph, old_token, new_token);
         print_migration_report(&graph, old_token, new_token, &report);
         return Ok(());
     }
@@ -4150,8 +4167,9 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         }
     }
 
-    // Step 9f3: Event-bus orphans (cheap regex pass over the sources)
-    {
+    // Step 9f3: Event-bus orphans (cheap regex pass over the sources).
+    // Hissé hors du bloc : les hints de fin de rapport le réutilisent.
+    let bus_report = {
         let mut corpus = String::new();
         for file in &files {
             if matches!(
@@ -4164,7 +4182,9 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
                 }
             }
         }
-        let bus_report = analysis::bus::analyze(&corpus);
+        analysis::bus::analyze(&corpus)
+    };
+    {
         if !bus_report.is_empty() && !cli.quiet {
             println!();
             println!("{}", "🚌 Event bus orphans:".yellow().bold());
@@ -4932,17 +4952,25 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         let reporter = Reporter::with_options(report_format, report_options);
         reporter.report(&dead_code)?;
 
-        // Guide the next move — terminal output with findings only
+        // Guide the next move — situations détectées + commandes prêtes à
+        // copier, uniquement en sortie humaine (des jumeaux méritent un
+        // hint même à zéro finding)
         let is_terminal = matches!(
             resolve_output_format(cli, config),
             OutputFormat::Terminal | OutputFormat::Compact
         );
-        if is_terminal && cli.output.is_none() && !cli.quiet && !dead_code.is_empty() {
-            println!("\n{}", "Next steps".bold());
-            println!("  searchdeadcode --interactive       triage findings from the keyboard");
-            println!("  searchdeadcode --clusters          group findings into deletable units");
-            println!("  searchdeadcode --explain <name>    see why a symbol is considered dead");
-            println!("  searchdeadcode --delete --dry-run  preview the cleanup, touch nothing");
+        if is_terminal && cli.output.is_none() && !cli.quiet {
+            let hints =
+                analysis::situations::detect(&graph, &cli.path, &bus_report, dead_code.len());
+            if !hints.is_empty() {
+                println!("\n{}", "Next steps".bold());
+                for hint in hints {
+                    if !hint.message.is_empty() {
+                        println!("  {} {}", "⚠".yellow(), hint.message);
+                    }
+                    println!("    {}", hint.command.dimmed());
+                }
+            }
         }
     }
 

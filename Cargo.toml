@@ -1,6 +1,6 @@
 [package]
 name = "searchdeadcode"
-version = "0.10.2"
+version = "0.13.0"
 edition = "2021"
 default-run = "searchdeadcode"
 rust-version = "1.80"  # MSRV - Minimum Supported Rust Version (LazyLock)
@@ -99,6 +99,18 @@ path = "tests/integration/explain_tests.rs"
 [[test]]
 name = "kill_list"
 path = "tests/integration/kill_list_tests.rs"
+
+[[test]]
+name = "webview_bridge"
+path = "tests/integration/webview_bridge_tests.rs"
+
+[[test]]
+name = "override_chain"
+path = "tests/integration/override_chain_tests.rs"
+
+[[test]]
+name = "string_template_reads"
+path = "tests/integration/string_template_reads_tests.rs"
 
 [[test]]
 name = "clusters"
@@ -219,6 +231,18 @@ path = "tests/integration/top_files_tests.rs"
 [[test]]
 name = "diff_base"
 path = "tests/integration/diff_base_tests.rs"
+
+[[test]]
+name = "kotlin_accessor_from_java"
+path = "tests/integration/kotlin_accessor_from_java_tests.rs"
+
+[[test]]
+name = "lambda_property"
+path = "tests/integration/lambda_property_tests.rs"
+
+[[test]]
+name = "situation_hints"
+path = "tests/integration/situation_hints_tests.rs"
 
 [[test]]
 name = "why_alive"
@@ -544,3 +568,4 @@ path = "tests/integration/advanced_tests.rs"
 lto = true
 codegen-units = 1
 panic = "abort"
+

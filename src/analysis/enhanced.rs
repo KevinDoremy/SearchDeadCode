@@ -239,6 +239,20 @@ impl EnhancedAnalyzer {
             }
         }
 
+        // Un constructeur privé sans paramètre est l'idiome
+        // anti-instanciation des classes utilitaires : son but EST de ne
+        // jamais être appelé, le supprimer réintroduirait le ctor public
+        if decl.kind == DeclarationKind::Constructor
+            && decl.visibility == crate::graph::Visibility::Private
+            && graph.get_children(&decl.id).iter().all(|c| {
+                graph
+                    .get_declaration(c)
+                    .map_or(true, |d| d.kind != DeclarationKind::Parameter)
+            })
+        {
+            return true;
+        }
+
         // Skip override methods
         if decl.annotations.iter().any(|a| a.contains("Override")) {
             return true;

@@ -155,6 +155,10 @@ impl ParallelGraphBuilder {
     fn resolve_references(&self, graph: &mut Graph, unresolved: Vec<UnresolvedRef>) {
         for unresolved in unresolved {
             let resolved_ids = self.resolve_reference(graph, &unresolved);
+            // Plusieurs candidats = résolution par nom simple, une devinette :
+            // le flag permet aux analyses (kill-list, compare) de ne pas
+            // s'appuyer dessus. Le builder série le posait déjà.
+            let ambiguous = resolved_ids.len() > 1;
 
             for to_id in resolved_ids {
                 // Skip self-references
@@ -172,17 +176,29 @@ impl ParallelGraphBuilder {
                         unresolved.from.end,
                     ),
                     unresolved.name.clone(),
-                );
+                )
+                .with_ambiguous(ambiguous);
                 graph.add_reference(&unresolved.from, &to_id, reference);
             }
         }
     }
 
     fn resolve_reference(&self, graph: &Graph, unresolved: &UnresolvedRef) -> Vec<DeclarationId> {
+        let single = |decl: &Declaration| -> Vec<DeclarationId> {
+            if matches!(
+                unresolved.kind,
+                ReferenceKind::Call | ReferenceKind::Instantiation
+            ) {
+                graph.expand_call_target(&decl.id)
+            } else {
+                vec![decl.id.clone()]
+            }
+        };
+
         // Try fully qualified name first
         if let Some(fqn) = &unresolved.qualified_name {
             if let Some(decl) = graph.find_by_fqn(fqn) {
-                return vec![decl.id.clone()];
+                return single(decl);
             }
         }
 
@@ -192,18 +208,18 @@ impl ParallelGraphBuilder {
                 let package = &import[..import.len() - 2];
                 let fqn = format!("{}.{}", package, unresolved.name);
                 if let Some(decl) = graph.find_by_fqn(&fqn) {
-                    return vec![decl.id.clone()];
+                    return single(decl);
                 }
             } else if import.ends_with(&format!(".{}", unresolved.name)) {
                 if let Some(decl) = graph.find_by_fqn(import) {
-                    return vec![decl.id.clone()];
+                    return single(decl);
                 }
             } else if let Some(alias_start) = import.find(" as ") {
                 let alias = &import[alias_start + 4..];
                 if alias == unresolved.name {
                     let original = &import[..alias_start];
                     if let Some(decl) = graph.find_by_fqn(original) {
-                        return vec![decl.id.clone()];
+                        return single(decl);
                     }
                 }
             }
@@ -215,6 +231,27 @@ impl ParallelGraphBuilder {
             return candidates.iter().map(|c| c.id.clone()).collect();
         }
 
+        // Repli accesseur JVM → propriété Kotlin (appel depuis Java)
+        if unresolved.kind == ReferenceKind::Call {
+            if let Some(prop) = kotlin_property_behind_accessor(&unresolved.name) {
+                let props: Vec<DeclarationId> = graph
+                    .find_by_name(&prop)
+                    .iter()
+                    .filter(|d| {
+                        matches!(
+                            d.kind,
+                            crate::graph::DeclarationKind::Property
+                                | crate::graph::DeclarationKind::Field
+                        )
+                    })
+                    .map(|d| d.id.clone())
+                    .collect();
+                if !props.is_empty() {
+                    return props;
+                }
+            }
+        }
+
         Vec::new()
     }
 }
@@ -222,5 +259,31 @@ impl ParallelGraphBuilder {
 impl Default for ParallelGraphBuilder {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Nom de propriété Kotlin derrière un accesseur JVM appelé depuis Java :
+/// `getMAX_ITEMS` → `MAX_ITEMS`, `getLabel` → `label`, `setLabel` → `label`,
+/// `isReady` → `isReady` (Kotlin garde le nom pour les booléens `is*`).
+/// Sans ce repli, tout ce que du code Java lit d'un fichier Kotlin passe
+/// pour mort : le nom appelé ne correspond à aucune déclaration.
+fn kotlin_property_behind_accessor(name: &str) -> Option<String> {
+    let rest = name
+        .strip_prefix("get")
+        .or_else(|| name.strip_prefix("set"))?;
+    let mut chars = rest.chars();
+    let first = chars.next()?;
+    if !first.is_ascii_uppercase() {
+        return None;
+    }
+    // ALL_CAPS conservé tel quel (convention des constantes), sinon
+    // première lettre en minuscule comme le fait le compilateur
+    if rest
+        .chars()
+        .all(|c| c.is_ascii_uppercase() || c == '_' || c.is_ascii_digit())
+    {
+        Some(rest.to_string())
+    } else {
+        Some(format!("{}{}", first.to_ascii_lowercase(), chars.as_str()))
     }
 }
