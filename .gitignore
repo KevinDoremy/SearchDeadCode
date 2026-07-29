@@ -25,3 +25,4 @@ editors/vscode/dist/
 editors/vscode/bin/
 editors/vscode/*.vsix
 editors/vscode/.vscode-test/
+editors/vscode/staging/
