@@ -5,6 +5,16 @@
   "version": "0.1.0",
   "publisher": "elumine",
   "license": "MIT",
+  "icon": "media/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/KevinDoremy/SearchDeadCode.git",
+    "directory": "editors/vscode"
+  },
+  "homepage": "https://github.com/KevinDoremy/SearchDeadCode/tree/main/editors/vscode#readme",
+  "bugs": {
+    "url": "https://github.com/KevinDoremy/SearchDeadCode/issues"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -104,13 +114,25 @@
     "compile": "node esbuild.js",
     "watch": "node esbuild.js --watch",
     "test": "vitest run",
+    "test:watch": "vitest",
+    "pretest:integration": "npm run compile",
+    "test:integration": "vscode-test",
+    "typecheck": "tsc --noEmit",
     "package": "npm run compile && vsce package --no-dependencies",
-    "vscode:prepublish": "npm run compile"
+    "release:notes": "./.publish --notes-only",
+    "release:prepare": "./.publish",
+    "vscode:prepublish": "node esbuild.js --production"
   },
   "devDependencies": {
+    "@types/mocha": "^10.0.10",
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.85.0",
-    "esbuild": "^0.20.0",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3.6.2",
+    "esbuild": "^0.25.0",
+    "mocha": "^11.7.6",
+    "ovsx": "^0.10.11",
     "typescript": "^5.4.0",
     "vitest": "^3.0.0"
   }
