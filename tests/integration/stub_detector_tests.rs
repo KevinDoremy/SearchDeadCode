@@ -170,3 +170,43 @@ fn a_runtime_condition_is_not_a_dead_branch() {
         "runtime conditions and false literals outside conditions are not deadness, stdout was:\n{stdout}"
     );
 }
+
+#[test]
+fn a_serialized_name_enum_case_is_never_flagged() {
+    // Cas réel : enums de contrat API générés (OpenAPI/Gson) — chaque
+    // entry porte @SerializedName et peut être instanciée par le JSON
+    // serveur. Le détecteur skippait déjà les cases annotées, mais le
+    // parser perdait les annotations des enum entries.
+    let temp = tempfile::tempdir().unwrap();
+    std::fs::write(
+        temp.path().join("ShapeEnum.kt"),
+        concat!(
+            "package sample\n\n",
+            "import com.google.gson.annotations.SerializedName\n\n",
+            "enum class ShapeEnum(val value: String) {\n\n",
+            "    @SerializedName(value = \"circle\")\n",
+            "    CIRCLE(\"circle\"),\n\n",
+            "    @SerializedName(value = \"square\")\n",
+            "    SQUARE(\"square\");\n",
+            "}\n",
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        temp.path().join("Main.kt"),
+        concat!(
+            "package sample\n\n",
+            "fun main() {\n",
+            "    println(load().value)\n",
+            "}\n\n",
+            "fun load(): ShapeEnum = ShapeEnum.SQUARE\n",
+        ),
+    )
+    .unwrap();
+
+    let stdout = stdout_of(&run(temp.path()));
+    assert!(
+        !stdout.contains("CIRCLE"),
+        "une entry @SerializedName est instanciable par désérialisation, stdout:\n{stdout}"
+    );
+}
