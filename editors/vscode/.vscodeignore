@@ -10,3 +10,6 @@ tsconfig.json
 **/*.map
 **/*.ts
 !dist/extension.js
+
+# Platform-targeted VSIXs stage the CLI here; the generic one ships without it.
+!bin/**

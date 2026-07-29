@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { resolveBinary, parseVersion, isAtLeast, MIN_VERSION } from '../src/SearchDeadCodeBinary';
+import { join } from 'node:path';
+import {
+  resolveBinary,
+  parseVersion,
+  isAtLeast,
+  bundledBinaryPath,
+  MIN_VERSION,
+} from '../src/SearchDeadCodeBinary';
 
 describe('version helpers', () => {
   it('parses the CLI banner', () => {
@@ -69,6 +76,57 @@ describe('resolveBinary', () => {
 
   it('ignores a configured path made of whitespace', async () => {
     const info = await resolveBinary({ configuredPath: '   ', fileExists: () => false, probeVersion: probeOk('0.13.0') });
+    expect(info?.path).toBe('searchdeadcode');
+  });
+});
+
+describe('bundled binary', () => {
+  const bundled = bundledBinaryPath('/ext');
+
+  it('lives under bin/ in the extension directory', () => {
+    expect(bundled.startsWith(join('/ext', 'bin'))).toBe(true);
+  });
+
+  it('wins over PATH, so a platform VSIX works with no CLI installed', async () => {
+    const info = await resolveBinary({
+      configuredPath: '',
+      extensionPath: '/ext',
+      fileExists: p => p === bundled,
+      probeVersion: async () => 'searchdeadcode 0.13.0',
+    });
+    expect(info?.path).toBe(bundled);
+  });
+
+  it('loses to a configured path, so a local build still wins', async () => {
+    const info = await resolveBinary({
+      configuredPath: '/custom/sdc',
+      extensionPath: '/ext',
+      fileExists: () => true,
+      probeVersion: async () => 'searchdeadcode 0.13.0',
+    });
+    expect(info?.path).toBe('/custom/sdc');
+  });
+
+  it('falls through to PATH on the generic VSIX, which ships no binary', async () => {
+    const info = await resolveBinary({
+      configuredPath: '',
+      extensionPath: '/ext',
+      fileExists: () => false,
+      probeVersion: async () => 'searchdeadcode 0.13.0',
+    });
+    expect(info?.path).toBe('searchdeadcode');
+  });
+
+  it('skips a bundled binary that exists but cannot run', async () => {
+    const info = await resolveBinary({
+      configuredPath: '',
+      extensionPath: '/ext',
+      fileExists: p => p === bundled,
+      probeVersion: async c => {
+        if (c === bundled) throw new Error('EACCES'); // lost its +x bit
+        return 'searchdeadcode 0.13.0';
+      },
+    });
     expect(info?.path).toBe('searchdeadcode');
   });
 });

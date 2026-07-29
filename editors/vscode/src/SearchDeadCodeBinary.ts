@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { homedir, platform } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
@@ -48,9 +48,20 @@ export function isAtLeast(version: string, minimum: string): boolean {
 export interface ResolveDeps {
   /** Configured absolute path, empty when unset. */
   configuredPath: string;
+  /**
+   * Extension install directory. Platform-targeted VSIXs ship a binary under
+   * `bin/`; the generic VSIX does not, and falls through to PATH.
+   */
+  extensionPath?: string;
   fileExists?: (p: string) => boolean;
   /** Runs `<candidate> --version`, resolving its stdout. Rejects if unusable. */
   probeVersion?: (candidate: string) => Promise<string>;
+}
+
+/** Where a platform-targeted VSIX puts the binary it ships. */
+export function bundledBinaryPath(extensionPath: string): string {
+  const name = platform() === 'win32' ? 'searchdeadcode.exe' : 'searchdeadcode';
+  return join(extensionPath, 'bin', name);
 }
 
 async function defaultProbe(candidate: string): Promise<string> {
@@ -59,8 +70,12 @@ async function defaultProbe(candidate: string): Promise<string> {
 }
 
 /**
- * Finds a usable binary: configured path, then PATH, then the fallback dirs.
- * Returns undefined when nothing answers `--version`.
+ * Finds a usable binary: configured path, then the bundled one, then PATH,
+ * then the fallback dirs. Returns undefined when nothing answers `--version`.
+ *
+ * The bundled binary sits ahead of PATH so a platform VSIX works on a machine
+ * with no CLI installed, but behind the configured path so someone pointing at
+ * their own build still wins.
  */
 export async function resolveBinary(deps: ResolveDeps): Promise<BinaryInfo | undefined> {
   const fileExists = deps.fileExists ?? existsSync;
@@ -68,6 +83,10 @@ export async function resolveBinary(deps: ResolveDeps): Promise<BinaryInfo | und
 
   const candidates: string[] = [];
   if (deps.configuredPath.trim()) candidates.push(deps.configuredPath.trim());
+  if (deps.extensionPath) {
+    const bundled = bundledBinaryPath(deps.extensionPath);
+    if (fileExists(bundled)) candidates.push(bundled);
+  }
   candidates.push('searchdeadcode'); // PATH
   for (const dir of FALLBACK_DIRS) {
     const p = join(dir, 'searchdeadcode');

@@ -63,7 +63,7 @@ function groupByFile(root: string, findings: DeadCodeFinding[]) {
   return [...byPath].map(([path, list]) => ({ uri: vscode.Uri.file(path), findings: list }));
 }
 
-async function scan(provider: DeadCodeProvider): Promise<void> {
+async function scan(provider: DeadCodeProvider, extensionPath: string): Promise<void> {
   const root = workspaceRoot();
   if (!root) {
     void vscode.window.showWarningMessage('Open a folder before scanning for dead code.');
@@ -71,7 +71,10 @@ async function scan(provider: DeadCodeProvider): Promise<void> {
   }
 
   const cfg = config();
-  const binary = await resolveBinary({ configuredPath: cfg.get<string>('path', '') });
+  const binary = await resolveBinary({
+    configuredPath: cfg.get<string>('path', ''),
+    extensionPath,
+  });
   if (!binary) {
     await offerInstall();
     return;
@@ -177,7 +180,7 @@ export function activate(context: vscode.ExtensionContext): void {
         void vscode.window.showInformationMessage('SearchDeadCode is disabled in settings.');
         return;
       }
-      return scan(provider);
+      return scan(provider, context.extensionPath);
     }),
     vscode.commands.registerCommand('searchdeadcode.clear', () => provider.clear()),
     vscode.commands.registerCommand(
