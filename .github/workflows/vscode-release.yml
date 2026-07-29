@@ -66,23 +66,14 @@ jobs:
             failed=1
           fi
 
-          # Open VSX has no verify-pat. Asking the API to describe the
-          # namespace we publish under is the closest equivalent: it is a
-          # read, it needs the token, and it fails the same way a publish
-          # would when the token belongs to another account.
           if [ -z "${OVSX_PAT:-}" ]; then
             echo "::error::OVSX_PAT is not set"
             failed=1
+          elif npx ovsx verify-pat elumine; then
+            echo "Open VSX token accepted for namespace elumine."
           else
-            code="$(curl -s -o /dev/null -w '%{http_code}' \
-              -H "Authorization: Bearer $OVSX_PAT" \
-              'https://open-vsx.org/api/user/namespaces')"
-            if [ "$code" = "200" ]; then
-              echo "Open VSX token accepted."
-            else
-              echo "::error::OVSX_PAT rejected (HTTP $code). Check the token belongs to the GitHub account owning the elumine namespace."
-              failed=1
-            fi
+            echo "::error::OVSX_PAT is set but cannot publish to the elumine namespace. Check the token belongs to the GitHub account that owns it."
+            failed=1
           fi
 
           exit $failed
