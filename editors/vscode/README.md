@@ -17,6 +17,32 @@ Install from the [Marketplace](https://marketplace.visualstudio.com/items?itemNa
 or [Open VSX](https://open-vsx.org/extension/elumine/searchdeadcode). The build for your
 platform ships the analyzer inside it, so there is nothing else to install.
 
+### VSIX
+
+Every release attaches one package per platform, plus a platform-independent one.
+Download the one matching your machine and install it:
+
+```sh
+code --install-extension searchdeadcode-0.1.0.vsix
+```
+
+The platform packages are named `searchdeadcode-<version>-<platform>.vsix`, where
+platform is one of `darwin-arm64`, `darwin-x64`, `linux-x64`, `linux-arm64` or
+`win32-x64`. The unsuffixed package carries no analyzer and falls back to `PATH`.
+
+### Build from source
+
+```sh
+git clone https://github.com/KevinDoremy/SearchDeadCode.git
+cd SearchDeadCode/editors/vscode
+npm ci && npm run package
+code --install-extension searchdeadcode-0.1.0.vsix
+```
+
+That produces the platform-independent package. To bundle a local analyzer into it,
+drop the binary in `bin/` before packaging: `cargo build --release` at the repo root,
+then `cp ../../target/release/searchdeadcode bin/`.
+
 ### Bringing your own binary
 
 Set `searchdeadcode.path` to use a specific build. That always wins over the bundled one,

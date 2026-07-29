@@ -14,6 +14,7 @@ tsconfig.json
 # Release tooling, not something a user installs.
 scripts/**
 .publish
+publish.sh
 media/whats-new.json
 
 # dist/ also holds the compiled integration suite, which ships to nobody.
