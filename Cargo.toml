@@ -46,17 +46,18 @@ serde_json = "1.0"
 # only this one is still published (May 2026) — serde_norway stopped at Dec
 # 2024, serde_yaml_ng at May 2024.
 #
-# Held at 2.5.2 on purpose: 2.5.3 onward caps regex at <1.13, and regex drives
-# resource detection here. Cargo resolves 2.5.2 on its own, but say so out loud
-# so the cap doesn't get mistaken for a stale lockfile.
-serde_yaml_bw = "2.5.2"
+# 2.5.4 fixed a Miri-detected memory leak on crafted YAML plus over-reads on
+# malformed streams. That is why regex sits at 1.12 below: 2.5.3 onward caps it
+# at <1.13, and the security fixes are worth more than a regex minor we don't
+# use anything from.
+serde_yaml_bw = "2.5.6"
 toml = "1.1"
 
 # XML parsing
 quick-xml = "0.41"
 
 # Regex for resource detection
-regex = "1.13"
+regex = "1.12"
 
 # Terminal UI
 colored = "3.1"
