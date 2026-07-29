@@ -81,14 +81,14 @@ Reachability: 1 847 reachable, 2 103 total
 Found 12 dead code issues:
 
 Confidence Legend:
-  ● Confirmed (runtime)  ◉ High  ○ Medium  ◌ Low
+  ✓ Confirmed (runtime)  ! High  ? Medium  ~ Low
 
 app/src/main/java/com/example/data/OldApiClient.kt
-  ◉ 15:1 warning [DC001] class 'LegacyApiClient' is never used
+  ! 15:1 warning [DC001] class 'LegacyApiClient' is never used
 
 app/src/main/java/com/example/utils/StringUtils.kt
-  ◉ 42:5 warning [DC001] function 'formatLegacyDate' is never used
-  ◉ 67:5 warning [DC001] function 'parseOldFormat' is never used
+  ! 42:5 warning [DC001] function 'formatLegacyDate' is never used
+  ! 67:5 warning [DC001] function 'parseOldFormat' is never used
 
 Summary: 12 issues in 4 files (3 classes, 5 functions, 4 properties)
 Estimated removable lines: ~340
@@ -136,6 +136,20 @@ cargo install --path .
 ```
 
 ## Usage essentials
+
+The default run is the whole product: it detects what's going on in your
+repo and prints the specialized command to dig in, parameters included.
+Mid-migration codebases get this for free:
+
+```text
+Next steps
+  ⚠ Deux arborescences similaires détectées (app/main / app/mainV2) — migration en cours ?
+    searchdeadcode . --compare "app/main=app/mainV2"    vieux monde: supprimable au flip + bloqueurs
+  ⚠ 12 paire(s) de classes V1/V2 (ex. HomeScreen / HomeScreenV2)
+    searchdeadcode . --twins    les paires côte à côte avec leurs références
+```
+
+No flag to memorize: run `searchdeadcode .`, copy the suggestion.
 
 ```bash
 # Basic analysis

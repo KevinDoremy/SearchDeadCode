@@ -114,12 +114,19 @@ fn with_members(graph: &Graph, targets: &HashSet<DeclarationId>) -> HashSet<Decl
     set
 }
 
-/// Everything transitively referenced from the start set (start set included)
+/// Everything transitively referenced from the start set (start set included).
+/// Les arêtes ambiguës (résolution par nom simple, plusieurs candidats) sont
+/// ignorées : une devinette par homonymie ne condamne pas un symbole d'un
+/// autre module. Sous-approximer la fermeture est le côté sûr — l'autre sens
+/// (reachable_avoiding) les suit toujours, ce qui garde vivant.
 fn forward_closure(graph: &Graph, start: &HashSet<DeclarationId>) -> HashSet<DeclarationId> {
     let mut seen = start.clone();
     let mut queue: VecDeque<DeclarationId> = start.iter().cloned().collect();
     while let Some(id) = queue.pop_front() {
-        for (to_decl, _) in graph.get_references_from(&id) {
+        for (to_decl, reference) in graph.get_references_from(&id) {
+            if reference.ambiguous {
+                continue;
+            }
             if seen.insert(to_decl.id.clone()) {
                 queue.push_back(to_decl.id.clone());
             }

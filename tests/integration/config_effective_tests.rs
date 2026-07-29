@@ -135,3 +135,64 @@ fn an_explicit_cli_format_beats_the_config() {
         "the flag on the command line wins over the file, stdout was:\n{stdout}"
     );
 }
+
+#[test]
+fn an_unknown_config_key_warns_with_a_suggestion() {
+    // serde silently swallows unknown keys: a typo like 'exclud' means
+    // the user's guard simply stops applying, with no signal at all
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(
+        temp.path().join("Main.kt"),
+        "package sample\n\nfun main() {\n    println(\"alive\")\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join(".deadcode.yml"),
+        "exclud:\n  - \"**/gen/**\"\n",
+    )
+    .unwrap();
+
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+        .arg(temp.path())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "a typo warns, it does not break the run:\n{out:?}"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("exclud"),
+        "the unknown key is named, stderr was:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("exclude"),
+        "the closest real key is suggested, stderr was:\n{stderr}"
+    );
+}
+
+#[test]
+fn a_valid_config_warns_about_nothing() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(
+        temp.path().join("Main.kt"),
+        "package sample\n\nfun main() {\n    println(\"alive\")\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join(".deadcode.yml"),
+        "exclude:\n  - \"**/gen/**\"\n",
+    )
+    .unwrap();
+
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+        .arg(temp.path())
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        !stderr.to_lowercase().contains("unknown"),
+        "a clean config stays silent, stderr was:\n{stderr}"
+    );
+}

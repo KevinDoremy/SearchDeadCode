@@ -12,7 +12,7 @@ Options:
   -e, --exclude <PATTERN>  Patterns to exclude (can be repeated)
   -r, --retain <PATTERN>   Patterns to retain as entry points (can be repeated)
   -f, --format <FORMAT>    Output format [default: terminal]
-                           [possible values: terminal, json, sarif]
+                           [possible values: terminal, json, sarif, csv]
   -o, --output <FILE>      Output file for json/sarif formats
       --delete             Enable safe delete mode
       --interactive        Interactive deletion (confirm each item)
@@ -231,6 +231,10 @@ searchdeadcode --completions fish > ~/.config/fish/completions/searchdeadcode.fi
 | `runtime_confirmed` | true if coverage data confirms unused |
 | `fully_qualified_name` | Package path when available |
 
+## Flag precedence
+
+Many flags replace the report entirely (`--explain`, `--health`, `--pr-description`, `--test-only`, …). Combining two of them is not an error: the first one in dispatch order answers, the later one is silently ignored. Symbol queries (`--explain`, `--why-alive`) dispatch before report cards (`--health`, `--pr-description`). When in doubt, pass one report-replacing flag per run.
+
 ## Complete flag list
 
 Generated from `--help`; every flag the binary accepts, alphabetically.
@@ -281,6 +285,7 @@ Generated from `--help`; every flag the binary accepts, alphabetically.
 | `--expand-rule` | Expand a specific rule's issues (e.g., --expand-rule AP017) |
 | `--explain` | Explain why a symbol (simple name or FQN) is considered dead or alive |
 | `--export-graph` | Write the reference graph to this file (.json or .dot), then exit |
+| `--fail-on-findings` | Exit 1 when findings remain after filtering (baseline included) — the scriptable CI gate |
 | `--fix` | Apply zero-risk fixes automatically (unused imports). Combine with --dry-run to preview. Always writes an undo script |
 | `--flag` | Feature flag cleanup: name (or key) of the flag being settled |
 | `--format` | Output format (defaults to report.format from .deadcode.yml, else terminal) [possible values: terminal, compact, json, sarif, html, markdown, reviewdog] |
@@ -290,23 +295,31 @@ Generated from `--help`; every flag the binary accepts, alphabetically.
 | `--group-by` | Group results by: rule, category, severity, file |
 | `--include-runtime-dead` | Include runtime-dead code (reachable but never executed) |
 | `--incremental` | Enable incremental analysis with caching (enabled by default) Skips re-parsing unchanged files for faster subsequent runs [default: true] [possible values: true, false] |
+| `--health` | Replace the report with an A-F health grade per module |
+| `--import-suppressions` | Convert @Suppress(\"unused\") annotations into entries of this baseline file (migration from Detekt-style triage), then exit |
+| `--import-detekt-baseline` | Convert the Unused* entries of a detekt-baseline.xml into the baseline given by --baseline, then exit |
+| `--min-grade` | With --health: exit 3 when any module grades below this letter |
 | `--init` | Generate a commented .deadcode.yml matching the project's shape (source sets, DI framework, exclusions) and exit |
 | `--install-hook` | Install a pre-commit hook running the fast diff mode, then exit |
 | `--interactive` | Interactive mode for deletions (confirm each) |
 | `--kill-list` | Show everything that falls if this symbol is deleted (exclusive dependents) |
 | `--kotlin-patterns` | Enable Kotlin anti-pattern detectors (AP007-AP010, AP021-AP025) Detects: GlobalScope, heavy ViewModel, lateinit abuse, scope function chaining, nullability overload, reflection overuse, long parameter lists, complex conditions |
 | `--library-mode` | Treat the public API as alive (its consumers live outside this repo) — report internal deadness only |
+| `--lsp-serve` | Serve LSP diagnostics over stdio from --graph-file |
 | `--mcp-serve` | Serve MCP tools (refs_of, is_dead) over stdio from --graph-file |
 | `--middlemen` | List classes whose every method forwards to the same delegate, then exit |
 | `--min-confidence` | Minimum confidence level to report (low, medium, high, confirmed). Defaults to medium, or to the --profile choice |
 | `--module-usage` | Attribute a shared module's symbols to their real consumers: unreferenced, internal-only, or used by which directories |
+| `--near-twins` | List same-named functions with near-identical bodies across files (migration copy-paste; renaming locals does not hide a twin), then exit |
 | `--necromancy` | Fail when code references a symbol the --baseline judged dead (someone is resurrecting legacy), then exit |
 | `--output` | Output file (for json/sarif formats) |
 | `--parallel` | Enable parallel processing for faster analysis (enabled by default) [default: true] [possible values: true, false] |
 | `--patch` | With --delete --dry-run: write the would-be deletion as a unified diff, reviewable and applicable with git apply |
 | `--performance-patterns` | Enable performance anti-pattern detectors (AP011-AP015) Detects: memory leaks, long methods, large classes, collection inefficiencies, loop allocations |
+| `--pr-description` | Replace the report with a paste-ready cleanup-PR description (stats, proof of death, residual risks) |
 | `--profile` | Preset for an audience: ci (strict, high confidence only) or explore (everything down to low) Possible values: - ci:      Strict: high-confidence findings only — for pipelines - explore: Everything down to low confidence — for humans digging |
 | `--proguard-usage` | ProGuard/R8 usage.txt file for enhanced detection This file lists code that R8 determined is unused |
+| `--promises` | Cross TODO remove / FIXME delete comments with the symbol's real reference count, then exit |
 | `--quick-wins` | Only the findings safe to delete blind: whole cluster dead, every member low risk |
 | `--quiet` | Quiet mode - only output results |
 | `--ratchet` | With --baseline: fail on new issues (exit 3) and rewrite the baseline downward on progress — the count can only decrease |
@@ -322,11 +335,14 @@ Generated from `--help`; every flag the binary accepts, alphabetically.
 | `--style` | Style lints: redundant this, doubled parentheses, size==0 (DC014-16) |
 | `--summary` | Summary output - show statistics and top issues only |
 | `--target` | Target directories to analyze (can be specified multiple times) |
+| `--test-only` | List src/main symbols kept alive only by test source sets (delete symbol and tests together), then exit |
 | `--top` | Number of top issues to show in summary mode [default: 10] |
 | `--top-files` | Rank files by deletable lines instead of reporting findings |
+| `--tui` | Full-screen findings triage (needs a terminal) |
 | `--twins` | Show Xxx/XxxV2-style pairs side by side with reference counts, then exit |
 | `--undo-script` | Generate undo script |
 | `--unobserved` | List exposed LiveData/StateFlow/SharedFlow properties nobody collects or observes, then exit |
+| `--unscheduled-workers` | List Worker/JobService classes nobody ever enqueues, then exit |
 | `--unused-assets` | List assets/ files whose path or name appears nowhere in the sources, then exit |
 | `--unused-deps` | List Gradle dependencies declared in build files but never imported by any source file, then exit |
 | `--unused-extras` | Enable unused Intent extra detection (enabled by default) Finds putExtra() keys that are never retrieved via getXxxExtra() [default: true] [possible values: true, false] |
@@ -340,5 +356,6 @@ Generated from `--help`; every flag the binary accepts, alphabetically.
 | `--write-only` | Enable write-only variable detection (enabled by default) Finds variables that are assigned but never read [default: true] [possible values: true, false] |
 | `--write-only-dao` | Enable write-only Room DAO detection (enabled by default) Finds Room DAOs that have @Insert but no @Query methods [default: true] [possible values: true, false] |
 | `--write-only-prefs` | Enable write-only SharedPreferences detection (enabled by default) Finds SharedPreferences keys that are written but never read [default: true] [possible values: true, false] |
+| `--write-only-caches` | List cache keys written but never read back, then exit |
 | `--yes` | With --delete: skip confirmation prompts (the CI path) |
 

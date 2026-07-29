@@ -71,15 +71,19 @@ impl SavedGraph {
         serde_json::from_str(&content).map_err(std::io::Error::other)
     }
 
-    /// Nodes with zero incoming edges, the whole-graph dead list.
+    /// Nodes with zero incoming edges that are not entry-point roots —
+    /// a root has no referencer by design, it is the reason things live.
     pub fn dead_symbols(&self) -> Vec<&SavedNode> {
         let referenced: std::collections::HashSet<&str> =
             self.edges.iter().map(|e| e.to.as_str()).collect();
+        let roots: std::collections::HashSet<&str> =
+            self.roots.iter().map(String::as_str).collect();
         let mut dead: Vec<&SavedNode> = self
             .nodes
             .iter()
             .filter(|n| {
                 !referenced.contains(n.id.as_str())
+                    && !roots.contains(n.id.as_str())
                     && matches!(
                         n.kind.as_str(),
                         "class" | "interface" | "object" | "enum" | "function" | "method"

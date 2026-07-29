@@ -134,9 +134,9 @@ Strings, colors, dimens, styles, attrs declared in `res/values/*.xml` but never 
 $ searchdeadcode ./my-app --unused-resources
 
 📦 Unused Android Resources:
-  ○ app/src/main/res/values/strings.xml:21 - string 'unused_feature_text'
-  ○ app/src/main/res/values/colors.xml:12 - color 'deprecated_accent'
-  ○ app/src/main/res/values/styles.xml:15 - style 'LegacyButton'
+  ? app/src/main/res/values/strings.xml:21 - string 'unused_feature_text'
+  ? app/src/main/res/values/colors.xml:12 - color 'deprecated_accent'
+  ? app/src/main/res/values/styles.xml:15 - style 'LegacyButton'
 
 Found 53 unused resources (672 total defined, 1142 referenced)
 ```
@@ -175,10 +175,10 @@ Each finding gets a confidence level:
 
 | Level | Indicator | Description |
 |---|---|---|
-| Confirmed | ● green | Runtime coverage confirms code is never executed |
-| High | ◉ bright green | Private / internal code with no static references |
-| Medium | ○ yellow | Default for static-only analysis |
-| Low | ◌ red | May be a false positive (reflection, dynamic dispatch) |
+| Confirmed | ✓ green | Runtime coverage confirms code is never executed |
+| High | ! yellow | Private / internal code with no static references |
+| Medium | ? dimmed | Default for static-only analysis |
+| Low | ~ dimmed italic | May be a false positive (reflection, dynamic dispatch) |
 
 Filter with `--min-confidence` (`low`, `medium`, `high`, `confirmed`).
 

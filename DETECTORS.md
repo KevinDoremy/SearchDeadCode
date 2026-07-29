@@ -256,7 +256,7 @@ class User(val name: String) {
 }
 ```
 
-**CLI**: Enabled by default
+**CLI**: Opt-in via `--style` (style, not deadness — silent by default)
 
 ---
 
@@ -270,7 +270,7 @@ val x = (1 + 2)  // BAD: Parentheses not needed
 val y = ((a))    // BAD: Double parentheses
 ```
 
-**CLI**: Enabled by default
+**CLI**: Opt-in via `--style` (style, not deadness — silent by default)
 
 ---
 
@@ -289,7 +289,7 @@ if (list.isEmpty()) { }
 if (str.isEmpty()) { }
 ```
 
-**CLI**: Enabled by default
+**CLI**: Opt-in via `--style` (style, not deadness — silent by default)
 
 ---
 
