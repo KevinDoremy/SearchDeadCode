@@ -1,0 +1,1367 @@
+#!/bin/bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$ROOT_DIR"
+
+VERSION="$(node -p "require('./package.json').version")"
+MODEL="${CLAUDE_PUBLISH_MODEL:-sonnet}"
+MAX_BUDGET_USD="${CLAUDE_PUBLISH_MAX_BUDGET_USD:-1}"
+LOCKFILE_NPM="${CLAUDE_PUBLISH_LOCKFILE_NPM:-npx -y npm@10}"
+BASE_REF=""
+VERSION_ARG=""
+DRY_RUN=0
+NOTES_ONLY=0
+SKIP_NOTES=0
+STAGE=0
+COMMIT=0
+TAG=0
+PUSH=0
+
+usage() {
+  cat <<'EOF'
+Usage: ./.publish [options]
+
+Prepare a release with deterministic verification and Claude-assisted changelog drafting.
+
+Options:
+  --version <x.y.z>  Use this version for the release; writes package.json and syncs README.md unless --dry-run is used
+  --base <git-ref>   Compare against this ref instead of auto-detecting
+  --dry-run          Print the generated changelog section without writing it
+  --notes-only       Update CHANGELOG.md only; skip tests/build/package
+  --skip-notes       Skip Claude changelog drafting and only run verification/package
+  --stage            Stage current changes with git add -A
+  --commit           Stage current changes if needed, then create the release commit
+  --tag              Create git tag vscode-v<version>; implies --commit
+  --push             Push current branch and tags to origin; implies --tag
+  --model <model>    Claude model alias or full model name (default: sonnet)
+  -h, --help         Show this help
+
+Environment:
+  CLAUDE_PUBLISH_MODEL            Override the Claude model
+  CLAUDE_PUBLISH_MAX_BUDGET_USD   Max Claude spend for the drafting step (default: 1)
+  CLAUDE_PUBLISH_LOCKFILE_NPM     Command used to refresh package-lock.json for CI parity (default: npx -y npm@10)
+
+Most explicit workflow:
+  # 1. Preview release notes only
+  ./.publish --dry-run --notes-only --version 0.2.1
+
+  # 2. Write CHANGELOG.md, sync README.md, and set package.json version
+  ./.publish --notes-only --version 0.2.1
+
+  # 3. Run tests, build, and create the VSIX without changing git state
+  ./.publish --skip-notes
+
+  # 4. Review and finish the release manually
+  git status
+  git diff
+  git add -A
+  git commit -m "chore: prepare vscode-v0.2.1 release"
+  git tag vscode-v0.2.1
+  git push origin <branch> --tags
+
+Fast workflow:
+  ./.publish --version 0.2.1 --tag
+
+Fastest workflow:
+  ./.publish --version 0.2.1 --push
+
+When to use each:
+  --dry-run --notes-only = preview release notes only
+  --notes-only = write release notes only
+  --skip-notes = verify/build/package without rewriting notes
+  --version = set the release version + sync README.md + refresh package-lock.json
+  --commit = prepare + commit
+  --tag = prepare + commit + tag
+  --push = prepare + commit + tag + push
+
+Useful examples:
+  ./.publish --base v0.2.0 --dry-run --notes-only
+      Preview notes using a specific release base
+
+  ./.publish --version 0.2.1 --commit
+      Set the version, write notes, verify/package, and create the release commit
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --version)
+      VERSION_ARG="${2:-}"
+      shift 2
+      ;;
+    --base)
+      BASE_REF="${2:-}"
+      shift 2
+      ;;
+    --dry-run)
+      DRY_RUN=1
+      shift
+      ;;
+    --notes-only)
+      NOTES_ONLY=1
+      shift
+      ;;
+    --skip-notes)
+      SKIP_NOTES=1
+      shift
+      ;;
+    --stage)
+      STAGE=1
+      shift
+      ;;
+    --commit)
+      COMMIT=1
+      shift
+      ;;
+    --tag)
+      TAG=1
+      shift
+      ;;
+    --push)
+      PUSH=1
+      shift
+      ;;
+    --model)
+      MODEL="${2:-}"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+need_cmd() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    echo "Missing required command: $1" >&2
+    exit 1
+  fi
+}
+
+need_cmd git
+need_cmd node
+need_cmd npm
+
+if [[ "$PUSH" -eq 1 ]]; then
+  TAG=1
+fi
+if [[ "$TAG" -eq 1 ]]; then
+  COMMIT=1
+fi
+if [[ "$COMMIT" -eq 1 ]]; then
+  STAGE=1
+fi
+
+if [[ "$DRY_RUN" -eq 1 && ( "$STAGE" -eq 1 || "$COMMIT" -eq 1 || "$TAG" -eq 1 || "$PUSH" -eq 1 ) ]]; then
+  echo "--dry-run cannot be combined with --stage, --commit, --tag, or --push." >&2
+  exit 1
+fi
+
+if [[ "$SKIP_NOTES" -eq 1 && "$NOTES_ONLY" -eq 1 ]]; then
+  echo "--skip-notes and --notes-only do not make sense together." >&2
+  exit 1
+fi
+
+validate_version() {
+  local version="$1"
+  if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+    echo "Invalid version: $version" >&2
+    exit 1
+  fi
+}
+
+set_package_version() {
+  local next_version="$1"
+  node - "$next_version" <<'NODE'
+const fs = require('fs');
+const path = 'package.json';
+const nextVersion = process.argv[2];
+const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
+pkg.version = nextVersion;
+fs.writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);
+NODE
+}
+
+sync_readme_version() {
+  local next_version="$1"
+  local status
+  status="$(node - "$next_version" <<'NODE'
+const fs = require('fs');
+const path = 'README.md';
+const version = process.argv[2];
+let text = fs.readFileSync(path, 'utf8');
+const original = text;
+
+syncInstallCommandSection('VSIX');
+syncInstallCommandSection('Build from source');
+
+if (text !== original) {
+  fs.writeFileSync(path, text);
+  process.stdout.write('changed');
+} else {
+  process.stdout.write('unchanged');
+}
+
+function syncInstallCommandSection(title) {
+  const sectionRe = new RegExp(`(### ${escapeRegex(title)}\\s*\\n)([\\s\\S]*?)(?=\\n### |\\n## |$)`);
+  const match = text.match(sectionRe);
+  if (!match) {
+    throw new Error(`Could not find README section "${title}"`);
+  }
+
+  const body = match[2];
+  let replacements = 0;
+  const nextBody = body.replace(
+    /code --install-extension searchdeadcode-(?:<version>|\*|[0-9][0-9A-Za-z.+-]*)\.vsix/g,
+    () => {
+      replacements += 1;
+      return `code --install-extension searchdeadcode-${version}.vsix`;
+    }
+  );
+
+  if (replacements === 0) {
+    throw new Error(`Could not find a VSIX install command in README section "${title}"`);
+  }
+
+  text = text.replace(sectionRe, `$1${nextBody}`);
+}
+
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+NODE
+)"
+
+  if [[ "$status" == "changed" ]]; then
+    echo "Synced README.md VSIX install commands to $next_version."
+  else
+    echo "README.md VSIX install commands already match $next_version."
+  fi
+}
+
+sync_lockfile() {
+  echo "Refreshing package-lock.json with CI-compatible npm..."
+  ${LOCKFILE_NPM} install --package-lock-only --ignore-scripts
+}
+
+ensure_local_dependencies() {
+  if [[ -x "node_modules/.bin/vitest" && -x "node_modules/.bin/vsce" && -x "node_modules/.bin/ovsx" ]]; then
+    return
+  fi
+
+  echo "Installing local dependencies with npm ci..."
+  npm ci
+}
+
+bump_version() {
+  local current="$1" bump_type="$2"
+  node -e "
+    const [maj, min, pat] = '$current'.split('.').map(Number);
+    if ('$bump_type' === 'minor') console.log(maj + '.' + (min + 1) + '.0');
+    else console.log(maj + '.' + min + '.' + (pat + 1));
+  "
+}
+
+preflight_check_tag() {
+  # Abort BEFORE any work if the tag already exists. This prevents the "ran the
+  # script twice and ended up with duplicate release commits" failure mode.
+  # Only enforce when we are going to create a release artifact (commit/tag/push)
+  # — `--notes-only` / `--dry-run` are intentionally exempt so you can still fix
+  # typos in release notes after the tag has been pushed.
+  local version="$1"
+  local tag_name="v$version"
+  local acting=0
+  if [[ "$COMMIT" -eq 1 || "$TAG" -eq 1 || "$PUSH" -eq 1 ]]; then
+    acting=1
+  fi
+  if [[ "$DRY_RUN" -eq 1 || "$NOTES_ONLY" -eq 1 || "$acting" -eq 0 ]]; then
+    return 0
+  fi
+
+  if git rev-parse -q --verify "refs/tags/$tag_name" >/dev/null 2>&1; then
+    echo "ERROR: Tag $tag_name already exists locally." >&2
+    echo "       v$version is already released. To update release notes without" >&2
+    echo "       creating a new tag/commit, use --notes-only." >&2
+    exit 1
+  fi
+  if git ls-remote --tags origin "refs/tags/$tag_name" 2>/dev/null | grep -q "refs/tags/$tag_name"; then
+    echo "ERROR: Tag $tag_name already exists on origin." >&2
+    echo "       v$version is already released. To update release notes without" >&2
+    echo "       creating a new tag/commit, use --notes-only." >&2
+    exit 1
+  fi
+}
+
+if [[ -n "$VERSION_ARG" ]]; then
+  validate_version "$VERSION_ARG"
+  VERSION="$VERSION_ARG"
+  preflight_check_tag "$VERSION"
+elif [[ -t 0 && "$DRY_RUN" -eq 0 && "$NOTES_ONLY" -eq 0 ]]; then
+  echo "Current version: $VERSION"
+  echo "  1) patch → $(bump_version "$VERSION" patch)"
+  echo "  2) minor → $(bump_version "$VERSION" minor)"
+  read -rp "Bump type [1/2]: " bump_choice
+  case "$bump_choice" in
+    1) VERSION="$(bump_version "$VERSION" patch)" ;;
+    2) VERSION="$(bump_version "$VERSION" minor)" ;;
+    *) echo "Invalid choice. Use --version x.y.z to set manually." >&2; exit 1 ;;
+  esac
+  VERSION_ARG="$VERSION"
+  preflight_check_tag "$VERSION"
+fi
+
+if [[ "$DRY_RUN" -eq 0 ]]; then
+  if [[ -n "$VERSION_ARG" ]]; then
+    set_package_version "$VERSION_ARG"
+  fi
+  sync_readme_version "$VERSION"
+fi
+
+if [[ -n "$VERSION_ARG" && "$DRY_RUN" -eq 0 ]]; then
+  sync_lockfile
+fi
+
+infer_base_ref() {
+  if [[ -n "$BASE_REF" ]]; then
+    printf '%s\n' "$BASE_REF"
+    return
+  fi
+
+  local tag
+  tag="$(git tag --sort=-version:refname | grep -E '^vscode-v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)"
+  if [[ -n "$tag" ]]; then
+    printf '%s\n' "$tag"
+    return
+  fi
+
+  printf '%s\n' "HEAD"
+}
+
+BASE_REF="$(infer_base_ref)"
+
+if ! git rev-parse --verify "$BASE_REF" >/dev/null 2>&1; then
+  echo "Invalid base ref: $BASE_REF" >&2
+  exit 1
+fi
+
+WORK_DIR="$(mktemp -d)"
+trap 'rm -rf "$WORK_DIR"' EXIT
+
+COMMIT_RANGE_FILE="$WORK_DIR/commit-range.txt"
+WORKTREE_FILE="$WORK_DIR/worktree.txt"
+PROMPT_FILE="$WORK_DIR/prompt.txt"
+RAW_AI_FILE="$WORK_DIR/claude-raw.json"
+STRUCTURED_FILE="$WORK_DIR/claude-structured.json"
+SECTION_FILE="$WORK_DIR/changelog-section.md"
+
+build_context() {
+  # Release tooling and test scaffolding never reach a user, so they must not
+  # colour the user-facing notes. Passed as git pathspec exclusions, which
+  # drops commits and diffs touching ONLY these paths. A commit mixing shipped
+  # and internal changes still shows up; the prompt rule below is the net.
+  #
+  # Everything here is relative to editors/vscode: the script cd's to its own
+  # directory, so a bare `.` already scopes git to the extension and keeps
+  # crate commits out of the extension changelog.
+  local dev_only_excludes=(
+    ':(exclude,glob)scripts/**'
+    ':(exclude,glob)test/**'
+    ':(exclude).vscode-test.mjs'
+    ':(exclude)esbuild.js'
+    ':(exclude)vitest.config.ts'
+    ':(exclude)tsconfig.json'
+    ':(exclude).publish'
+    ':(exclude)publish.sh'
+  )
+
+  {
+    echo "Version: $VERSION"
+    echo "Base ref: $BASE_REF"
+    echo
+    if [[ "$BASE_REF" == "HEAD" ]]; then
+      echo "Release scope: working tree changes only."
+      echo "Reason: no prior semver tag was found automatically."
+    else
+      echo "Release scope: committed changes since $BASE_REF plus current worktree changes."
+    fi
+    echo
+    echo "Repository:"
+    node - <<'NODE'
+const pkg = require('./package.json');
+const summary = {
+  name: pkg.name,
+  displayName: pkg.displayName,
+  description: pkg.description,
+  version: pkg.version,
+  commands: (pkg.contributes?.commands ?? []).map(c => c.command),
+  settings: Object.keys(pkg.contributes?.configuration?.properties ?? {}),
+};
+console.log(JSON.stringify(summary, null, 2));
+NODE
+    echo
+    echo "Commits in scope (dev-only tooling paths and scopes filtered out):"
+    if [[ "$BASE_REF" == "HEAD" ]]; then
+      echo "- none (worktree-only mode)"
+    else
+      # Two-layer filter:
+      # - Pathspec excludes (above) drop commits touching ONLY internal paths.
+      # - --invert-grep drops commits whose conventional-commit scope marks
+      #   them as tooling: (ci), (release), (test). Mixed-file commits with
+      #   those scopes vanish too, which keeps the subject line itself out of
+      #   the prompt context.
+      git log --no-merges \
+        --invert-grep \
+        --grep='^\(feat\|fix\|refactor\|chore\)(ci\b' \
+        --grep='^\(feat\|fix\|refactor\|chore\)(release\b' \
+        --grep='^\(feat\|fix\|refactor\|chore\)(test\b' \
+        --format='- %h %s' \
+        "$BASE_REF..HEAD" -- . "${dev_only_excludes[@]}" || true
+    fi
+    echo
+    echo "Committed diff stat in scope:"
+    if [[ "$BASE_REF" == "HEAD" ]]; then
+      echo "(none)"
+    else
+      git diff --stat "$BASE_REF..HEAD" -- . "${dev_only_excludes[@]}" || true
+    fi
+    echo
+    echo "Committed changed files in scope:"
+    if [[ "$BASE_REF" == "HEAD" ]]; then
+      echo "(none)"
+    else
+      git diff --name-status "$BASE_REF..HEAD" -- . "${dev_only_excludes[@]}" || true
+    fi
+    echo
+    echo "Current worktree status (dev-only paths filtered):"
+    git status --short --untracked-files=all -- . "${dev_only_excludes[@]}" || true
+    echo
+    echo "Current staged diff stat:"
+    git diff --cached --stat -- . "${dev_only_excludes[@]}" || true
+    echo
+    echo "Current unstaged diff stat:"
+    git diff --stat -- . "${dev_only_excludes[@]}" || true
+    echo
+    echo "Current tracked diff patch:"
+    # Only user-facing files go through the unfiltered diff. `.vscodeignore`
+    # and `.publish` contain explicit references to the dev-only demo tooling
+    # (paths, keywords like ffmpeg / screencapture / recorder-ext), so their
+    # patches must not leak into the prompt — even though the prompt's HARD
+    # EXCLUSIONS would reject them, defence-in-depth is cheap here.
+    #
+    # Also strip `+`/`-` lines naming internal tooling, so a package.json
+    # script or a workflow path cannot reach the prompt through a
+    # user-facing file.
+    git diff -- package.json CHANGELOG.md README.md media/whats-new.json 2>/dev/null \
+      | grep -vE '^[+-][^+-].*(test:integration|vscode-test|check-no-dashes|validate-whats-new|\.publish|esbuild\.js)' \
+      || true
+    echo
+    echo "Current top of CHANGELOG.md:"
+    sed -n '1,80p' CHANGELOG.md
+  } > "$COMMIT_RANGE_FILE"
+}
+
+render_prompt() {
+  cat > "$PROMPT_FILE" <<EOF
+You are writing release notes for a public GitHub release of a VS Code extension.
+
+Rules:
+- Use only the facts supplied below.
+- Do not invent features, fixes, metrics, files, or links.
+- Write for users deciding whether to install or update, not for maintainers reading a commit log.
+- Lead with user value and real impact.
+- Always explain why a change matters to the user.
+- If a change is internal (CI, workflow, packaging, refactor), reframe it as a user benefit when accurate: reliability, stability, consistency, or release quality.
+- If there are no functional changes to extension behavior, say that clearly in a Notes section.
+- Do not include meaningless bullets like "Bumped version" or "Updated package.json".
+- Do not list raw implementation details unless they materially help a user understand the release.
+- Keep the tone concise, credible, and professional. No hype, no emojis, no fluff.
+- PUNCTUATION, STRICT: never use an em-dash or en-dash anywhere in the output. A pre-commit hook rejects the whole release when one appears. Use a period, comma, colon, or parentheses instead. Split the sentence in two when in doubt.
+- Prefer section headings from this set when they fit: Improvements, Fixes, Notes, Packaging and docs.
+- Use at most 3 sections unless the evidence strongly justifies more.
+- Each bullet must stand on its own, mention impact, and start with a verb in past tense or present tense.
+- Mention only changes that are actually evidenced by the supplied git/context data.
+- Before finalizing each bullet, ask yourself: "Would a user care?" If not, rewrite it or omit it.
+
+HARD EXCLUSIONS (must never appear in the output, even tangentially):
+- The release pipeline itself: \`.publish\`, \`publish.sh\`, \`scripts/\`, and the
+  \`.github/workflows/\` files.
+- Test scaffolding: \`test/\`, the fixture workspace, vitest, mocha, @vscode/test-cli,
+  and anything about how the suite is wired or how many tests there are.
+- Build plumbing: esbuild, tsconfig, the shape of the bundle, .vscodeignore.
+- Dependency version bumps that change nothing a user can observe.
+These are maintainer tooling, never shipped, and must not appear in release notes,
+changelog, highlights, tagline, or summary. If git context still surfaces one (a
+commit mixing shipped and internal changes), ignore that portion silently.
+
+One exception worth stating: the bundled analyzer IS user-facing. Which
+platforms ship a binary, and what happens when a platform does not, both
+belong in the notes. It is the packaging that matters to a user, not how the
+packaging is built.
+
+Return structured JSON with:
+- summary: one short sentence
+- tagline: one punchy phrase (max 8 words) capturing the release's key theme (no verbs, no fluff)
+- highlights: 2-3 top changes as cards, each with:
+  - title: short label (max 5 words, noun phrase)
+  - description: one sentence explaining the user benefit
+  - kind: "feature" (brand-new capability), "improvement" (better existing feature), "fix" (bug fix), or "note" (non-behavioural)
+- sections: array of objects with:
+  - heading: short title case heading
+  - bullets: 1-5 bullets
+
+Do NOT emit "media" or "mediaAlt" fields on highlights. This extension ships no demo assets; the script preserves any existing media field when it matches a highlight title.
+
+Context:
+
+$(cat "$COMMIT_RANGE_FILE")
+EOF
+}
+
+extract_structured_output() {
+  node - "$RAW_AI_FILE" "$STRUCTURED_FILE" <<'NODE'
+const fs = require('fs');
+const [rawPath, outPath] = process.argv.slice(2);
+const raw = fs.readFileSync(rawPath, 'utf8').trim();
+let parsed = JSON.parse(raw);
+let structured = parsed?.structured_output;
+if (!structured && Array.isArray(parsed)) {
+  for (let i = parsed.length - 1; i >= 0; i--) {
+    const item = parsed[i];
+    if (item && item.structured_output) {
+      structured = item.structured_output;
+      break;
+    }
+  }
+}
+if (!structured) {
+  throw new Error('Claude output did not contain structured_output');
+}
+
+// Final safety net. Path excludes, scope excludes, diff filtering and the
+// prompt's HARD EXCLUSIONS all aim at the same thing; if a maintainer term
+// still lands in the output, abort BEFORE it reaches CHANGELOG.md or
+// media/whats-new.json. A published release cannot be un-published.
+//
+// Deliberately absent: 'binary', 'bundled', 'platform'. Those describe what a
+// user installs and belong in the notes.
+const forbiddenTerms = [
+  'vitest', 'mocha', '@vscode/test-cli', 'test-electron', 'xvfb',
+  'esbuild', 'tsconfig', '.vscodeignore', 'devDependenc',
+  'check-no-dashes', 'validate-whats-new', '.publish', 'publish.sh',
+  'github actions', 'workflow', 'pre-commit', 'husky',
+];
+const flat = JSON.stringify(structured).toLowerCase();
+const hits = forbiddenTerms.filter(t => flat.includes(t.toLowerCase()));
+if (hits.length > 0) {
+  console.error(`ERROR: Claude's release notes contain forbidden dev-only terms:`);
+  for (const h of hits) console.error(`   - ${h}`);
+  console.error(`Refusing to write CHANGELOG.md / whats-new.json. Review prompt or context.`);
+  process.exit(4);
+}
+
+fs.writeFileSync(outPath, JSON.stringify(structured, null, 2));
+NODE
+}
+
+render_markdown_section() {
+  node - "$VERSION" "$STRUCTURED_FILE" "$SECTION_FILE" "$WHATS_NEW_FOR_SECTION" <<'NODE'
+const fs = require('fs');
+const [version, structuredPath, outPath, whatsNewPath] = process.argv.slice(2);
+const data = JSON.parse(fs.readFileSync(structuredPath, 'utf8'));
+
+// Read the freshly-rendered whats-new.json to know which highlights have
+// demo webps after auto-link + merge-preserve. We embed an <img> for each
+// one right under the section heading so scrolling the CHANGELOG on
+// GitHub / Marketplace plays the demo inline. The embed URL is pinned to
+// the release tag (`v${version}`), so historical CHANGELOG entries keep
+// pointing at the webp that shipped with THAT release even if `main`
+// later replaces the file — no silent webp rot.
+//
+// The `whatsNewPath` is passed separately (instead of hard-coding
+// media/whats-new.json) so --dry-run can preview against a temp file
+// without touching the committed JSON.
+let mediaByTitle = new Map();
+try {
+  const wn = JSON.parse(fs.readFileSync(whatsNewPath, 'utf8'));
+  for (const h of (wn.highlights || [])) {
+    if (h && typeof h.title === 'string' && typeof h.media === 'string') {
+      mediaByTitle.set(h.title, { media: h.media, alt: h.mediaAlt || h.title });
+    }
+  }
+} catch { /* no whats-new yet (first release ever) — skip embeds */ }
+
+// Skip the entire embed block when no highlight has a demo. Respects
+// "seulement s'il y en a" — a release without recorded demos gets plain
+// text, exactly like before this feature existed.
+const embeds = [];
+for (const h of (data.highlights || [])) {
+  const m = mediaByTitle.get(h?.title);
+  if (!m) continue;
+  const url = `https://raw.githubusercontent.com/KevinDoremy/SearchDeadCode/vscode-v${version}/editors/vscode/media/${m.media}`;
+  embeds.push(
+    '<p align="center">',
+    `  <img src="${url}" width="720" alt="${String(m.alt).replace(/"/g, '&quot;')}" />`,
+    '</p>',
+    '',
+  );
+}
+
+const headingOrder = new Map([
+  ['Improvements', 0],
+  ['Fixes', 1],
+  ['Notes', 2],
+  ['Packaging and docs', 3],
+]);
+const noisyBulletPatterns = [
+  /^bumped version\b/i,
+  /^updated package\.json\b/i,
+  /^updated version\b/i,
+  /^prepared release\b/i,
+];
+const lines = [`## ${version}`, '', data.summary.trim(), '', ...embeds];
+const sections = [...data.sections].sort((a, b) => {
+  const aRank = headingOrder.get(String(a?.heading ?? '').trim()) ?? 99;
+  const bRank = headingOrder.get(String(b?.heading ?? '').trim()) ?? 99;
+  return aRank - bRank;
+});
+for (const section of sections) {
+  if (!section || !section.heading || !Array.isArray(section.bullets) || section.bullets.length === 0) {
+    continue;
+  }
+  const bullets = section.bullets
+    .map(bullet => String(bullet).trim())
+    .filter(text => text && !noisyBulletPatterns.some(pattern => pattern.test(text)));
+  if (bullets.length === 0) {
+    continue;
+  }
+  lines.push(`### ${section.heading.trim()}`);
+  for (const text of bullets) {
+    lines.push(`- ${text}`);
+  }
+  lines.push('');
+}
+fs.writeFileSync(outPath, `${lines.join('\n').trimEnd()}\n`);
+NODE
+}
+
+update_changelog() {
+  node - "$VERSION" "$SECTION_FILE" <<'NODE'
+const fs = require('fs');
+const [version, sectionPath] = process.argv.slice(2);
+const path = 'CHANGELOG.md';
+// Keep one trailing newline on the section so replacement leaves a blank line
+// between the section we wrote and the next `## X.Y.Z` heading below it.
+const section = fs.readFileSync(sectionPath, 'utf8').replace(/\s+$/, '') + '\n';
+const text = fs.readFileSync(path, 'utf8');
+const escaped = version.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// NOTE: no `m` flag. Without it, `$` anchors to end-of-string (not end-of-line),
+// so the regex correctly spans the full existing section until the next `## X.Y.Z`
+// or the end of the file. With the `m` flag, `$` matched end-of-line, so running
+// this script twice for the same version produced duplicated sections.
+const re = new RegExp(`## ${escaped}[\\s\\S]*?(?=\\n## \\d+\\.\\d+\\.\\d+|$)`);
+let next;
+if (re.test(text)) {
+  next = text.replace(re, section);
+} else {
+  next = text.replace(/^# Changelog\s*\n+/m, `# Changelog\n\n${section}\n`);
+}
+fs.writeFileSync(path, next.endsWith('\n') ? next : `${next}\n`);
+NODE
+}
+
+render_whats_new() {
+  # Optional $1 = output path (default: media/whats-new.json). Used by
+  # --dry-run to write to a temp preview file instead of the committed
+  # JSON, so render_markdown_section has a consistent source to embed
+  # demos from without mutating the shipped state.
+  local out_path="${1:-media/whats-new.json}"
+  node - "$VERSION" "$STRUCTURED_FILE" "$BASE_REF" "$out_path" <<'NODE'
+const fs = require('fs');
+const { execSync } = require('child_process');
+const [version, jsonPath, baseRef, outPath] = process.argv.slice(2);
+const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+
+// ── Merge-preserve: keep user-authored `media` / `mediaAlt` ──────────────
+// When a highlight in the existing whats-new.json describes the same
+// feature as one just drafted by Claude, copy its `media` / `mediaAlt`
+// fields onto the new highlight. Lets a maintainer hand-wire a demo
+// webp once and have it stick across re-drafts.
+//
+// Matching uses a two-stage fuzzy match tuned on real release data.
+// Exact title is too brittle: Claude rephrases across releases
+// ("@Suppress / @SuppressLint explained on hover" → "@Suppress Hover
+// Docs") and exact-match loses the hand-wired media.
+//
+// So we check in order:
+//   1. exact title match (fast-path, same-release re-run)
+//   2. title-only Jaccard ≥ 0.4 (strong signal — at least 2 of the
+//      distinctive nouns line up; observed 0.4 for real v1.16.0
+//      rephrasings, ≤ 0.33 for unrelated-highlight collisions on
+//      current features — Android pairs, semantic vs syntax
+//      highlighting, code lens vs find usages)
+//   3. title+description Jaccard ≥ 0.2 (catches cases where titles
+//      diverged further but the feature body still overlaps)
+//
+// Every fuzzy decision is logged to stderr so a bad match is visible
+// at release time, not silently applied.
+const TITLE_ONLY_THRESHOLD  = 0.4;
+const TITLE_DESC_THRESHOLD  = 0.2;
+const MERGE_STOPWORDS = new Set([
+  'the', 'and', 'for', 'with', 'from', 'that', 'this', 'new', 'into',
+  'your', 'out', 'get', 'has', 'have', 'via', 'but', 'now', 'any',
+  'are', 'was', 'will', 'were', 'kotlin', 'jump',
+]);
+function mergeTokens(s) {
+  return new Set(String(s ?? '').toLowerCase()
+    .replace(/[^\w\s-]/g, ' ').split(/[\s\-_]+/)
+    .filter(t => t.length >= 3 && !MERGE_STOPWORDS.has(t)));
+}
+function mergeJaccard(a, b) {
+  if (a.size === 0 || b.size === 0) return 0;
+  let inter = 0;
+  for (const x of a) if (b.has(x)) inter++;
+  return inter / new Set([...a, ...b]).size;
+}
+
+let priorList = [];
+try {
+  const prior = JSON.parse(fs.readFileSync('media/whats-new.json', 'utf8'));
+  for (const h of (prior.highlights || [])) {
+    if (!h || typeof h.title !== 'string') continue;
+    priorList.push({
+      data:        h,
+      titleTokens: mergeTokens(h.title),
+      fullTokens:  new Set([...mergeTokens(h.title), ...mergeTokens(h.description || '')]),
+    });
+  }
+} catch {
+  // First release (or prior file missing / malformed) — nothing to merge.
+}
+
+function findPriorForMerge(newH) {
+  // Stage 1: exact title match.
+  const exact = priorList.find(p => p.data.title === newH.title);
+  if (exact) return exact.data;
+
+  const newTitleTokens = mergeTokens(newH.title);
+  const newFullTokens  = new Set([
+    ...newTitleTokens,
+    ...mergeTokens(newH.description || ''),
+  ]);
+
+  // Stage 2: strong title-only match.
+  let best = null;
+  for (const p of priorList) {
+    const score = mergeJaccard(newTitleTokens, p.titleTokens);
+    if (score >= TITLE_ONLY_THRESHOLD && (!best || score > best.score)) {
+      best = { data: p.data, score, kind: 'title' };
+    }
+  }
+  if (best) {
+    process.stderr.write(
+      `[whats-new] merge-preserve title match: "${newH.title}" ↔ "${best.data.title}" (jaccard=${best.score.toFixed(2)})\n`,
+    );
+    return best.data;
+  }
+
+  // Stage 3: softer title+description match.
+  for (const p of priorList) {
+    const score = mergeJaccard(newFullTokens, p.fullTokens);
+    if (score >= TITLE_DESC_THRESHOLD && (!best || score > best.score)) {
+      best = { data: p.data, score, kind: 'full' };
+    }
+  }
+  if (best) {
+    process.stderr.write(
+      `[whats-new] merge-preserve full-text match: "${newH.title}" ↔ "${best.data.title}" (jaccard=${best.score.toFixed(2)})\n`,
+    );
+    return best.data;
+  }
+
+  return null;
+}
+
+const mergedHighlights = (data.highlights || []).slice(0, 3).map(h => {
+  const prev = findPriorForMerge(h);
+  if (!prev) return h;
+  return {
+    ...h,
+    ...(h.media    ? {}                                         : prev.media    ? { media:    prev.media    } : {}),
+    ...(h.mediaAlt ? {}                                         : prev.mediaAlt ? { mediaAlt: prev.mediaAlt } : {}),
+  };
+});
+
+// No demo assets here: kotlin-nav auto-linked recorded webps to highlight
+// cards, and this extension records none. The block that did it has been
+// dropped rather than left inert. Hand-wire a "media" field in
+// media/whats-new.json to feature a static capture; merge-preserve above
+// keeps it across releases.
+
+// ── Final object + write ─────────────────────────────────────────────────
+const whatsNew = {
+  version,
+  title: "What's New in SearchDeadCode",
+  tagline: data.tagline || data.summary,
+  summary: data.summary,
+  highlights: mergedHighlights,
+  sections: data.sections || [],
+  links: {
+    changelog: 'https://github.com/KevinDoremy/SearchDeadCode/blob/main/editors/vscode/CHANGELOG.md',
+    issues: 'https://github.com/KevinDoremy/SearchDeadCode/issues',
+  },
+};
+
+fs.writeFileSync(outPath, `${JSON.stringify(whatsNew, null, 2)}\n`);
+NODE
+}
+
+build_dry_run_preview() {
+  # In dry-run we want Kevin to SEE the release — including the embedded
+  # demo webps — before deciding to commit. Terminal output prints the
+  # raw markdown, which renders webp only as an <img> tag (no animation).
+  # So we:
+  #
+  #   1. Compose a single "release preview" markdown that bundles the
+  #      CHANGELOG section, the full whats-new.json as a readable JSON
+  #      block, and a plain-text list of auto-linked demos.
+  #   2. Write it to WORK_DIR/release-preview.md (persistent for the
+  #      run's lifetime; removed when the user exits).
+  #   3. If `code` is on PATH, open the file AND auto-trigger the
+  #      markdown preview (Cmd+Shift+V). VS Code renders webp animated,
+  #      so the reviewer sees the exact visual the user will see.
+  #   4. Always print the terminal output too (tail-friendly when
+  #      piping or logging).
+
+  # Write to a repo-local path (gitignored) so the file survives the
+  # WORK_DIR trap cleanup. VS Code opens it via `code -r`; if we wrote
+  # into WORK_DIR, the file would be rm -rf'd the moment .publish exits,
+  # leaving `code` pointing at a deleted path.
+  # Write to a repo-local path (gitignored) so the file survives the
+  # WORK_DIR trap cleanup. VS Code opens it via `code -r`; if we wrote
+  # into WORK_DIR, the file would be rm -rf'd the moment .publish exits,
+  # leaving `code` pointing at a deleted path.
+  local preview="$ROOT_DIR/.release-preview.md"
+
+  # The committed CHANGELOG section uses
+  # `https://raw.githubusercontent.com/.../v<version>/media/demos/...`
+  # URLs so old entries keep pointing at the webp that shipped with
+  # THAT tag. But the tag doesn't exist yet during a dry-run — so the
+  # URLs 404 and the preview shows broken <img> icons. Swap them for
+  # repo-relative paths (media/demos/<file>.webp) before writing into
+  # the preview: VS Code's markdown preview renders repo-relative
+  # images just fine, so the maintainer sees the actual animated webp.
+  local section_md
+  section_md="$(sed -E "s|https://raw\\.githubusercontent\\.com/KevinDoremy/SearchDeadCode/vscode-v${VERSION}/editors/vscode/media/([A-Za-z0-9._-]+)|media/\\1|g" "$SECTION_FILE")"
+
+  local whats_new_pretty="(no whats-new preview was generated)"
+  if [[ -n "${WHATS_NEW_FOR_SECTION:-}" && -f "$WHATS_NEW_FOR_SECTION" ]]; then
+    whats_new_pretty="$(cat "$WHATS_NEW_FOR_SECTION")"
+  fi
+
+  cat > "$preview" <<PREVIEW
+# Release preview — v$VERSION (dry-run)
+
+> This file is a dry-run preview. Nothing has been written to
+> CHANGELOG.md, committed, tagged, or pushed.
+> To see the embedded demo webps animated, press **Cmd+Shift+V** to
+> open the markdown preview.
+> To run the real release after confirming this preview, invoke
+> \`./.publish --version $VERSION --commit --tag --push\`.
+
+---
+
+## CHANGELOG section (as it will be prepended to CHANGELOG.md)
+
+$section_md
+
+---
+
+## What's New JSON (as it will ship in media/whats-new.json)
+
+The VS Code "What's New" panel renders from this file. Each
+\`highlights[].media\` is validated by
+\`.github/scripts/validate-whats-new.mjs\` before the release can commit.
+
+\`\`\`json
+$whats_new_pretty
+\`\`\`
+PREVIEW
+
+  echo ""
+  echo "──────────────────────────────────────────────────────────────"
+  echo "DRY-RUN preview written to:"
+  echo "  $preview"
+  echo ""
+
+  if command -v code >/dev/null 2>&1; then
+    echo "Launching preview in a dev host VS Code —"
+    echo "  workspace + What's New webview + rendered CHANGELOG in ONE window."
+    echo "  Close the window when you're done."
+
+    # Build so dist/extension.js reflects the current source.
+    (cd "$ROOT_DIR" && node esbuild.js >/dev/null 2>&1) || true
+
+    # --disable-extensions so the installed Marketplace copy does NOT
+    # win over the dev-path one; --user-data-dir keeps this invocation
+    # isolated from the user's regular profile.
+    #
+    # The webview reads `media/whats-new.json` by default, but during a
+    # dry-run that file is still the LAST release's content. Copy the
+    # freshly-drafted preview to a stable repo-local path (survives the
+    # WORK_DIR trap cleanup) and point the extension at it via
+    # KJ_WHATS_NEW_JSON — WhatsNewPanel.readData honours that override.
+    local whats_new_override="$ROOT_DIR/.release-preview.whats-new.json"
+    if [[ -n "${WHATS_NEW_FOR_SECTION:-}" && -f "$WHATS_NEW_FOR_SECTION" ]]; then
+      cp "$WHATS_NEW_FOR_SECTION" "$whats_new_override"
+    else
+      rm -f "$whats_new_override"
+    fi
+    # Pass the preview markdown as a trailing arg so it opens as a tab
+    # in the SAME window. KJ_OPEN_PREVIEW_MD nudges the extension to
+    # also trigger `markdown.showPreviewToSide` on that file, giving
+    # the maintainer a rendered view without an extra keystroke.
+    KJ_OPEN_WHATS_NEW=1 \
+    KJ_WHATS_NEW_JSON="$whats_new_override" \
+    KJ_OPEN_PREVIEW_MD="$preview" \
+      code --disable-extensions \
+      --extensionDevelopmentPath="$ROOT_DIR" \
+      --user-data-dir="/tmp/sdc-publish-whatsnew" \
+      "$ROOT_DIR/test/fixtures/workspace" \
+      "$preview" >/dev/null 2>&1 &
+  else
+    echo "Tip: install the VS Code 'code' CLI (Cmd+Shift+P → Shell Command:"
+    echo "Install 'code' command in PATH) so future dry-runs open the"
+    echo "preview automatically."
+  fi
+
+  echo "──────────────────────────────────────────────────────────────"
+  echo ""
+  # Terminal fallback: always print the section so CI or logs catch it.
+  cat "$SECTION_FILE"
+}
+
+draft_notes() {
+  need_cmd claude
+
+  build_context
+  render_prompt
+
+  claude -p \
+    --model "$MODEL" \
+    --max-budget-usd "$MAX_BUDGET_USD" \
+    --output-format json \
+    --json-schema '{"type":"object","properties":{"summary":{"type":"string"},"tagline":{"type":"string"},"highlights":{"type":"array","items":{"type":"object","properties":{"title":{"type":"string"},"description":{"type":"string"},"kind":{"type":"string","enum":["feature","improvement","fix","note"]},"media":{"type":"string"},"mediaAlt":{"type":"string"}},"required":["title","kind"],"additionalProperties":false},"minItems":1,"maxItems":3},"sections":{"type":"array","items":{"type":"object","properties":{"heading":{"type":"string"},"bullets":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":5}},"required":["heading","bullets"],"additionalProperties":false},"minItems":1,"maxItems":4}},"required":["summary","tagline","highlights","sections"],"additionalProperties":false}' \
+    < "$PROMPT_FILE" > "$RAW_AI_FILE"
+
+  extract_structured_output
+
+  # Render whats-new.json BEFORE the changelog section so the section
+  # renderer can look up which highlights got demo webps (auto-link +
+  # merge-preserve) and embed them inline. In dry-run, write the preview
+  # to WORK_DIR so the real media/whats-new.json stays untouched.
+  local whats_new_target
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    whats_new_target="$WORK_DIR/whats-new-preview.json"
+  else
+    whats_new_target="media/whats-new.json"
+  fi
+  render_whats_new "$whats_new_target"
+  export WHATS_NEW_FOR_SECTION="$whats_new_target"
+
+  render_markdown_section
+
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    build_dry_run_preview
+    return
+  fi
+
+  update_changelog
+
+  # HARD GATE — validate the fresh whats-new.json before letting the
+  # release commit be created. Anything suspicious (missing media, leaked
+  # LLM chain-of-thought, wrong version, broken schema, oversized fields)
+  # prints a precise error and exits non-zero, which aborts .publish
+  # before any commit / tag / push. A corrupt whats-new.json must never
+  # reach the Marketplace.
+  if ! node "$ROOT_DIR/scripts/validate-whats-new.mjs" --version "$VERSION"; then
+    echo ""
+    echo "✗ media/whats-new.json failed validation. Release aborted."
+    echo "  Fix the issues listed above (by hand or by re-running Claude)"
+    echo "  and re-run .publish."
+    exit 1
+  fi
+
+  echo "Updated CHANGELOG.md and media/whats-new.json for $VERSION using Claude ($MODEL)."
+  if [[ "$BASE_REF" == "HEAD" ]]; then
+    echo "No prior semver tag was found, so the draft used worktree changes only."
+    echo "Use ./.publish --base <git-ref> if you want release notes over a wider range."
+  fi
+}
+
+check_walkthrough_coverage() {
+  node - <<'NODE'
+const fs = require('fs');
+const pkg = require('./package.json');
+const registered = new Set((pkg.contributes?.commands ?? []).map(c => c.command));
+const walkthroughs = pkg.contributes?.walkthroughs ?? [];
+let failed = false;
+for (const wt of walkthroughs) {
+  for (const step of (wt.steps ?? [])) {
+    // Validate command: references in descriptions
+    const refs = [...(step.description ?? '').matchAll(/command:([\w.-]+)/g)].map(m => m[1]);
+    for (const cmd of refs) {
+      if (cmd.startsWith('searchdeadcode.')) {
+        if (!registered.has(cmd)) {
+          console.error(`  Walkthrough step "${step.id}": unregistered command "${cmd}"`);
+          failed = true;
+        }
+      }
+    }
+    // Validate media files exist
+    const img = step.media?.image;
+    if (img && !fs.existsSync(img)) {
+      console.error(`  Walkthrough step "${step.id}": missing media file "${img}"`);
+      failed = true;
+    }
+  }
+}
+if (failed) { console.error('Fix walkthrough before packaging.'); process.exit(1); }
+else console.log('Walkthrough: OK');
+NODE
+}
+
+check_no_tooling_in_vsix() {
+  # Safety net: maintainer tooling must never reach a published VSIX. Runs
+  # AFTER packaging but BEFORE any git/tag/push, because a published version
+  # cannot be taken back.
+  #
+  # bin/ is deliberately absent from this list: the bundled analyzer is the
+  # point of the platform packages.
+  local forbidden_patterns=(
+    "extension/scripts/"
+    "extension/test/"
+    "extension/dist/test/"
+    "extension/.publish"
+    "extension/publish.sh"
+    "whats-new.json"
+  )
+  local vsix_file
+  vsix_file="$(ls -t ./*.vsix 2>/dev/null | head -n 1 || true)"
+  if [[ -z "$vsix_file" ]]; then
+    echo "  (skipping isolation check — no VSIX found yet)"
+    return 0
+  fi
+  local contents
+  contents="$(unzip -l "$vsix_file" 2>/dev/null || true)"
+  for pattern in "${forbidden_patterns[@]}"; do
+    if echo "$contents" | grep -q "$pattern"; then
+      echo "ERROR: forbidden pattern '$pattern' found inside $vsix_file." >&2
+      echo "       Maintainer tooling must never ship. Fix .vscodeignore." >&2
+      echo "       Offending entries:" >&2
+      echo "$contents" | grep "$pattern" | head -5 | sed 's/^/         /' >&2
+      exit 1
+    fi
+  done
+  echo "  VSIX isolation check: OK (no tooling leaked)"
+}
+
+# Hard ceiling on shipped VSIX size. Triggered if someone re-introduces
+# raw recordings, infographics, or any other large media. Tune the limit
+# upward only after verifying the new content is genuinely runtime-needed.
+check_vsix_size() {
+  local vsix_file
+  vsix_file="$(ls -t ./*.vsix 2>/dev/null | head -n 1 || true)"
+  if [[ -z "$vsix_file" ]]; then
+    return 0
+  fi
+  local size
+  size="$(stat -f%z "$vsix_file" 2>/dev/null || stat -c%s "$vsix_file" 2>/dev/null || echo 0)"
+  local limit_mb=80
+  local limit=$(( limit_mb * 1024 * 1024 ))
+  if (( size > limit )); then
+    local size_mb=$(( size / 1024 / 1024 ))
+    echo "ERROR: VSIX size $size_mb MB exceeds limit $limit_mb MB ($vsix_file)." >&2
+    echo "       Audit .vscodeignore — likely a new recording slipped through." >&2
+    exit 1
+  fi
+  local size_mb=$(( size / 1024 / 1024 ))
+  echo "  VSIX size check: OK ($size_mb MB ≤ $limit_mb MB)"
+}
+
+# Block recordings that are README-only from leaking into the VSIX.
+# These webps live in assets/demos/ for raw.githubusercontent.com hosting
+# but must never ship — only walkthrough + whats-new media should.
+check_no_readme_only_demos_in_vsix() {
+  local vsix_file
+  vsix_file="$(ls -t ./*.vsix 2>/dev/null | head -n 1 || true)"
+  if [[ -z "$vsix_file" ]]; then
+    return 0
+  fi
+  local readme_only=(
+    drawable-hover
+    lib-jar-kdoc-hover
+    string-locale-grid
+    suspend-call-marker
+    private-file-isolation
+    suppress-hover
+  )
+  local contents
+  contents="$(unzip -l "$vsix_file" 2>/dev/null || true)"
+  local leaked=()
+  for name in "${readme_only[@]}"; do
+    if echo "$contents" | grep -q "assets/demos/${name}.webp"; then
+      leaked+=("$name")
+    fi
+  done
+  if (( ${#leaked[@]} > 0 )); then
+    echo "ERROR: README-only demos leaked into VSIX (${leaked[*]})." >&2
+    echo "       Fix .vscodeignore — these webps must NOT ship." >&2
+    exit 1
+  fi
+  echo "  README-only demo isolation: OK"
+}
+
+verify_release() {
+  check_walkthrough_coverage
+  ensure_local_dependencies
+
+  echo "Running tests..."
+  npm test
+
+  echo "Building production..."
+  node esbuild.js --production
+
+  echo "Packaging..."
+  npx @vscode/vsce package --no-dependencies
+  check_no_tooling_in_vsix
+  check_no_readme_only_demos_in_vsix
+  check_vsix_size
+}
+
+stage_release_changes() {
+  echo "Staging current repo changes..."
+  git add -A
+}
+
+commit_release() {
+  local commit_message="chore: prepare vscode-v$VERSION release"
+  if git diff --cached --quiet; then
+    echo "No staged changes to commit. Skipping commit."
+    return
+  fi
+
+  # Defence-in-depth: validate whats-new.json one last time RIGHT BEFORE
+  # the commit. `draft_notes` runs validation after its own render step,
+  # but a user-initiated `.publish --skip-notes` bypasses that path — the
+  # committed file would still be a previous release's content. Catch
+  # either case here so a malformed file never becomes a tagged commit.
+  if ! node "$ROOT_DIR/scripts/validate-whats-new.mjs" --version "$VERSION"; then
+    echo ""
+    echo "✗ media/whats-new.json failed validation at commit time. Release aborted."
+    exit 1
+  fi
+
+  echo "Creating release commit..."
+  git commit -m "$commit_message"
+}
+
+create_release_tag() {
+  local tag_name="vscode-v$VERSION"
+  if git rev-parse -q --verify "refs/tags/$tag_name" >/dev/null 2>&1; then
+    echo "Tag already exists: $tag_name" >&2
+    exit 1
+  fi
+
+  echo "Creating git tag $tag_name..."
+  git tag "$tag_name"
+}
+
+push_release() {
+  local branch
+  branch="$(git branch --show-current)"
+  if [[ -z "$branch" ]]; then
+    echo "Cannot push from detached HEAD." >&2
+    exit 1
+  fi
+
+  echo "Pushing $branch and tags to origin..."
+  git push origin "$branch" --tags
+}
+
+# Post-push CI watcher. Blocks until both the CI and Release workflows
+# triggered by this push finish, then prints a pass/fail summary so the
+# maintainer always knows whether the Marketplace publish actually
+# happened — no silent "push succeeded but release workflow failed at
+# the Test step" scenarios (see v1.15.0 first-attempt incident).
+#
+# Silently skipped when:
+#   - the `gh` CLI is not installed (warning printed)
+#   - the user is not authenticated to GitHub (warning printed)
+# Either way, the release itself is already pushed at this point —
+# this is observability only.
+watch_ci_after_push() {
+  if ! command -v gh >/dev/null 2>&1; then
+    echo ""
+    echo "⚠ gh CLI not found — cannot auto-check CI status."
+    echo "  Install with 'brew install gh' + 'gh auth login' for future releases."
+    return 0
+  fi
+  if ! gh auth status >/dev/null 2>&1; then
+    echo ""
+    echo "⚠ gh CLI is installed but not authenticated — cannot auto-check CI."
+    echo "  Run 'gh auth login' so future releases can report CI outcomes."
+    return 0
+  fi
+
+  # GitHub needs a moment to register the freshly-pushed commits and
+  # start the workflows. Polling too early returns empty or unrelated
+  # old runs.
+  echo ""
+  echo "Waiting for GitHub to register the workflows..."
+  sleep 6
+
+  # Find the two runs triggered by this push: one CI run on main, one
+  # Release run on the tag. Both share the same head SHA (HEAD at
+  # push time). Filter by head_sha to avoid catching unrelated
+  # earlier runs.
+  local head_sha
+  head_sha="$(git rev-parse HEAD)"
+  local run_ids
+  run_ids="$(gh run list --limit 10 --json databaseId,headSha,name --jq ".[] | select(.headSha == \"$head_sha\") | .databaseId" 2>/dev/null || true)"
+
+  if [[ -z "$run_ids" ]]; then
+    echo "⚠ Could not locate workflow runs for HEAD ($head_sha)."
+    echo "  Check manually: gh run list --limit 5"
+    return 0
+  fi
+
+  # Wait for each run to reach a terminal state. We intentionally don't
+  # use `--exit-status` here — it can return non-zero in edge cases even
+  # for already-successful runs (e.g. race where the run finishes between
+  # enumeration and watch start). Instead we re-read the conclusion from
+  # `gh run list` after all runs settle, which is the authoritative field.
+  while read -r rid; do
+    [[ -z "$rid" ]] && continue
+    gh run watch "$rid" --interval 5 >/dev/null 2>&1 || true
+  done <<< "$run_ids"
+
+  # Authoritative pass/fail evaluation: read conclusion per run. The
+  # tag-triggered Release run can appear a few seconds AFTER the branch
+  # CI run, so the enumeration above may have missed it entirely — if a
+  # run shows up here still in flight, watch it and re-read instead of
+  # calling it a failure (v1.31.0 false alarm).
+  local status_table
+  local _attempt
+  for _attempt in 1 2 3; do
+    status_table="$(gh run list --limit 10 --json databaseId,headSha,name,status,conclusion,displayTitle \
+      --jq ".[] | select(.headSha == \"$head_sha\") | \"\(.conclusion // .status)\t\(.name)\t\(.displayTitle)\"")"
+    if ! echo "$status_table" | awk -F'\t' '{print $1}' \
+        | grep -qE '^(in_progress|queued|pending|waiting|requested)$'; then
+      break
+    fi
+    while IFS=$'\t' read -r conclusion name _title; do
+      [[ "$conclusion" =~ ^(in_progress|queued|pending|waiting|requested)$ ]] || continue
+      local live_rid
+      live_rid="$(gh run list --limit 10 --json databaseId,headSha,name \
+        --jq ".[] | select(.headSha == \"$head_sha\" and .name == \"$name\") | .databaseId" \
+        | head -1)"
+      [[ -n "$live_rid" ]] && gh run watch "$live_rid" --interval 5 >/dev/null 2>&1 || true
+    done <<< "$status_table"
+  done
+
+  local overall_ok=1
+  local -a failed_runs=()
+  while IFS=$'\t' read -r conclusion name title; do
+    [[ -z "$conclusion" ]] && continue
+    if [[ "$conclusion" != "success" ]]; then
+      overall_ok=0
+      local fail_rid
+      fail_rid="$(gh run list --limit 10 --json databaseId,headSha,name \
+        --jq ".[] | select(.headSha == \"$head_sha\" and .name == \"$name\") | .databaseId" \
+        | head -1)"
+      [[ -n "$fail_rid" ]] && failed_runs+=("$fail_rid")
+    fi
+  done <<< "$status_table"
+
+  # Print a clean pass/fail table for the workflows on this push.
+  echo ""
+  echo "──────────────────────────────────────────────────────────────"
+  echo "CI status for v$VERSION push (HEAD $head_sha):"
+  echo "──────────────────────────────────────────────────────────────"
+  echo "$status_table" | awk -F'\t' '{
+      ok  = ($1 == "success") ? "✅" : "❌"
+      printf "  %s %-10s %s\n", ok, $2, $3
+    }'
+  echo "──────────────────────────────────────────────────────────────"
+
+  if [[ $overall_ok -eq 1 ]]; then
+    echo "✅ All workflows succeeded. v$VERSION is live on the Marketplace"
+    echo "   within the next 30 min–2 h (cache propagation)."
+  else
+    echo "❌ One or more workflows failed. v$VERSION tag is on GitHub but"
+    echo "   the Marketplace publish likely did NOT happen."
+    echo ""
+    # ${arr[@]+...} expansion: a bare "${failed_runs[@]}" trips `set -u`
+    # on macOS bash 3.2 when the array is empty.
+    for rid in ${failed_runs[@]+"${failed_runs[@]}"}; do
+      echo "   Investigate: gh run view $rid --log-failed"
+    done
+    exit 1
+  fi
+}
+
+if [[ "$SKIP_NOTES" -eq 0 ]]; then
+  draft_notes
+fi
+
+if [[ "$NOTES_ONLY" -eq 0 && "$DRY_RUN" -eq 0 ]]; then
+  verify_release
+fi
+
+if [[ "$DRY_RUN" -eq 0 && "$STAGE" -eq 1 ]]; then
+  stage_release_changes
+fi
+
+if [[ "$DRY_RUN" -eq 0 && "$COMMIT" -eq 1 ]]; then
+  commit_release
+fi
+
+if [[ "$DRY_RUN" -eq 0 && "$TAG" -eq 1 ]]; then
+  create_release_tag
+fi
+
+if [[ "$DRY_RUN" -eq 0 && "$PUSH" -eq 1 ]]; then
+  push_release
+  # Observability: watch CI + Release workflows triggered by this push
+  # and emit a clear pass/fail summary. Gated on --push so users who
+  # only --commit --tag locally don't sit through a timeout.
+  watch_ci_after_push
+fi
+
+if [[ "$NOTES_ONLY" -eq 0 && "$DRY_RUN" -eq 0 && "$PUSH" -eq 0 ]]; then
+  current_branch="$(git branch --show-current || true)"
+  echo
+  echo "Release prep complete for v$VERSION."
+  echo "Next:"
+  if [[ "$STAGE" -eq 0 ]]; then
+    echo "  git add -A"
+  fi
+  if [[ "$COMMIT" -eq 0 ]]; then
+    echo "  git commit -m \"chore: prepare vscode-v$VERSION release\""
+  fi
+  if [[ "$TAG" -eq 0 ]]; then
+    echo "  git tag vscode-v$VERSION"
+  fi
+  if [[ -n "${current_branch:-}" ]]; then
+    echo "  git push origin $current_branch --tags"
+  else
+    echo "  git push origin <branch> --tags"
+  fi
+fi

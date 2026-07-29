@@ -1,0 +1,26 @@
+.vscode/**
+.vscode-test/**
+.vscode-test.mjs
+out/**
+test/**
+src/**
+node_modules/**
+esbuild.js
+vitest.config.ts
+tsconfig.json
+**/*.map
+**/*.ts
+
+# Release tooling, not something a user installs.
+scripts/**
+.publish
+publish.sh
+media/whats-new.json
+
+# dist/ also holds the compiled integration suite, which ships to nobody.
+dist/test/**
+
+!dist/extension.js
+
+# Platform-targeted VSIXs stage the CLI here; the generic one ships without it.
+!bin/**

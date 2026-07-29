@@ -1,0 +1,243 @@
+name: VS Code Extension Release
+
+on:
+  push:
+    tags:
+      - 'vscode-v*'
+  workflow_dispatch:
+    inputs:
+      crate_tag:
+        description: 'Crate release to take binaries from (default: latest v*)'
+        required: false
+        type: string
+      dry_run:
+        description: 'Do everything except publish and tag'
+        required: false
+        type: boolean
+        default: false
+
+# A re-delivered tag must never run two publishes in parallel: the loser races
+# the registry and dies on "already published".
+concurrency:
+  group: vscode-release-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    working-directory: editors/vscode
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      # Both tokens are proven before anything is built. A token that merely
+      # exists is not enough: the failure that costs a version number is a PAT
+      # that is present but scoped wrong, and that only shows up at publish
+      # time, after five packages have already been built and one registry may
+      # already have accepted them.
+      - name: Verify registry tokens
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+          VSCE_PAT: ${{ secrets.MARKETPLACE_TOKEN }}
+        run: |
+          set -uo pipefail
+          failed=0
+
+          if [ -z "${VSCE_PAT:-}" ]; then
+            echo "::error::MARKETPLACE_TOKEN is not set"
+            failed=1
+          elif npx @vscode/vsce verify-pat elumine; then
+            echo "Marketplace token accepted for publisher elumine."
+          else
+            echo "::error::MARKETPLACE_TOKEN is set but rejected. Check it carries the Marketplace/Manage scope and covers the elumine organization."
+            failed=1
+          fi
+
+          # Open VSX has no verify-pat. Asking the API to describe the
+          # namespace we publish under is the closest equivalent: it is a
+          # read, it needs the token, and it fails the same way a publish
+          # would when the token belongs to another account.
+          if [ -z "${OVSX_PAT:-}" ]; then
+            echo "::error::OVSX_PAT is not set"
+            failed=1
+          else
+            code="$(curl -s -o /dev/null -w '%{http_code}' \
+              -H "Authorization: Bearer $OVSX_PAT" \
+              'https://open-vsx.org/api/user/namespaces')"
+            if [ "$code" = "200" ]; then
+              echo "Open VSX token accepted."
+            else
+              echo "::error::OVSX_PAT rejected (HTTP $code). Check the token belongs to the GitHub account owning the elumine namespace."
+              failed=1
+            fi
+          fi
+
+          exit $failed
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            version="${GITHUB_REF#refs/tags/vscode-v}"
+          else
+            version="$(node -p "require('./package.json').version")"
+          fi
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$version" != "$pkg" ]; then
+            echo "::error::tag says $version, package.json says $pkg"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Publishing extension $version"
+
+      - run: npm ci
+
+      - name: Validate whats-new.json against the tag
+        run: node scripts/validate-whats-new.mjs --version "${{ steps.version.outputs.version }}"
+
+      - name: Check no banned dashes in copy
+        run: node scripts/check-no-dashes.mjs
+
+      - name: Unit tests
+        run: npm test
+
+      # The extension ships the analyzer, and the crate's own release already
+      # cross compiles and attests every target we need. Downloading those beats
+      # rebuilding: what users get is byte for byte what was published there.
+      - name: Resolve the crate release
+        id: crate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ inputs.crate_tag }}"
+          if [ -z "$tag" ]; then
+            tag="$(gh release list --repo "$GITHUB_REPOSITORY" --limit 50 \
+                    --json tagName --jq '[.[] | select(.tagName | test("^v[0-9]"))][0].tagName')"
+          fi
+          if [ -z "$tag" ] || [ "$tag" = "null" ]; then
+            echo "::error::no crate release matching v[0-9]* found; publish one before tagging the extension"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Taking binaries from crate release $tag"
+        working-directory: .
+
+      - name: Download the platform binaries
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CRATE_TAG: ${{ steps.crate.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p staging
+          for asset in \
+            searchdeadcode-linux-x86_64 \
+            searchdeadcode-linux-aarch64 \
+            searchdeadcode-macos-x86_64 \
+            searchdeadcode-macos-aarch64 \
+            searchdeadcode-windows-x86_64.exe
+          do
+            if ! gh release download "$CRATE_TAG" --repo "$GITHUB_REPOSITORY" \
+                 --pattern "$asset" --pattern "$asset.sha256" --dir staging; then
+              echo "::error::$CRATE_TAG has no asset named $asset"
+              exit 1
+            fi
+          done
+          cd staging
+          sha256sum -c ./*.sha256
+          ls -la
+
+      # One VSIX per platform, each carrying its own binary, plus a generic one
+      # with none. The generic build serves platforms outside the matrix
+      # (linux-armhf, alpine), where the extension falls back to PATH.
+      - name: Package every target
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          package_for() {
+            local vsce_target="$1" asset="$2" binary_name="$3"
+            rm -rf bin && mkdir -p bin
+            cp "staging/$asset" "bin/$binary_name"
+            chmod +x "bin/$binary_name"
+            npx @vscode/vsce package --no-dependencies \
+              --target "$vsce_target" \
+              --out "searchdeadcode-$VERSION-$vsce_target.vsix"
+          }
+
+          package_for linux-x64    searchdeadcode-linux-x86_64        searchdeadcode
+          package_for linux-arm64  searchdeadcode-linux-aarch64       searchdeadcode
+          package_for darwin-x64   searchdeadcode-macos-x86_64        searchdeadcode
+          package_for darwin-arm64 searchdeadcode-macos-aarch64       searchdeadcode
+          package_for win32-x64    searchdeadcode-windows-x86_64.exe  searchdeadcode.exe
+
+          rm -rf bin
+          npx @vscode/vsce package --no-dependencies --out "searchdeadcode-$VERSION.vsix"
+          ls -la ./*.vsix
+
+      - name: Upload the packages as artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: vsix-${{ steps.version.outputs.version }}
+          path: editors/vscode/*.vsix
+          retention-days: 7
+
+      - name: Dry run stops here
+        if: inputs.dry_run
+        run: |
+          echo "### Dry run complete" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Both registry tokens were accepted, binaries came from \`${{ steps.crate.outputs.tag }}\`, and all six packages built. Nothing was published." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "The packages are attached to this run as an artifact if you want to install one locally before releasing for real." >> "$GITHUB_STEP_SUMMARY"
+
+      # One call with every package: vsce treats the set as a single version
+      # across targets. Publishing them one at a time can leave a version
+      # half present on the Marketplace if a later call fails.
+      - name: Publish to VS Code Marketplace
+        if: ${{ !inputs.dry_run }}
+        env:
+          VSCE_PAT: ${{ secrets.MARKETPLACE_TOKEN }}
+        run: npx @vscode/vsce publish --packagePath ./*.vsix
+
+      - name: Publish to Open VSX
+        if: ${{ !inputs.dry_run }}
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: |
+          set -euo pipefail
+          for vsix in ./*.vsix; do
+            npx ovsx publish "$vsix" -p "$OVSX_PAT"
+          done
+
+      # Only on a tag: a manual run has no tag to hang a release off.
+      - name: Create GitHub Release
+        if: ${{ github.event_name == 'push' && !inputs.dry_run }}
+        uses: softprops/action-gh-release@v3
+        with:
+          name: ${{ github.ref_name }}
+          files: editors/vscode/*.vsix
+          fail_on_unmatched_files: true
+          body: |
+            SearchDeadCode for VS Code ${{ steps.version.outputs.version }}.
+
+            Analyzer binaries come from crate release ${{ steps.crate.outputs.tag }}.
+
+            Install from the [Marketplace](https://marketplace.visualstudio.com/items?itemName=elumine.searchdeadcode)
+            or [Open VSX](https://open-vsx.org/extension/elumine/searchdeadcode), or grab the
+            VSIX for your platform below.
+
+            See [CHANGELOG.md](https://github.com/KevinDoremy/SearchDeadCode/blob/main/editors/vscode/CHANGELOG.md).

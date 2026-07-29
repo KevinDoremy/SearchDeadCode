@@ -1,0 +1,139 @@
+{
+  "name": "searchdeadcode",
+  "displayName": "SearchDeadCode",
+  "description": "Workspace-wide dead code analysis for Kotlin and Java, powered by the searchdeadcode CLI.",
+  "version": "0.1.0",
+  "publisher": "elumine",
+  "license": "MIT",
+  "icon": "media/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/KevinDoremy/SearchDeadCode.git",
+    "directory": "editors/vscode"
+  },
+  "homepage": "https://github.com/KevinDoremy/SearchDeadCode/tree/main/editors/vscode#readme",
+  "bugs": {
+    "url": "https://github.com/KevinDoremy/SearchDeadCode/issues"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Linters",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "kotlin",
+    "java",
+    "dead code",
+    "android",
+    "unused"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onLanguage:kotlin",
+    "onLanguage:java"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "searchdeadcode.scan",
+        "title": "Scan for dead code (workspace)",
+        "category": "SearchDeadCode"
+      },
+      {
+        "command": "searchdeadcode.clear",
+        "title": "Clear dead code findings",
+        "category": "SearchDeadCode"
+      }
+    ],
+    "configuration": {
+      "title": "SearchDeadCode",
+      "properties": {
+        "searchdeadcode.enabled": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Enable the dead code scan commands."
+        },
+        "searchdeadcode.path": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Absolute path to the `searchdeadcode` binary. Leave empty to search `PATH`, then the usual Homebrew and cargo install locations."
+        },
+        "searchdeadcode.minConfidence": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "confirmed"
+          ],
+          "default": "medium",
+          "markdownDescription": "Lowest confidence level to report. `low` surfaces everything the CLI suspects, `confirmed` only what it can prove."
+        },
+        "searchdeadcode.rules": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "DC001",
+            "DC002",
+            "DC003",
+            "DC004",
+            "DC005",
+            "DC008",
+            "DC010",
+            "DC011",
+            "DC012",
+            "DC013",
+            "DC019"
+          ],
+          "markdownDescription": "Rule IDs to report. Defaults to the dead code detectors that are reliable enough for an editor; style and anti-pattern rules are opt in."
+        },
+        "searchdeadcode.exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "Glob patterns passed to the CLI as `--exclude`."
+        },
+        "searchdeadcode.extraArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "Advanced. Extra command line arguments appended to every scan."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "pretest:integration": "npm run compile",
+    "test:integration": "vscode-test",
+    "typecheck": "tsc --noEmit",
+    "package": "npm run compile && vsce package --no-dependencies",
+    "release:notes": "./.publish --notes-only",
+    "release:prepare": "./.publish",
+    "vscode:prepublish": "node esbuild.js --production"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3.6.2",
+    "esbuild": "^0.25.0",
+    "mocha": "^11.7.6",
+    "ovsx": "^0.10.11",
+    "typescript": "^5.4.0",
+    "vitest": "^3.0.0"
+  }
+}

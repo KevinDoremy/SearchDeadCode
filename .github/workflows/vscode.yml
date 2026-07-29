@@ -1,0 +1,99 @@
+name: VS Code Extension
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'editors/vscode/**'
+      - '.github/workflows/vscode.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'editors/vscode/**'
+      - '.github/workflows/vscode.yml'
+
+# No job here may be named "CI". The branch protection on main requires a check
+# by that exact name, and ci.yml owns it. A second one would make the rule
+# ambiguous, and ci.yml deliberately has no paths filter so that check always
+# reports, including on extension-only pull requests.
+concurrency:
+  group: vscode-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: editors/vscode
+
+jobs:
+  build:
+    name: Extension build & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      - run: npm ci
+
+      # Copy checks first: they are seconds, and a banned dash or a stale
+      # whats-new should not wait behind a full build to be reported.
+      - name: Check no banned dashes in copy
+        run: node scripts/check-no-dashes.mjs
+
+      - name: Validate whats-new.json
+        run: node scripts/validate-whats-new.mjs
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build production
+        run: node esbuild.js --production
+
+      - name: Package (verify it builds cleanly)
+        run: npx @vscode/vsce package --no-dependencies
+
+  integration:
+    name: Extension integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # The Extension Host is a real Electron window and the runner is headless.
+      # Installed rather than assumed present in the image.
+      - name: Install xvfb
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends xvfb
+        working-directory: .
+
+      - run: npm ci
+
+      # The integration suite scans a real fixture workspace, so it needs a
+      # real analyzer. Staging it in bin/ also exercises the bundled-binary
+      # resolution path, which is how released platform builds will find it.
+      - name: Build the CLI
+        run: cargo build --release
+        working-directory: .
+
+      - name: Stage the CLI as a bundled binary
+        run: |
+          mkdir -p bin
+          cp ../../target/release/searchdeadcode bin/
+          chmod +x bin/searchdeadcode
+
+      - name: Integration tests
+        # No display on the runner, and the Extension Host needs one.
+        run: xvfb-run -a npm run test:integration

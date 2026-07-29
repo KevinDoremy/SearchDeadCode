@@ -18,3 +18,11 @@ sample_usage.txt
 Cargo.toml.new
 Cargo.toml.tmp
 .searchdeadcode-cache.json
+
+# VS Code extension
+node_modules/
+editors/vscode/dist/
+editors/vscode/bin/
+editors/vscode/*.vsix
+editors/vscode/.vscode-test/
+editors/vscode/staging/

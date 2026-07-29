@@ -1,0 +1,17 @@
+#!/bin/sh
+# Two projects share this repo, so each half is only checked when it is touched.
+# A Rust-only commit must not pay for an npm run, and the reverse.
+
+staged() {
+  git diff --cached --name-only --diff-filter=ACMR | grep -q "$1"
+}
+
+if staged '^\(src/\|tests/\|benches/\|Cargo\.\(toml\|lock\)$\)'; then
+  cargo fmt --all -- --check || exit 1
+fi
+
+if staged '^editors/vscode/'; then
+  cd editors/vscode || exit 1
+  node scripts/check-no-dashes.mjs || exit 1
+  npm test || exit 1
+fi
