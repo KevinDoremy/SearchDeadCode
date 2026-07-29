@@ -1,0 +1,11 @@
+{
+  "name": "searchdeadcode-repo",
+  "private": true,
+  "description": "Repo-level tooling only. The crate is Cargo, the extension lives in editors/vscode.",
+  "scripts": {
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "husky": "^9.1.7"
+  }
+}
