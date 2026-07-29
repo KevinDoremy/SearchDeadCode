@@ -1005,6 +1005,11 @@ impl KotlinParser {
             );
 
             decl.parent = Some(parent);
+            // Les annotations d'entry (@SerializedName…) vivent dans le
+            // child `modifiers` — sans elles, le détecteur d'enum cases
+            // condamne des cas instanciés par désérialisation
+            self.extract_modifiers(node, source, &mut decl);
+            decl.annotations = self.extract_annotations(node, source);
 
             result.declarations.push(decl);
         }

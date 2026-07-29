@@ -242,8 +242,8 @@ impl DeepAnalyzer {
 
                         // Primary constructor is reachable if class is instantiated
                         if decl.kind == DeclarationKind::Constructor
-                            && decl.name == "constructor"
-                            && instantiated_classes.contains(parent_id)
+                            && (instantiated_classes.contains(parent_id)
+                                || entry_points.contains(parent_id))
                         {
                             return Some(decl.id.clone());
                         }
@@ -300,8 +300,8 @@ impl DeepAnalyzer {
                         }
 
                         if decl.kind == DeclarationKind::Constructor
-                            && decl.name == "constructor"
-                            && instantiated_classes.contains(parent_id)
+                            && (instantiated_classes.contains(parent_id)
+                                || entry_points.contains(parent_id))
                         {
                             return Some(decl.id.clone());
                         }
@@ -514,6 +514,13 @@ impl DeepAnalyzer {
                 continue;
             };
 
+            // Le framework instancie lui-même les classes déclarées au
+            // manifest / dans un layout : leur constructeur n'a aucun
+            // appelant dans le code, par construction
+            if decl.kind == DeclarationKind::Constructor && entry_points.contains(parent_id) {
+                continue;
+            }
+
             // Parent must be reachable too
             if !reachable.contains(parent_id) {
                 continue;
@@ -642,9 +649,14 @@ impl DeepAnalyzer {
             return None; // Already reported as unreferenced
         }
 
-        // Check if all references are writes
+        // Check if all references are writes.
+        // Invoquer une propriété de type fonction (`params.onDone(true)`)
+        // la LIT avant de l'appeler — la référence est classée Call, ce
+        // qui faisait passer les porteurs de callbacks pour write-only.
         let has_writes = refs.iter().any(|(_, r)| r.kind == ReferenceKind::Write);
-        let has_reads = refs.iter().any(|(_, r)| r.kind == ReferenceKind::Read);
+        let has_reads = refs
+            .iter()
+            .any(|(_, r)| matches!(r.kind, ReferenceKind::Read | ReferenceKind::Call));
 
         if has_writes && !has_reads {
             let mut dc = DeadCode::new(decl.clone(), DeadCodeIssue::AssignOnly);
@@ -845,6 +857,20 @@ impl DeepAnalyzer {
                     return true;
                 }
             }
+        }
+
+        // Un constructeur privé sans paramètre est l'idiome
+        // anti-instanciation des classes utilitaires : son but EST de ne
+        // jamais être appelé, le supprimer réintroduirait le ctor public
+        if decl.kind == DeclarationKind::Constructor
+            && decl.visibility == crate::graph::Visibility::Private
+            && graph.get_children(&decl.id).iter().all(|c| {
+                graph
+                    .get_declaration(c)
+                    .is_none_or(|d| d.kind != DeclarationKind::Parameter)
+            })
+        {
+            return true;
         }
 
         // Skip Kotlin const val properties (they are inlined at compile time)

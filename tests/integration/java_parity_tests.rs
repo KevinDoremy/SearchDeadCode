@@ -267,3 +267,94 @@ fn a_java_class_constructed_from_kotlin_keeps_its_ctor_callees_alive() {
         "le constructeur appelé depuis Kotlin via import est vivant, stdout:\n{stdout}"
     );
 }
+
+#[test]
+fn a_private_no_arg_utility_constructor_is_an_idiom_not_dead_code() {
+    // `private TimeUtils() {}` dans une classe utilitaire finale : le but
+    // du constructeur EST de ne jamais être appelé (anti-instanciation).
+    // Le flagger « never used » est du bruit — on ne peut pas le
+    // supprimer sans réintroduire le ctor public par défaut.
+    // Forme cross-package : le receveur `Clock.formatNow()` résolu par
+    // import ne lie pas le constructeur homonyme — c'est là que l'idiome
+    // sortait « never used ».
+    let temp = tempfile::tempdir().unwrap();
+    fs::create_dir(temp.path().join("util")).unwrap();
+    fs::write(
+        temp.path().join("Main.kt"),
+        concat!(
+            "package sample\n\n",
+            "import sample.util.Clock\n\n",
+            "fun main() {\n",
+            "    println(Clock.formatNow())\n",
+            "}\n",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("util/Clock.java"),
+        concat!(
+            "package sample.util;\n\n",
+            "public final class Clock {\n\n",
+            "    private Clock() {\n",
+            "    }\n\n",
+            "    public static String formatNow() {\n",
+            "        return \"now\";\n",
+            "    }\n",
+            "}\n",
+        ),
+    )
+    .unwrap();
+
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+        .arg(temp.path())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        !stdout.contains("'Clock' is never used"),
+        "un ctor privé no-arg est un idiome anti-instanciation, stdout:\n{stdout}"
+    );
+}
+
+#[test]
+fn a_manifest_declared_class_keeps_its_constructor_alive() {
+    // Le système Android instancie lui-même ce que le manifest déclare
+    // (application, activity, backupAgent…) : le constructeur n'a aucun
+    // appelant dans le code, ce qui est normal et non actionnable.
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(
+        temp.path().join("AndroidManifest.xml"),
+        concat!(
+            "<manifest package=\"sample\">\n",
+            "    <application android:name=\".App\" android:backupAgent=\".BackupHelper\" />\n",
+            "</manifest>\n",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("BackupHelper.java"),
+        concat!(
+            "package sample;\n\n",
+            "public class BackupHelper extends BackupAgentHelper {\n\n",
+            "    public BackupHelper() {\n",
+            "    }\n",
+            "}\n",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("App.java"),
+        "package sample;\n\npublic class App extends Application {\n}\n",
+    )
+    .unwrap();
+
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+        .arg(temp.path())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        !stdout.contains("BackupHelper"),
+        "une classe déclarée au manifest est instanciée par le système, stdout:\n{stdout}"
+    );
+}

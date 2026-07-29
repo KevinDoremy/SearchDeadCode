@@ -815,8 +815,18 @@ pub(crate) fn di_binding_is_consumed(graph: &Graph, provider: &Declaration) -> b
         return true;
     }
 
-    for target in graph.find_by_name(produced_simple) {
-        for (referencer, _) in graph.get_references_to(&target.id) {
+    // Type produit introuvable dans le projet = type externe (lib) :
+    // la consommation passe par des sites d'injection que le graphe ne
+    // relie pas à un nœud local — indécidable, donc bénéfice du doute.
+    // Sans ça, tous les providers de dispatchers/players/prefs des libs
+    // sortaient « never used ».
+    let targets = graph.find_by_name(produced_simple);
+    if targets.is_empty() {
+        return true;
+    }
+
+    for target in targets {
+        for (referencer, reference) in graph.get_references_to(&target.id) {
             if referencer.id == provider.id {
                 continue;
             }
@@ -832,11 +842,11 @@ pub(crate) fn di_binding_is_consumed(graph: &Graph, provider: &Declaration) -> b
             if is_provider_of_same {
                 continue;
             }
-            if referencer
-                .super_types
-                .iter()
-                .any(|s| s.contains(produced_simple))
-            {
+            // Implémenter l'interface n'est pas la consommer — mais on
+            // skippe la RÉFÉRENCE d'héritage, pas le référenceur entier :
+            // `class Delegate(inner: I) : I by inner` implémente ET
+            // consomme, sa référence de paramètre doit compter.
+            if reference.kind == crate::graph::ReferenceKind::Inheritance {
                 continue;
             }
             return true;

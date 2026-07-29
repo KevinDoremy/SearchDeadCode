@@ -233,6 +233,14 @@ name = "diff_base"
 path = "tests/integration/diff_base_tests.rs"
 
 [[test]]
+name = "kotlin_accessor_from_java"
+path = "tests/integration/kotlin_accessor_from_java_tests.rs"
+
+[[test]]
+name = "lambda_property"
+path = "tests/integration/lambda_property_tests.rs"
+
+[[test]]
 name = "situation_hints"
 path = "tests/integration/situation_hints_tests.rs"
 
