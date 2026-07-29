@@ -2,14 +2,14 @@
 //! valid composite action with the documented inputs — a YAML typo
 //! there only ever explodes in someone else's CI.
 
-use serde_yaml::Value;
+use serde_yaml_bw::Value;
 
 fn action() -> Value {
     let raw = std::fs::read_to_string(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("action.yml"),
     )
     .expect("action.yml exists at the repo root");
-    serde_yaml::from_str(&raw).expect("action.yml parses as YAML")
+    serde_yaml_bw::from_str(&raw).expect("action.yml parses as YAML")
 }
 
 fn all_run_steps() -> String {

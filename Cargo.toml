@@ -42,7 +42,14 @@ clap_complete = "4.6"
 # Config
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-serde_yaml = "0.9"
+# serde_yaml ships as 0.9.34+deprecated and its repo is archived. Of the forks,
+# only this one is still published (May 2026) — serde_norway stopped at Dec
+# 2024, serde_yaml_ng at May 2024.
+#
+# Held at 2.5.2 on purpose: 2.5.3 onward caps regex at <1.13, and regex drives
+# resource detection here. Cargo resolves 2.5.2 on its own, but say so out loud
+# so the cap doesn't get mistaken for a stale lockfile.
+serde_yaml_bw = "2.5.2"
 toml = "1.1"
 
 # XML parsing
