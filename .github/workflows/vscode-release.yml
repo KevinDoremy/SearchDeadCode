@@ -10,6 +10,11 @@ on:
         description: 'Crate release to take binaries from (default: latest v*)'
         required: false
         type: string
+      dry_run:
+        description: 'Do everything except publish and tag'
+        required: false
+        type: boolean
+        default: false
 
 # A re-delivered tag must never run two publishes in parallel: the loser races
 # the registry and dies on "already published".
@@ -38,18 +43,49 @@ jobs:
           cache: npm
           cache-dependency-path: editors/vscode/package-lock.json
 
-      # Both tokens are checked before anything is built. Failing after the
-      # package step would leave a release half published, which costs a
-      # version number to recover from.
-      - name: Validate registry tokens
+      # Both tokens are proven before anything is built. A token that merely
+      # exists is not enough: the failure that costs a version number is a PAT
+      # that is present but scoped wrong, and that only shows up at publish
+      # time, after five packages have already been built and one registry may
+      # already have accepted them.
+      - name: Verify registry tokens
         env:
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
-          MARKETPLACE_TOKEN: ${{ secrets.MARKETPLACE_TOKEN }}
+          VSCE_PAT: ${{ secrets.MARKETPLACE_TOKEN }}
         run: |
-          missing=0
-          [ -z "$OVSX_PAT" ] && { echo "::error::OVSX_PAT is not set"; missing=1; }
-          [ -z "$MARKETPLACE_TOKEN" ] && { echo "::error::MARKETPLACE_TOKEN is not set"; missing=1; }
-          exit $missing
+          set -uo pipefail
+          failed=0
+
+          if [ -z "${VSCE_PAT:-}" ]; then
+            echo "::error::MARKETPLACE_TOKEN is not set"
+            failed=1
+          elif npx @vscode/vsce verify-pat elumine; then
+            echo "Marketplace token accepted for publisher elumine."
+          else
+            echo "::error::MARKETPLACE_TOKEN is set but rejected. Check it carries the Marketplace/Manage scope and covers the elumine organization."
+            failed=1
+          fi
+
+          # Open VSX has no verify-pat. Asking the API to describe the
+          # namespace we publish under is the closest equivalent: it is a
+          # read, it needs the token, and it fails the same way a publish
+          # would when the token belongs to another account.
+          if [ -z "${OVSX_PAT:-}" ]; then
+            echo "::error::OVSX_PAT is not set"
+            failed=1
+          else
+            code="$(curl -s -o /dev/null -w '%{http_code}' \
+              -H "Authorization: Bearer $OVSX_PAT" \
+              'https://open-vsx.org/api/user/namespaces')"
+            if [ "$code" = "200" ]; then
+              echo "Open VSX token accepted."
+            else
+              echo "::error::OVSX_PAT rejected (HTTP $code). Check the token belongs to the GitHub account owning the elumine namespace."
+              failed=1
+            fi
+          fi
+
+          exit $failed
 
       - name: Resolve version
         id: version
@@ -151,15 +187,33 @@ jobs:
           npx @vscode/vsce package --no-dependencies --out "searchdeadcode-$VERSION.vsix"
           ls -la ./*.vsix
 
+      - name: Upload the packages as artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: vsix-${{ steps.version.outputs.version }}
+          path: editors/vscode/*.vsix
+          retention-days: 7
+
+      - name: Dry run stops here
+        if: inputs.dry_run
+        run: |
+          echo "### Dry run complete" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Both registry tokens were accepted, binaries came from \`${{ steps.crate.outputs.tag }}\`, and all six packages built. Nothing was published." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "The packages are attached to this run as an artifact if you want to install one locally before releasing for real." >> "$GITHUB_STEP_SUMMARY"
+
       # One call with every package: vsce treats the set as a single version
       # across targets. Publishing them one at a time can leave a version
       # half present on the Marketplace if a later call fails.
       - name: Publish to VS Code Marketplace
+        if: ${{ !inputs.dry_run }}
         env:
           VSCE_PAT: ${{ secrets.MARKETPLACE_TOKEN }}
         run: npx @vscode/vsce publish --packagePath ./*.vsix
 
       - name: Publish to Open VSX
+        if: ${{ !inputs.dry_run }}
         env:
           VERSION: ${{ steps.version.outputs.version }}
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
@@ -169,7 +223,9 @@ jobs:
             npx ovsx publish "$vsix" -p "$OVSX_PAT"
           done
 
+      # Only on a tag: a manual run has no tag to hang a release off.
       - name: Create GitHub Release
+        if: ${{ github.event_name == 'push' && !inputs.dry_run }}
         uses: softprops/action-gh-release@v3
         with:
           name: ${{ github.ref_name }}
