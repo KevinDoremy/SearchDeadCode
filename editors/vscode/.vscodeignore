@@ -17,6 +17,11 @@ scripts/**
 publish.sh
 media/whats-new.json
 
+# Where the release workflow drops the downloaded binaries before staging one
+# into bin/. Without this every package carries all five platforms: a linux
+# VSIX shipping the macOS and Windows binaries, four times the size it needs.
+staging/**
+
 # dist/ also holds the compiled integration suite, which ships to nobody.
 dist/test/**
 

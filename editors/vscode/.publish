@@ -1050,6 +1050,7 @@ check_no_tooling_in_vsix() {
     "extension/dist/test/"
     "extension/.publish"
     "extension/publish.sh"
+    "extension/staging/"
     "whats-new.json"
   )
   local vsix_file

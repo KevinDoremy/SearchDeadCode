@@ -178,6 +178,43 @@ jobs:
           npx @vscode/vsce package --no-dependencies --out "searchdeadcode-$VERSION.vsix"
           ls -la ./*.vsix
 
+      # .publish has this check, but .publish does not run here, which is how
+      # staging/ ended up inside all six packages on the first dry run. Each
+      # platform build must carry exactly one binary: its own.
+      - name: Verify package contents
+        run: |
+          set -uo pipefail
+          failed=0
+          for vsix in ./*.vsix; do
+            listing="$(unzip -Z1 "$vsix")"
+
+            for pattern in extension/staging/ extension/scripts/ extension/test/ extension/dist/test/ extension/.publish extension/publish.sh; do
+              if grep -q "^$pattern" <<<"$listing"; then
+                echo "::error::$vsix ships $pattern. Fix .vscodeignore."
+                failed=1
+              fi
+            done
+
+            binaries="$(grep -c '^extension/bin/' <<<"$listing" || true)"
+            case "$vsix" in
+              ./searchdeadcode-*-*.vsix)
+                if [ "$binaries" != "1" ]; then
+                  echo "::error::$vsix carries $binaries binaries under bin/, expected exactly 1"
+                  failed=1
+                fi
+                ;;
+              *)
+                if [ "$binaries" != "0" ]; then
+                  echo "::error::the generic $vsix carries a binary, it must fall back to PATH"
+                  failed=1
+                fi
+                ;;
+            esac
+
+            echo "$vsix: $(unzip -Z1 "$vsix" | wc -l | tr -d ' ') files, $(du -h "$vsix" | cut -f1)"
+          done
+          exit $failed
+
       - name: Upload the packages as artifacts
         uses: actions/upload-artifact@v7
         with:
