@@ -686,10 +686,24 @@ impl JavaParser {
                         current.end_byte(),
                     );
 
+                    // `new X(...)` : le X est un type_identifier, mais la
+                    // référence est une INSTANCIATION — la sortir en Type
+                    // prive le constructeur de toute arête entrante (les
+                    // règles "classe instanciée" ne voient que Call/
+                    // Instantiation) et tout ce que le ctor appelle meurt.
+                    let kind = if current
+                        .parent()
+                        .is_some_and(|p| p.kind() == "object_creation_expression")
+                    {
+                        ReferenceKind::Instantiation
+                    } else {
+                        ReferenceKind::Type
+                    };
+
                     result.references.push(UnresolvedReference {
                         name,
                         qualified_name: None,
-                        kind: ReferenceKind::Type,
+                        kind,
                         location,
                         imports: imports.to_vec(),
                     });
@@ -704,10 +718,20 @@ impl JavaParser {
                         current.end_byte(),
                     );
 
+                    // même règle que type_identifier : `new a.b.X(...)`
+                    let kind = if current
+                        .parent()
+                        .is_some_and(|p| p.kind() == "object_creation_expression")
+                    {
+                        ReferenceKind::Instantiation
+                    } else {
+                        ReferenceKind::Type
+                    };
+
                     result.references.push(UnresolvedReference {
                         name: name.split('.').next_back().unwrap_or(&name).to_string(),
                         qualified_name: Some(name),
-                        kind: ReferenceKind::Type,
+                        kind,
                         location,
                         imports: imports.to_vec(),
                     });

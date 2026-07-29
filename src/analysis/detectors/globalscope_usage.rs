@@ -58,8 +58,8 @@ impl GlobalScopeUsageDetector {
     /// Check if file is a test file
     fn is_test_file(path: &std::path::Path) -> bool {
         let path_str = path.to_string_lossy();
-        path_str.contains("/test/")
-            || path_str.contains("/androidTest/")
+        crate::analysis::deep::path_has_segment(path, "test")
+            || crate::analysis::deep::path_has_segment(path, "androidTest")
             || path_str.contains("Test.kt")
             || path_str.contains("Tests.kt")
             || path_str.ends_with("Spec.kt")

@@ -200,162 +200,188 @@ impl DeepAnalyzer {
         // 3. Serialization-related members
         // 4. Companion object members that are accessed
 
-        // Pre-compute which classes are instantiated (avoid repeated lookups)
-        let instantiated_classes: HashSet<_> = reachable
-            .iter()
-            .filter(|id| {
+        // Le blessing (overrides, ctors, sealed, interfaces) et la DFS
+        // incrémentale se nourrissent l'un l'autre : une chaîne
+        // override → appel → override casse si la passe ne tourne
+        // qu'une fois — le deuxième override n'est jamais blessé.
+        // Itérer jusqu'au point fixe (croissance monotone, bornée par
+        // le nombre de nœuds).
+        loop {
+            // Pre-compute which classes are instantiated (avoid repeated lookups)
+            let instantiated_classes: HashSet<_> = reachable
+                .iter()
+                .filter(|id| {
+                    graph.get_references_to(id).iter().any(|(_, r)| {
+                        matches!(r.kind, ReferenceKind::Call | ReferenceKind::Instantiation)
+                    })
+                })
+                .cloned()
+                .collect();
+
+            // Single pass over declarations to find additional reachable items
+            let additional: Vec<_> = if self.parallel {
+                let declarations: Vec<_> = graph.declarations().collect();
+                declarations
+                    .par_iter()
+                    .filter_map(|decl| {
+                        if reachable.contains(&decl.id) {
+                            return None;
+                        }
+
+                        let parent_id = decl.parent.as_ref()?;
+                        if !reachable.contains(parent_id) {
+                            return None;
+                        }
+
+                        // Override methods are reachable via polymorphism
+                        if decl.modifiers.iter().any(|m| m == "override")
+                            || decl.annotations.iter().any(|a| a.contains("Override"))
+                        {
+                            return Some(decl.id.clone());
+                        }
+
+                        // Primary constructor is reachable if class is instantiated
+                        if decl.kind == DeclarationKind::Constructor
+                            && (instantiated_classes.contains(parent_id)
+                                || entry_points.contains(parent_id))
+                        {
+                            return Some(decl.id.clone());
+                        }
+
+                        // Serialization members
+                        if self.is_serialization_member(decl) {
+                            return Some(decl.id.clone());
+                        }
+
+                        // Companion object
+                        if decl.kind == DeclarationKind::Object
+                            && decl.modifiers.iter().any(|m| m == "companion")
+                        {
+                            return Some(decl.id.clone());
+                        }
+
+                        // Lazy/delegated properties
+                        if decl.kind == DeclarationKind::Property
+                            && decl.modifiers.iter().any(|m| m == "delegated")
+                        {
+                            return Some(decl.id.clone());
+                        }
+
+                        // Suspend functions in reachable classes
+                        if self.is_suspend_function(decl) {
+                            return Some(decl.id.clone());
+                        }
+
+                        // Flow-related declarations
+                        if self.is_flow_pattern(decl) {
+                            return Some(decl.id.clone());
+                        }
+
+                        None
+                    })
+                    .collect()
+            } else {
                 graph
-                    .get_references_to(id)
-                    .iter()
-                    .any(|(_, r)| r.kind == ReferenceKind::Call)
-            })
-            .cloned()
-            .collect();
+                    .declarations()
+                    .filter_map(|decl| {
+                        if reachable.contains(&decl.id) {
+                            return None;
+                        }
 
-        // Single pass over declarations to find additional reachable items
-        let additional: Vec<_> = if self.parallel {
-            let declarations: Vec<_> = graph.declarations().collect();
-            declarations
-                .par_iter()
-                .filter_map(|decl| {
-                    if reachable.contains(&decl.id) {
-                        return None;
-                    }
+                        let parent_id = decl.parent.as_ref()?;
+                        if !reachable.contains(parent_id) {
+                            return None;
+                        }
 
-                    let parent_id = decl.parent.as_ref()?;
-                    if !reachable.contains(parent_id) {
-                        return None;
-                    }
+                        if decl.modifiers.iter().any(|m| m == "override")
+                            || decl.annotations.iter().any(|a| a.contains("Override"))
+                        {
+                            return Some(decl.id.clone());
+                        }
 
-                    // Override methods are reachable via polymorphism
-                    if decl.modifiers.iter().any(|m| m == "override")
-                        || decl.annotations.iter().any(|a| a.contains("Override"))
-                    {
-                        return Some(decl.id.clone());
-                    }
+                        if decl.kind == DeclarationKind::Constructor
+                            && (instantiated_classes.contains(parent_id)
+                                || entry_points.contains(parent_id))
+                        {
+                            return Some(decl.id.clone());
+                        }
 
-                    // Primary constructor is reachable if class is instantiated
-                    if decl.kind == DeclarationKind::Constructor
-                        && decl.name == "constructor"
-                        && instantiated_classes.contains(parent_id)
-                    {
-                        return Some(decl.id.clone());
-                    }
+                        if self.is_serialization_member(decl) {
+                            return Some(decl.id.clone());
+                        }
 
-                    // Serialization members
-                    if self.is_serialization_member(decl) {
-                        return Some(decl.id.clone());
-                    }
+                        if decl.kind == DeclarationKind::Object
+                            && decl.modifiers.iter().any(|m| m == "companion")
+                        {
+                            return Some(decl.id.clone());
+                        }
 
-                    // Companion object
-                    if decl.kind == DeclarationKind::Object
-                        && decl.modifiers.iter().any(|m| m == "companion")
-                    {
-                        return Some(decl.id.clone());
-                    }
+                        if decl.kind == DeclarationKind::Property
+                            && decl.modifiers.iter().any(|m| m == "delegated")
+                        {
+                            return Some(decl.id.clone());
+                        }
 
-                    // Lazy/delegated properties
-                    if decl.kind == DeclarationKind::Property
-                        && decl.modifiers.iter().any(|m| m == "delegated")
-                    {
-                        return Some(decl.id.clone());
-                    }
+                        if self.is_suspend_function(decl) {
+                            return Some(decl.id.clone());
+                        }
 
-                    // Suspend functions in reachable classes
-                    if self.is_suspend_function(decl) {
-                        return Some(decl.id.clone());
-                    }
+                        if self.is_flow_pattern(decl) {
+                            return Some(decl.id.clone());
+                        }
 
-                    // Flow-related declarations
-                    if self.is_flow_pattern(decl) {
-                        return Some(decl.id.clone());
-                    }
+                        None
+                    })
+                    .collect()
+            };
 
-                    None
+            // Collect sealed class subtypes and interface implementations
+            let sealed_subtypes = self.collect_sealed_subtypes(graph, &reachable);
+            let interface_impls = self.collect_interface_implementations(graph, &reachable);
+
+            // Combine all newly discovered items for incremental DFS
+            // This includes: override methods, sealed subtypes, interface implementations
+            let new_items: Vec<_> = additional
+                .iter()
+                .chain(sealed_subtypes.iter())
+                .chain(interface_impls.iter())
+                .filter(|id| !reachable.contains(*id))
+                .cloned()
+                .collect();
+
+            // Invariant du point fixe : tout nœud de `reachable` doit avoir
+            // ses arêtes sortantes suivies. Les insertions directes
+            // (ancestors, blessing, membres sérialisation…) ne passent pas
+            // par une DFS — sans ce rattrapage, un override raccroché
+            // tardivement reste "vivant" pendant que ses callees meurent.
+            let unvisited: Vec<_> = reachable
+                .iter()
+                .filter(|id| {
+                    graph
+                        .node_index(id)
+                        .is_some_and(|ix| !visited_indices.contains(&ix))
                 })
-                .collect()
-        } else {
-            graph
-                .declarations()
-                .filter_map(|decl| {
-                    if reachable.contains(&decl.id) {
-                        return None;
-                    }
+                .cloned()
+                .collect();
 
-                    let parent_id = decl.parent.as_ref()?;
-                    if !reachable.contains(parent_id) {
-                        return None;
-                    }
+            if new_items.is_empty() && unvisited.is_empty() {
+                break;
+            }
 
-                    if decl.modifiers.iter().any(|m| m == "override")
-                        || decl.annotations.iter().any(|a| a.contains("Override"))
-                    {
-                        return Some(decl.id.clone());
-                    }
+            reachable.extend(additional);
+            reachable.extend(sealed_subtypes);
+            reachable.extend(interface_impls);
 
-                    if decl.kind == DeclarationKind::Constructor
-                        && decl.name == "constructor"
-                        && instantiated_classes.contains(parent_id)
-                    {
-                        return Some(decl.id.clone());
-                    }
-
-                    if self.is_serialization_member(decl) {
-                        return Some(decl.id.clone());
-                    }
-
-                    if decl.kind == DeclarationKind::Object
-                        && decl.modifiers.iter().any(|m| m == "companion")
-                    {
-                        return Some(decl.id.clone());
-                    }
-
-                    if decl.kind == DeclarationKind::Property
-                        && decl.modifiers.iter().any(|m| m == "delegated")
-                    {
-                        return Some(decl.id.clone());
-                    }
-
-                    if self.is_suspend_function(decl) {
-                        return Some(decl.id.clone());
-                    }
-
-                    if self.is_flow_pattern(decl) {
-                        return Some(decl.id.clone());
-                    }
-
-                    None
-                })
-                .collect()
-        };
-
-        // Collect sealed class subtypes and interface implementations
-        let sealed_subtypes = self.collect_sealed_subtypes(graph, &reachable);
-        let interface_impls = self.collect_interface_implementations(graph, &reachable);
-
-        // Combine all newly discovered items for incremental DFS
-        // This includes: override methods, sealed subtypes, interface implementations
-        let new_items: Vec<_> = additional
-            .iter()
-            .chain(sealed_subtypes.iter())
-            .chain(interface_impls.iter())
-            .filter(|id| !reachable.contains(*id))
-            .cloned()
-            .collect();
-
-        reachable.extend(additional);
-        reachable.extend(sealed_subtypes);
-        reachable.extend(interface_impls);
-
-        // Incremental DFS only from new items
-        if !new_items.is_empty() {
-            for id in &new_items {
+            // Incremental DFS from new items and from any reachable node
+            // whose edges were never walked
+            for id in new_items.iter().chain(unvisited.iter()) {
                 if let Some(start_idx) = graph.node_index(id) {
                     if visited_indices.contains(&start_idx) {
                         continue;
                     }
                     let mut dfs = Dfs::new(inner_graph, start_idx);
                     while let Some(node_idx) = dfs.next(inner_graph) {
+                        visited_indices.insert(node_idx);
                         if let Some(node_id) = inner_graph.node_weight(node_idx) {
                             reachable.insert(node_id.clone());
                         }
@@ -440,7 +466,7 @@ impl DeepAnalyzer {
                         return None;
                     }
                     let issue = self.determine_issue_type(decl);
-                    Some(DeadCode::new((*decl).clone(), issue))
+                    Some(zombie_aware_finding(graph, decl, issue))
                 })
                 .collect()
         } else {
@@ -454,7 +480,7 @@ impl DeepAnalyzer {
                         return None;
                     }
                     let issue = self.determine_issue_type(decl);
-                    Some(DeadCode::new((*decl).clone(), issue))
+                    Some(zombie_aware_finding(graph, decl, issue))
                 })
                 .collect()
         };
@@ -488,6 +514,13 @@ impl DeepAnalyzer {
                 continue;
             };
 
+            // Le framework instancie lui-même les classes déclarées au
+            // manifest / dans un layout : leur constructeur n'a aucun
+            // appelant dans le code, par construction
+            if decl.kind == DeclarationKind::Constructor && entry_points.contains(parent_id) {
+                continue;
+            }
+
             // Parent must be reachable too
             if !reachable.contains(parent_id) {
                 continue;
@@ -507,6 +540,12 @@ impl DeepAnalyzer {
             if decl.modifiers.iter().any(|m| m == "override")
                 || decl.annotations.iter().any(|a| a.contains("Override"))
             {
+                continue;
+            }
+
+            // Java's @Override is optional: a lifecycle-named method in a
+            // class that extends something is a framework callback
+            if is_lifecycle_callback(graph, decl) {
                 continue;
             }
 
@@ -610,9 +649,14 @@ impl DeepAnalyzer {
             return None; // Already reported as unreferenced
         }
 
-        // Check if all references are writes
+        // Check if all references are writes.
+        // Invoquer une propriété de type fonction (`params.onDone(true)`)
+        // la LIT avant de l'appeler — la référence est classée Call, ce
+        // qui faisait passer les porteurs de callbacks pour write-only.
         let has_writes = refs.iter().any(|(_, r)| r.kind == ReferenceKind::Write);
-        let has_reads = refs.iter().any(|(_, r)| r.kind == ReferenceKind::Read);
+        let has_reads = refs
+            .iter()
+            .any(|(_, r)| matches!(r.kind, ReferenceKind::Read | ReferenceKind::Call));
 
         if has_writes && !has_reads {
             let mut dc = DeadCode::new(decl.clone(), DeadCodeIssue::AssignOnly);
@@ -715,8 +759,9 @@ impl DeepAnalyzer {
         }
 
         // Check if in debug source set
-        let file_path = decl.location.file.to_string_lossy();
-        if file_path.contains("/debug/") || file_path.contains("/staging/") {
+        if path_has_segment(&decl.location.file, "debug")
+            || path_has_segment(&decl.location.file, "staging")
+        {
             return true;
         }
 
@@ -737,8 +782,9 @@ impl DeepAnalyzer {
         ];
 
         // Only flag if in main source (not in test directories)
-        let file_path = decl.location.file.to_string_lossy();
-        if file_path.contains("/test/") || file_path.contains("/androidTest/") {
+        if path_has_segment(&decl.location.file, "test")
+            || path_has_segment(&decl.location.file, "androidTest")
+        {
             return false;
         }
 
@@ -813,6 +859,20 @@ impl DeepAnalyzer {
             }
         }
 
+        // Un constructeur privé sans paramètre est l'idiome
+        // anti-instanciation des classes utilitaires : son but EST de ne
+        // jamais être appelé, le supprimer réintroduirait le ctor public
+        if decl.kind == DeclarationKind::Constructor
+            && decl.visibility == crate::graph::Visibility::Private
+            && graph.get_children(&decl.id).iter().all(|c| {
+                graph
+                    .get_declaration(c)
+                    .map_or(true, |d| d.kind != DeclarationKind::Parameter)
+            })
+        {
+            return true;
+        }
+
         // Skip Kotlin const val properties (they are inlined at compile time)
         if self.is_const_val(decl) {
             return true;
@@ -829,6 +889,12 @@ impl DeepAnalyzer {
             return true;
         }
         if decl.modifiers.iter().any(|m| m == "override") {
+            return true;
+        }
+
+        // Java's @Override is optional: a lifecycle-named method in a
+        // class that extends something is a framework callback
+        if is_lifecycle_callback(graph, decl) {
             return true;
         }
 
@@ -1191,6 +1257,78 @@ impl Default for DeepAnalyzer {
     }
 }
 
+/// Android framework callbacks the runtime invokes by name. Retention
+/// requires the parent to extend something — the name alone earns
+/// nothing in a base-less class.
+const LIFECYCLE_METHODS: &[&str] = &[
+    "onCreate",
+    "onStart",
+    "onRestart",
+    "onResume",
+    "onPause",
+    "onStop",
+    "onDestroy",
+    "onAttach",
+    "onDetach",
+    "onCreateView",
+    "onViewCreated",
+    "onDestroyView",
+    "onActivityCreated",
+    "onBind",
+    "onUnbind",
+    "onStartCommand",
+    "onReceive",
+    "onNewIntent",
+    "onActivityResult",
+    "onRequestPermissionsResult",
+    "onSaveInstanceState",
+    "onRestoreInstanceState",
+    "onConfigurationChanged",
+    "onLowMemory",
+    "onTrimMemory",
+];
+
+fn is_lifecycle_callback(graph: &Graph, decl: &Declaration) -> bool {
+    if decl.kind != DeclarationKind::Method || !LIFECYCLE_METHODS.contains(&decl.name.as_str()) {
+        return false;
+    }
+    let Some(parent_id) = &decl.parent else {
+        return false;
+    };
+    graph
+        .get_declaration(parent_id)
+        .map(|parent| !parent.super_types.is_empty())
+        .unwrap_or(false)
+}
+
+/// "is never used" would be false for a zombie: it IS referenced, but
+/// only from code that is itself dead. Name the real condition.
+fn zombie_aware_finding(
+    graph: &Graph,
+    decl: &Declaration,
+    issue: super::DeadCodeIssue,
+) -> super::DeadCode {
+    let finding = super::DeadCode::new(decl.clone(), issue);
+    if matches!(issue, super::DeadCodeIssue::Unreferenced)
+        && !graph.get_references_to(&decl.id).is_empty()
+    {
+        finding.with_message(format!(
+            "{} '{}' is only referenced from dead code — unreachable from any entry point",
+            decl.kind.display_name(),
+            decl.name
+        ))
+    } else {
+        finding
+    }
+}
+
+/// Does the path contain this directory segment? Separator-agnostic:
+/// Windows backslash paths name the same source sets.
+pub(crate) fn path_has_segment(path: &std::path::Path, segment: &str) -> bool {
+    let normalized = path.to_string_lossy().replace('\\', "/");
+    normalized.contains(&format!("/{segment}/"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1203,5 +1341,20 @@ mod tests {
 
         let (dead_code, _) = analyzer.analyze(&graph, &entry_points);
         assert!(dead_code.is_empty());
+    }
+
+    #[test]
+    fn path_segments_match_windows_separators_too() {
+        use std::path::Path;
+        assert!(path_has_segment(Path::new("src/debug/Hook.kt"), "debug"));
+        assert!(
+            path_has_segment(Path::new("src\\debug\\Hook.kt"), "debug"),
+            "a backslash path is the same source set"
+        );
+        assert!(
+            !path_has_segment(Path::new("src/debugging/Hook.kt"), "debug"),
+            "segment match, not substring match"
+        );
+        assert!(!path_has_segment(Path::new("Debug.kt"), "debug"));
     }
 }

@@ -152,6 +152,13 @@ impl WriteOnlyPrefsDetector {
         ];
 
         for (line_num, line) in source.lines().enumerate() {
+            // Bundle et Intent ont les mêmes signatures put*/get* que
+            // SharedPreferences.Editor — des arguments de navigation ne
+            // sont pas des préférences
+            if Self::is_bundle_or_intent_line(line) {
+                continue;
+            }
+
             // Check for write operations
             for pattern in &write_patterns {
                 if let Some(key) = self.extract_key_from_line(line, pattern) {
@@ -170,6 +177,26 @@ impl WriteOnlyPrefsDetector {
         }
 
         analysis
+    }
+
+    /// Une ligne qui opère sur un Bundle/Intent, pas sur des prefs :
+    /// receveur au nom parlant (`bundle.putBoolean`, `outState.putString`)
+    /// ou construction/API propre aux extras sur la même ligne
+    fn is_bundle_or_intent_line(line: &str) -> bool {
+        if line.contains("Bundle(") || line.contains("Intent(") || line.contains("putExtra(") {
+            return true;
+        }
+        const CARRIER_RECEIVERS: &[&str] = &[
+            "bundle.",
+            "intent.",
+            "args.",
+            "arguments.",
+            "outstate.",
+            "savedinstancestate.",
+            "extras.",
+        ];
+        let lowered = line.to_lowercase();
+        CARRIER_RECEIVERS.iter().any(|r| lowered.contains(r))
     }
 
     /// Extract the key argument from a SharedPreferences method call
@@ -244,6 +271,36 @@ pub fn analysis_to_issues(analysis: &SharedPrefsAnalysis) -> Vec<DeadCode> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_bundle_put_is_not_a_preference_write() {
+        // Cas réel : `bundle.putBoolean("EXTRA_HEADER_TITLE", true)` avant
+        // un navigate(args = bundle) — Bundle a les mêmes signatures que
+        // SharedPreferences.Editor, la clé sortait « written but never
+        // read » alors que la destination la lit dans ses arguments.
+        let detector = WriteOnlyPrefsDetector::new();
+        let source = r#"
+            fun goLive() {
+                val bundle = Bundle()
+                bundle.putBoolean("EXTRA_HEADER_TITLE", true)
+                bundle.putString("EXTRA_ARTICLE_URI", url)
+                navigate(resId, args = bundle)
+            }
+            fun relay(intent: Intent) {
+                intent.putExtra("origin", name)
+            }
+            fun stash(outState: Bundle) {
+                outState.putString("pending", value)
+            }
+        "#;
+
+        let analysis = detector.analyze_source(source, &PathBuf::from("test.kt"));
+        assert!(
+            analysis.writes.is_empty(),
+            "aucune écriture Bundle/Intent ne compte comme une pref, trouvé: {:?}",
+            analysis.writes.keys().collect::<Vec<_>>()
+        );
+    }
 
     #[test]
     fn test_detector_creation() {

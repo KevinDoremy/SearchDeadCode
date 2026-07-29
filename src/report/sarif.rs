@@ -92,6 +92,38 @@ struct SarifResult {
     locations: Vec<SarifLocation>,
     #[serde(rename = "partialFingerprints")]
     partial_fingerprints: std::collections::BTreeMap<String, String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fixes: Option<Vec<SarifFix>>,
+}
+
+#[derive(Serialize)]
+struct SarifFix {
+    description: SarifMessage,
+    #[serde(rename = "artifactChanges")]
+    artifact_changes: Vec<SarifArtifactChange>,
+}
+
+#[derive(Serialize)]
+struct SarifArtifactChange {
+    #[serde(rename = "artifactLocation")]
+    artifact_location: SarifArtifactLocation,
+    replacements: Vec<SarifReplacement>,
+}
+
+#[derive(Serialize)]
+struct SarifReplacement {
+    #[serde(rename = "deletedRegion")]
+    deleted_region: SarifDeletedRegion,
+    #[serde(rename = "insertedContent")]
+    inserted_content: SarifMessage,
+}
+
+#[derive(Serialize)]
+struct SarifDeletedRegion {
+    #[serde(rename = "startLine")]
+    start_line: usize,
+    #[serde(rename = "endLine")]
+    end_line: usize,
 }
 
 #[derive(Serialize)]
@@ -123,6 +155,48 @@ struct SarifRegion {
     start_line: usize,
     #[serde(rename = "startColumn")]
     start_column: usize,
+}
+
+/// A one-click deletion fix, only for graph-backed findings whose
+/// span is real (synthetic findings carry fabricated offsets — a
+/// deletedRegion built from them would point at the wrong lines).
+fn deletion_fix(dc: &DeadCode, uri: String) -> Option<Vec<SarifFix>> {
+    if dc.issue != crate::analysis::DeadCodeIssue::Unreferenced {
+        return None;
+    }
+    let content = std::fs::read_to_string(&dc.declaration.location.file).ok()?;
+    let start = dc.declaration.id.start.min(content.len());
+    let end = dc.declaration.id.end.min(content.len());
+    if end <= start {
+        return None;
+    }
+    // the span must agree with the recorded line, or it is not trustworthy
+    let span_start_line = content[..start].matches('\n').count() + 1;
+    if span_start_line != dc.declaration.location.line {
+        return None;
+    }
+    let end_line = span_start_line + content[start..end].matches('\n').count();
+    Some(vec![SarifFix {
+        description: SarifMessage {
+            text: format!(
+                "delete unused {} '{}'",
+                dc.declaration.kind.display_name(),
+                dc.declaration.name
+            ),
+        },
+        artifact_changes: vec![SarifArtifactChange {
+            artifact_location: SarifArtifactLocation { uri },
+            replacements: vec![SarifReplacement {
+                deleted_region: SarifDeletedRegion {
+                    start_line: span_start_line,
+                    end_line,
+                },
+                inserted_content: SarifMessage {
+                    text: String::new(),
+                },
+            }],
+        }],
+    }])
 }
 
 impl SarifReport {
@@ -193,7 +267,7 @@ impl SarifReport {
                     },
                     locations: vec![SarifLocation {
                         physical_location: SarifPhysicalLocation {
-                            artifact_location: SarifArtifactLocation { uri },
+                            artifact_location: SarifArtifactLocation { uri: uri.clone() },
                             region: SarifRegion {
                                 start_line: dc.declaration.location.line,
                                 start_column: dc.declaration.location.column,
@@ -201,6 +275,7 @@ impl SarifReport {
                         },
                     }],
                     partial_fingerprints: fingerprints,
+                    fixes: deletion_fix(dc, uri),
                 }
             })
             .collect();
@@ -225,7 +300,7 @@ impl SarifReport {
 
 /// djb2 — deliberately hand-rolled: std's DefaultHasher is not stable
 /// across Rust versions, and fingerprints must never drift
-fn stable_hash(input: &str) -> String {
+pub(crate) fn stable_hash(input: &str) -> String {
     let mut hash: u64 = 5381;
     for byte in input.bytes() {
         hash = hash.wrapping_mul(33) ^ u64::from(byte);

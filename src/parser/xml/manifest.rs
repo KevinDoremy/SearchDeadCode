@@ -43,7 +43,15 @@ impl ManifestParser {
                     ) {
                         for attr in e.attributes().filter_map(|a| a.ok()) {
                             let key = String::from_utf8_lossy(attr.key.as_ref());
-                            if key == "android:name" || key.ends_with(":name") {
+                            // android:name, mais aussi les autres attributs
+                            // dont la valeur EST une classe instanciée par
+                            // le système (backup, factory) : sans eux le
+                            // composant n'a aucun appelant visible
+                            let names_a_class = key == "android:name"
+                                || key.ends_with(":name")
+                                || key.ends_with(":backupAgent")
+                                || key.ends_with(":appComponentFactory");
+                            if names_a_class {
                                 let value = String::from_utf8_lossy(&attr.value).to_string();
                                 let class_name = self.resolve_class_name(&value, &result.package);
                                 result.class_references.insert(class_name);
@@ -151,6 +159,39 @@ mod tests {
         assert!(result
             .class_references
             .contains("com.example.app.MyApplication"));
+    }
+
+    #[test]
+    fn class_valued_application_attributes_are_entry_points() {
+        // Cas réel : `<application android:backupAgent="…">` — la classe
+        // est instanciée par le système au restore, jamais appelée par le
+        // code. Idem android:appComponentFactory. Sans ces attributs, le
+        // composant sortait « never used ».
+        let parser = ManifestParser::new();
+        let contents = r#"
+            <manifest package="com.example">
+                <application
+                    android:name=".App"
+                    android:backupAgent=".BackupHelper"
+                    android:appComponentFactory="com.example.Factory">
+                </application>
+            </manifest>
+        "#;
+
+        let result = parser
+            .parse(std::path::Path::new("AndroidManifest.xml"), contents)
+            .unwrap();
+
+        assert!(
+            result.class_references.contains("com.example.BackupHelper"),
+            "android:backupAgent est un point d'entrée, trouvé: {:?}",
+            result.class_references
+        );
+        assert!(
+            result.class_references.contains("com.example.Factory"),
+            "android:appComponentFactory est un point d'entrée, trouvé: {:?}",
+            result.class_references
+        );
     }
 
     #[test]

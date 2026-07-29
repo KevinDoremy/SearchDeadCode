@@ -257,3 +257,400 @@ fn an_unknown_method_gets_a_json_rpc_error() {
         responses[0]
     );
 }
+
+#[test]
+fn tools_list_advertises_health() {
+    let temp = tempfile::tempdir().unwrap();
+    let graph = saved_graph(temp.path());
+
+    let responses = serve(
+        &graph,
+        &[r#"{"jsonrpc":"2.0","id":7,"method":"tools/list","params":{}}"#],
+    );
+    let tools = responses[0]["result"]["tools"].as_array().unwrap();
+    assert!(
+        tools.iter().any(|t| t["name"] == "health"),
+        "health is advertised, tools were:\n{tools:?}"
+    );
+}
+
+#[test]
+fn health_grades_a_rotting_module_below_a() {
+    let temp = tempfile::tempdir().unwrap();
+    let graph = saved_graph(temp.path());
+
+    let responses = serve(
+        &graph,
+        &[
+            r#"{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"health","arguments":{}}}"#,
+        ],
+    );
+    let text = responses[0]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    // Ghost and haunt are dead in a ~6-declaration module: far above 1%
+    assert!(
+        text.contains("dead"),
+        "the ratio is spelled out, text was:\n{text}"
+    );
+    assert!(
+        !text.contains(" A ") && (text.contains(" D ") || text.contains(" F ")),
+        "two corpses in a tiny module cannot grade A, text was:\n{text}"
+    );
+}
+
+#[test]
+fn health_grades_a_clean_module_a() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = temp.path().join("clean");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(
+        project.join("Engine.kt"),
+        "package sample\n\nclass Engine {\n    fun run() {}\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        project.join("Main.kt"),
+        "package sample\n\nfun main() {\n    Engine().run()\n}\n",
+    )
+    .unwrap();
+    let graph = temp.path().join("clean-graph.json");
+    let out = Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+        .arg(&project)
+        .args(["--export-graph", graph.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+
+    let responses = serve(
+        &graph,
+        &[
+            r#"{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"health","arguments":{}}}"#,
+        ],
+    );
+    let text = responses[0]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(
+        text.contains(" A "),
+        "everything reachable grades A, text was:\n{text}"
+    );
+}
+
+fn saved_graph_with_many_corpses(temp: &Path) -> std::path::PathBuf {
+    let project = temp.join("morgue");
+    fs::create_dir_all(&project).unwrap();
+    let mut body = String::from("package sample\n\n");
+    for i in 0..60 {
+        body.push_str(&format!(
+            "class Corpse{i:02} {{\n    fun rot() {{}}\n}}\n\n"
+        ));
+    }
+    fs::write(project.join("Morgue.kt"), body).unwrap();
+    fs::write(
+        project.join("Main.kt"),
+        "package sample\n\nfun main() {\n    println(\"alive\")\n}\n",
+    )
+    .unwrap();
+    let graph = temp.join("morgue-graph.json");
+    let out = Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+        .arg(&project)
+        .args(["--export-graph", graph.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "export failed:\n{out:?}");
+    graph
+}
+
+#[test]
+fn dead_list_pages_at_fifty_and_says_how_to_continue() {
+    let temp = tempfile::tempdir().unwrap();
+    let graph = saved_graph_with_many_corpses(temp.path());
+
+    let responses = serve(
+        &graph,
+        &[
+            r#"{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"dead_list","arguments":{}}}"#,
+        ],
+    );
+    let text = responses[0]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    let listed = text.matches("- ").count();
+    assert!(
+        listed <= 50,
+        "an agent context is finite: 50 max, got {listed}:\n{text}"
+    );
+    assert!(
+        text.contains("offset"),
+        "the answer says how to get the rest, text was:\n{text}"
+    );
+}
+
+#[test]
+fn dead_list_offset_returns_the_next_page_without_overlap() {
+    let temp = tempfile::tempdir().unwrap();
+    let graph = saved_graph_with_many_corpses(temp.path());
+
+    let responses = serve(
+        &graph,
+        &[
+            r#"{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"dead_list","arguments":{}}}"#,
+            r#"{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"dead_list","arguments":{"offset":50}}}"#,
+        ],
+    );
+    let first = responses[0]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    let second = responses[1]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(
+        second.matches("- ").count() >= 1,
+        "the second page has the remainder, text was:\n{second}"
+    );
+    let first_symbols: std::collections::HashSet<&str> =
+        first.lines().filter(|l| l.starts_with("- ")).collect();
+    assert!(
+        second
+            .lines()
+            .filter(|l| l.starts_with("- "))
+            .all(|l| !first_symbols.contains(l)),
+        "pages must not overlap.\nfirst:\n{first}\nsecond:\n{second}"
+    );
+}
+
+#[test]
+fn dead_list_offset_past_the_end_is_a_clean_answer() {
+    let temp = tempfile::tempdir().unwrap();
+    let graph = saved_graph_with_many_corpses(temp.path());
+
+    let responses = serve(
+        &graph,
+        &[
+            r#"{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"dead_list","arguments":{"offset":5000}}}"#,
+        ],
+    );
+    let text = responses[0]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(
+        text.matches("- ").count() == 0 && !text.is_empty(),
+        "past the end: explicit emptiness, no crash, text was:\n{text}"
+    );
+}
+
+#[test]
+fn search_announces_its_truncation_and_pages() {
+    let temp = tempfile::tempdir().unwrap();
+    let graph = saved_graph_with_many_corpses(temp.path());
+
+    // every corpse matches "Corpse": 60 hits, one page of 50
+    let responses = serve(
+        &graph,
+        &[
+            r#"{"jsonrpc":"2.0","id":14,"method":"tools/call","params":{"name":"search","arguments":{"query":"Corpse"}}}"#,
+            r#"{"jsonrpc":"2.0","id":15,"method":"tools/call","params":{"name":"search","arguments":{"query":"Corpse","offset":50}}}"#,
+        ],
+    );
+    let first = responses[0]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(
+        first.matches("- ").count() <= 50,
+        "one page max, got:\n{first}"
+    );
+    assert!(
+        first.contains("of 60") && first.contains("offset"),
+        "silent truncation reads as 'that is all there is' — announce it, text was:\n{first}"
+    );
+    let second = responses[1]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(
+        second.matches("- ").count() >= 1,
+        "the second page holds the remainder, text was:\n{second}"
+    );
+    let first_lines: std::collections::HashSet<&str> =
+        first.lines().filter(|l| l.starts_with("- ")).collect();
+    assert!(
+        second
+            .lines()
+            .filter(|l| l.starts_with("- "))
+            .all(|l| !first_lines.contains(l)),
+        "no overlap between pages"
+    );
+}
+
+#[test]
+fn search_under_a_page_stays_unpaginated_in_tone() {
+    let temp = tempfile::tempdir().unwrap();
+    let graph = saved_graph(temp.path());
+
+    let responses = serve(
+        &graph,
+        &[
+            r#"{"jsonrpc":"2.0","id":16,"method":"tools/call","params":{"name":"search","arguments":{"query":"Engine"}}}"#,
+        ],
+    );
+    let text = responses[0]["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(
+        !text.contains("offset"),
+        "a complete answer offers no continuation, text was:\n{text}"
+    );
+}
+
+#[test]
+fn a_regenerated_graph_is_picked_up_between_requests() {
+    use std::io::{Read as _, Write as _};
+    let temp = tempfile::tempdir().unwrap();
+    let project = temp.path().join("project");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(
+        project.join("Ghost.kt"),
+        "package sample\n\nclass Ghost {\n    fun haunt() {}\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        project.join("Main.kt"),
+        "package sample\n\nfun main() {\n    println(\"alive\")\n}\n",
+    )
+    .unwrap();
+    let graph = temp.path().join("graph.json");
+    let export = Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+        .arg(&project)
+        .args(["--export-graph", graph.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(export.status.success());
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+        .arg(&project)
+        .args(["--graph-file", graph.to_str().unwrap(), "--mcp-serve"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let stdin = child.stdin.as_mut().unwrap();
+    writeln!(
+        stdin,
+        r#"{{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{{"name":"is_dead","arguments":{{"symbol":"Ghost"}}}}}}"#
+    )
+    .unwrap();
+    stdin.flush().unwrap();
+
+    // wait for the first answer: the initial graph is loaded and served
+    let mut stdout = child.stdout.take().unwrap();
+    let mut first_line = Vec::new();
+    let mut byte = [0u8; 1];
+    loop {
+        stdout.read_exact(&mut byte).unwrap();
+        if byte[0] == b'\n' {
+            break;
+        }
+        first_line.push(byte[0]);
+    }
+    let first: serde_json::Value = serde_json::from_slice(&first_line).unwrap();
+    let text = first["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("dead"), "Ghost starts dead, got:\n{text}");
+
+    // the world changes: Ghost gets a caller, the graph is re-exported
+    fs::write(
+        project.join("Main.kt"),
+        "package sample\n\nfun main() {\n    Ghost().haunt()\n}\n",
+    )
+    .unwrap();
+    let export = Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+        .arg(&project)
+        .args(["--export-graph", graph.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(export.status.success());
+
+    let stdin = child.stdin.as_mut().unwrap();
+    writeln!(
+        stdin,
+        r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"is_dead","arguments":{{"symbol":"Ghost"}}}}}}"#
+    )
+    .unwrap();
+    drop(child.stdin.take());
+
+    let mut rest = Vec::new();
+    stdout.read_to_end(&mut rest).unwrap();
+    child.wait().unwrap();
+    let second: serde_json::Value = String::from_utf8_lossy(&rest)
+        .lines()
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .find(|r: &serde_json::Value| r["id"] == 2)
+        .expect("second answer");
+    let text = second["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(
+        text.contains("alive"),
+        "the reloaded graph knows Ghost lives now, got:\n{text}"
+    );
+}
+
+#[test]
+fn a_corrupt_regenerated_graph_keeps_answering_from_the_old_one() {
+    use std::io::{Read as _, Write as _};
+    let temp = tempfile::tempdir().unwrap();
+    let graph = saved_graph(temp.path());
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+        .arg(graph.parent().unwrap())
+        .args(["--graph-file", graph.to_str().unwrap(), "--mcp-serve"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let stdin = child.stdin.as_mut().unwrap();
+    writeln!(
+        stdin,
+        r#"{{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{{"name":"is_dead","arguments":{{"symbol":"Ghost"}}}}}}"#
+    )
+    .unwrap();
+    stdin.flush().unwrap();
+
+    let mut stdout = child.stdout.take().unwrap();
+    let mut byte = [0u8; 1];
+    loop {
+        stdout.read_exact(&mut byte).unwrap();
+        if byte[0] == b'\n' {
+            break;
+        }
+    }
+
+    fs::write(&graph, "{ not json at all").unwrap();
+
+    let stdin = child.stdin.as_mut().unwrap();
+    writeln!(
+        stdin,
+        r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"is_dead","arguments":{{"symbol":"Ghost"}}}}}}"#
+    )
+    .unwrap();
+    drop(child.stdin.take());
+
+    let mut rest = Vec::new();
+    stdout.read_to_end(&mut rest).unwrap();
+    let status = child.wait().unwrap();
+    assert!(
+        status.success(),
+        "a corrupt reload must not kill the server"
+    );
+    let second: serde_json::Value = String::from_utf8_lossy(&rest)
+        .lines()
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .find(|r: &serde_json::Value| r["id"] == 2)
+        .expect("still answers");
+    assert!(
+        second["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("Ghost"),
+        "the old graph still answers"
+    );
+}

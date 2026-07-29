@@ -140,3 +140,85 @@ fn provider_parameter_counts_as_consumption() {
         );
     }
 }
+
+#[test]
+fn a_provider_of_an_external_type_gets_the_benefit_of_the_doubt() {
+    // Cas réel : `@Provides fun providesIoDispatcher(): CoroutineDispatcher`
+    // — le type produit vient d'une lib (kotlinx), il n'a AUCUNE
+    // déclaration dans le graphe, donc « produced type consumed? » ne
+    // trouvait jamais rien et condamnait tous les providers de types
+    // externes (dispatchers, SharedPreferences, players…). Type
+    // introuvable dans le projet = indécidable = racine.
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(
+        temp.path().join("Main.kt"),
+        "package sample\n\nfun main() {\n    println(\"up\")\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("ThreadingModule.kt"),
+        concat!(
+            "package sample\n\n",
+            "import kotlinx.coroutines.CoroutineDispatcher\n",
+            "import kotlinx.coroutines.Dispatchers\n\n",
+            "@Module\n",
+            "class ThreadingModule {\n",
+            "    @Provides\n",
+            "    fun providesIoDispatcher(): CoroutineDispatcher = Dispatchers.IO\n",
+            "}\n",
+        ),
+    )
+    .unwrap();
+
+    let stdout = stdout_of(&run(temp.path()));
+    assert!(
+        !stdout.contains("providesIoDispatcher"),
+        "un provider d'un type externe au projet n'est pas condamnable, stdout:\n{stdout}"
+    );
+}
+
+#[test]
+fn a_consumer_that_also_implements_the_bound_interface_still_counts() {
+    // Cas réel : `class Delegate(inner: Formatter) : Formatter by inner`
+    // — le consommateur reçoit l'interface en ctor ET l'implémente par
+    // délégation. Le skip « référenceur-implémenteur » jetait sa
+    // consommation légitime et le @Binds sortait « never used ».
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(
+        temp.path().join("Main.kt"),
+        "package sample\n\nfun main() {\n    println(Delegate(FormatterImpl()))\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("Formatter.kt"),
+        concat!(
+            "package sample\n\n",
+            "interface Formatter {\n",
+            "    fun format(): String\n",
+            "}\n\n",
+            "class FormatterImpl : Formatter {\n",
+            "    override fun format(): String = \"x\"\n",
+            "}\n\n",
+            "class Delegate(inner: Formatter) : Formatter by inner\n",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("BindModule.kt"),
+        concat!(
+            "package sample\n\n",
+            "@Module\n",
+            "abstract class BindModule {\n",
+            "    @Binds\n",
+            "    abstract fun bindFormatter(target: FormatterImpl): Formatter\n",
+            "}\n",
+        ),
+    )
+    .unwrap();
+
+    let stdout = stdout_of(&run(temp.path()));
+    assert!(
+        !stdout.contains("bindFormatter"),
+        "un consommateur-délégant compte comme consommation, stdout:\n{stdout}"
+    );
+}

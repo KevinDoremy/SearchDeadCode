@@ -116,6 +116,8 @@ const ENTRY_ANNOTATIONS: &[&str] = &[
     // Reflection markers
     "Keep",
     "KeepPublicApi",
+    // WebView JS bridge: invoked reflectively from page JavaScript
+    "JavascriptInterface",
     // WorkManager
     "HiltWorker",
     // Lifecycle
@@ -273,6 +275,37 @@ impl<'a> EntryPointDetector<'a> {
     /// Check if an annotation marks an entry point
     fn is_entry_point_annotation(&self, annotation: &str) -> bool {
         ENTRY_ANNOTATIONS.iter().any(|e| annotation.contains(e))
+    }
+
+    /// L'annotation d'entrée qui retient cette déclaration, en la cherchant
+    /// sur la déclaration elle-même puis sur ses membres (un @Inject sur le
+    /// constructeur retient la classe). Pour que --why-alive nomme la cause
+    /// au lieu d'un « it is an entry point » opaque.
+    pub fn entry_annotation_reason(
+        graph: &crate::graph::Graph,
+        decl: &crate::graph::Declaration,
+    ) -> Option<String> {
+        let find = |d: &crate::graph::Declaration| -> Option<String> {
+            d.annotations
+                .iter()
+                .find(|a| ENTRY_ANNOTATIONS.iter().any(|e| a.contains(e)))
+                .cloned()
+        };
+        if let Some(a) = find(decl) {
+            return Some(a);
+        }
+        for child_id in graph.get_children(&decl.id) {
+            if let Some(child) = graph.get_declaration(child_id) {
+                if let Some(a) = find(child) {
+                    let site = match child.kind {
+                        crate::graph::DeclarationKind::Constructor => "constructor",
+                        _ => child.name.as_str(),
+                    };
+                    return Some(format!("{a} on its {site}"));
+                }
+            }
+        }
+        None
     }
 
     /// How many declarations each retention annotation keeps alive —
@@ -782,8 +815,18 @@ pub(crate) fn di_binding_is_consumed(graph: &Graph, provider: &Declaration) -> b
         return true;
     }
 
-    for target in graph.find_by_name(produced_simple) {
-        for (referencer, _) in graph.get_references_to(&target.id) {
+    // Type produit introuvable dans le projet = type externe (lib) :
+    // la consommation passe par des sites d'injection que le graphe ne
+    // relie pas à un nœud local — indécidable, donc bénéfice du doute.
+    // Sans ça, tous les providers de dispatchers/players/prefs des libs
+    // sortaient « never used ».
+    let targets = graph.find_by_name(produced_simple);
+    if targets.is_empty() {
+        return true;
+    }
+
+    for target in targets {
+        for (referencer, reference) in graph.get_references_to(&target.id) {
             if referencer.id == provider.id {
                 continue;
             }
@@ -799,11 +842,11 @@ pub(crate) fn di_binding_is_consumed(graph: &Graph, provider: &Declaration) -> b
             if is_provider_of_same {
                 continue;
             }
-            if referencer
-                .super_types
-                .iter()
-                .any(|s| s.contains(produced_simple))
-            {
+            // Implémenter l'interface n'est pas la consommer — mais on
+            // skippe la RÉFÉRENCE d'héritage, pas le référenceur entier :
+            // `class Delegate(inner: I) : I by inner` implémente ET
+            // consomme, sa référence de paramètre doit compter.
+            if reference.kind == crate::graph::ReferenceKind::Inheritance {
                 continue;
             }
             return true;

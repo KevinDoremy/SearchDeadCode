@@ -184,6 +184,27 @@ impl Graph {
             .unwrap_or_default()
     }
 
+    /// A call target plus, when it is a type, that type's constructors.
+    /// A Java constructor shares its class's name: a call resolved to
+    /// the class through an FQN or import would leave the constructor
+    /// with zero incoming edges, so everything it calls read as dead —
+    /// while the same call from the same package bound it via the
+    /// simple-name fallback.
+    pub fn expand_call_target(&self, id: &DeclarationId) -> Vec<DeclarationId> {
+        let mut ids = vec![id.clone()];
+        if self.get_declaration(id).is_some_and(|d| d.kind.is_type()) {
+            for child_id in self.get_children(id) {
+                if self
+                    .get_declaration(child_id)
+                    .is_some_and(|c| c.kind == DeclarationKind::Constructor)
+                {
+                    ids.push(child_id.clone());
+                }
+            }
+        }
+        ids
+    }
+
     /// Get the number of declarations
     pub fn declaration_count(&self) -> usize {
         self.declarations.len()

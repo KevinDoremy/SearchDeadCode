@@ -130,3 +130,32 @@ fn a_root_explains_itself() {
         "main is its own reason, stdout was:\n{stdout}"
     );
 }
+
+#[test]
+fn a_root_names_the_annotation_that_makes_it_one() {
+    // « It is itself an entry point » sans la cause est inutilisable sur
+    // un vrai projet : la réponse utile est QUELLE règle fait la racine
+    // (ici @Inject sur le constructeur — rétention DI).
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(
+        temp.path().join("Controller.kt"),
+        concat!(
+            "package sample\n\n",
+            "class PushController @Inject constructor() {\n",
+            "    fun relay() {}\n",
+            "}\n",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("Main.kt"),
+        "package sample\n\nfun main() {\n    println(\"up\")\n}\n",
+    )
+    .unwrap();
+
+    let stdout = stdout_of(&run(temp.path(), "PushController"));
+    assert!(
+        stdout.contains("@Inject"),
+        "la racine nomme l'annotation qui la retient, stdout:\n{stdout}"
+    );
+}
