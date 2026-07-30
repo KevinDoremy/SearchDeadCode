@@ -125,12 +125,38 @@ pub struct AnalysisCache {
     pub created_at: u64,
 }
 
+/// Identity of the binary that produced a cache.
+///
+/// The crate version alone separates releases, not two builds of the same
+/// version. During development every rebuild keeps the same version, so a
+/// parser change silently reuses parse results produced by the old code: the
+/// tool then reports findings that its current parser would not produce. The
+/// mistake is invisible, since a stale cache and a correct one look alike.
+///
+/// The executable's mtime distinguishes them for one `stat` per run. Falls back
+/// to the bare version when the path cannot be read, which only loses the extra
+/// precision rather than breaking the cache.
+fn build_identity() -> String {
+    let version = env!("CARGO_PKG_VERSION");
+    let stamp = std::env::current_exe()
+        .and_then(fs::metadata)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs());
+
+    match stamp {
+        Some(secs) => format!("{version}+{secs}"),
+        None => version.to_string(),
+    }
+}
+
 impl AnalysisCache {
     /// Create a new empty cache for a project
     pub fn new(project_root: PathBuf) -> Self {
         Self {
             version: CACHE_VERSION,
-            tool_version: env!("CARGO_PKG_VERSION").to_string(),
+            tool_version: build_identity(),
             project_root,
             files: HashMap::new(),
             created_at: SystemTime::now()
@@ -146,7 +172,7 @@ impl AnalysisCache {
         let reader = BufReader::new(file);
         let cache: Self = serde_json::from_reader(reader)?;
 
-        if cache.version != CACHE_VERSION || cache.tool_version != env!("CARGO_PKG_VERSION") {
+        if cache.version != CACHE_VERSION || cache.tool_version != build_identity() {
             return Err(CacheError::VersionMismatch);
         }
 
@@ -369,5 +395,40 @@ mod tests {
 
         let loaded = AnalysisCache::load(&cache_path).unwrap();
         assert_eq!(loaded.files.len(), 1);
+    }
+
+    /// A cache written by a different build must be refused.
+    ///
+    /// The crate version separates releases but not two builds of one version,
+    /// which is the case that bites during development: change the parser,
+    /// rebuild, and the run silently serves parse results the old code
+    /// produced. Measuring a parser fix that way shows no effect at all.
+    #[test]
+    fn test_cache_from_another_build_is_rejected() {
+        let temp_dir = TempDir::new().unwrap();
+        let cache_path = temp_dir.path().join("cache.json");
+
+        let mut cache = AnalysisCache::new(temp_dir.path().to_path_buf());
+        // Exactly what a build keyed on the crate version alone would write.
+        // That value is what the current binary must now refuse: same version,
+        // unknown build.
+        cache.tool_version = env!("CARGO_PKG_VERSION").to_string();
+        cache.save(&cache_path).unwrap();
+
+        assert!(
+            matches!(
+                AnalysisCache::load(&cache_path),
+                Err(CacheError::VersionMismatch)
+            ),
+            "same crate version, different build: the cache must not be reused"
+        );
+    }
+
+    /// The identity has to be stable across calls, or every run would discard
+    /// the cache it just wrote.
+    #[test]
+    fn test_build_identity_is_stable() {
+        assert_eq!(build_identity(), build_identity());
+        assert!(build_identity().starts_with(env!("CARGO_PKG_VERSION")));
     }
 }
