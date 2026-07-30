@@ -104,7 +104,7 @@ Estimated removable lines: ~340
 | Android | Activities, Fragments, XML layouts, AndroidManifest entries (auto-retained) |
 | Resources | Unused strings, colors, dimens, styles, attrs |
 
-Full reference and code examples for each detector: [`docs/detectors.md`](docs/detectors.md).
+Full reference and code examples for each detector: [`DETECTORS.md`](DETECTORS.md).
 
 ## Installation
 
@@ -247,7 +247,7 @@ But you'll likely want SearchDeadCode if you need: speed, CI integration, safe d
 
 ## Documentation
 
-- [`docs/detectors.md`](docs/detectors.md) — 9 detection types with code examples
+- [`DETECTORS.md`](DETECTORS.md) — every detector, with code examples and the flag that enables it
 - [`docs/cli-reference.md`](docs/cli-reference.md) — full CLI reference and command examples
 - [`docs/configuration.md`](docs/configuration.md) — YAML and TOML schemas
 - [`docs/hybrid-analysis.md`](docs/hybrid-analysis.md) — coverage, R8 / ProGuard, zombie code

@@ -66,7 +66,7 @@ fn the_readme_teaches_the_symbols_the_binary_prints() {
 
 #[test]
 fn the_detector_docs_use_the_real_symbols_too() {
-    for doc in ["docs/detectors.md", "docs/hybrid-analysis.md"] {
+    for doc in ["DETECTORS.md", "docs/hybrid-analysis.md"] {
         let content = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join(doc)).unwrap();
         for stale in ["● green", "◉ bright green", "◌ red"] {
             assert!(

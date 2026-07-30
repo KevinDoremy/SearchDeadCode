@@ -210,22 +210,25 @@ impl SarifReport {
                 seen.push(code);
             }
         }
-        let rules: Vec<SarifRule> =
-            seen.iter()
-                .map(|code| {
-                    let label = crate::report::summary::rule_label(code);
-                    SarifRule {
+        let rules: Vec<SarifRule> = seen
+            .iter()
+            .map(|code| {
+                let label = crate::report::summary::rule_label(code);
+                SarifRule {
                     id: code.to_string(),
-                    name: label.to_lowercase().replace([' ', '/'], "-").replace("()", ""),
+                    name: label
+                        .to_lowercase()
+                        .replace([' ', '/'], "-")
+                        .replace("()", ""),
                     short_description: SarifMessage {
                         text: label.to_string(),
                     },
                     help_uri:
-                        "https://github.com/KevinDoremy/SearchDeadCode/blob/main/docs/detectors.md",
+                        "https://github.com/KevinDoremy/SearchDeadCode/blob/main/DETECTORS.md",
                     default_configuration: SarifConfiguration { level: "warning" },
                 }
-                })
-                .collect();
+            })
+            .collect();
 
         let results: Vec<SarifResult> = dead_code
             .iter()
