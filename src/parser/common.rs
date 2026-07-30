@@ -31,6 +31,24 @@ impl ParseResult {
             imports: Vec::new(),
         }
     }
+
+    /// Give every reference back the file's import list.
+    ///
+    /// `UnresolvedReference::imports` is skipped when serializing, since it is
+    /// always a copy of this list and repeating it per reference dominated the
+    /// cache file. Resolution reads it from the reference, so a result loaded
+    /// from cache has to be rehydrated before use, or every reference resolves
+    /// as though the file imported nothing.
+    pub fn restore_reference_imports(&mut self) {
+        if self.imports.is_empty() {
+            return;
+        }
+        for reference in &mut self.references {
+            if reference.imports.is_empty() {
+                reference.imports.clone_from(&self.imports);
+            }
+        }
+    }
 }
 
 impl Default for ParseResult {
@@ -129,5 +147,86 @@ impl<'a> Iterator for DescendantIterator<'a> {
                 return Some(node);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph::{Location, ReferenceKind, UnresolvedReference};
+    use std::path::PathBuf;
+
+    fn reference(name: &str, imports: Vec<String>) -> UnresolvedReference {
+        UnresolvedReference {
+            name: name.to_string(),
+            qualified_name: None,
+            kind: ReferenceKind::Type,
+            location: Location::new(PathBuf::from("A.kt"), 1, 1, 0, 1),
+            imports,
+        }
+    }
+
+    fn sample() -> ParseResult {
+        let mut r = ParseResult::new();
+        r.imports = vec!["a.B".to_string(), "c.D".to_string()];
+        r.references = vec![
+            reference("B", r.imports.clone()),
+            reference("D", r.imports.clone()),
+        ];
+        r
+    }
+
+    /// A cache round trip must not quietly drop the imports resolution needs.
+    #[test]
+    fn reference_imports_survive_a_cache_round_trip() {
+        let original = sample();
+        let json = serde_json::to_string(&original).expect("serialize");
+
+        let mut loaded: ParseResult = serde_json::from_str(&json).expect("deserialize");
+        assert!(
+            loaded.references.iter().all(|r| r.imports.is_empty()),
+            "the point of skipping the field is that it is not written"
+        );
+
+        loaded.restore_reference_imports();
+        for (before, after) in original.references.iter().zip(&loaded.references) {
+            assert_eq!(before.imports, after.imports, "reference {}", after.name);
+        }
+    }
+
+    /// The saving is the whole reason for the change, so it is asserted.
+    #[test]
+    fn skipping_imports_shrinks_what_is_written() {
+        let mut fat = ParseResult::new();
+        fat.imports = (0..40).map(|i| format!("some.package.Type{i}")).collect();
+        fat.references = (0..200)
+            .map(|i| reference(&format!("Type{i}"), fat.imports.clone()))
+            .collect();
+
+        let written = serde_json::to_string(&fat).expect("serialize").len();
+        let inline: usize = fat
+            .references
+            .iter()
+            .map(|r| {
+                serde_json::to_string(&r.imports)
+                    .map(|s| s.len())
+                    .unwrap_or(0)
+            })
+            .sum();
+
+        assert!(
+            written < inline / 4,
+            "expected the file to be far smaller than the inlined copies: \
+             wrote {written} bytes, the copies alone would be {inline}"
+        );
+    }
+
+    /// A file with no imports must not gain any.
+    #[test]
+    fn a_file_without_imports_restores_to_nothing() {
+        let mut r = ParseResult::new();
+        r.references = vec![reference("Local", vec![])];
+        r.restore_reference_imports();
+        assert!(r.references[0].imports.is_empty());
     }
 }

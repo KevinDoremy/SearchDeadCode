@@ -2536,7 +2536,11 @@ fn build_graph_incremental(
 
         if !to_parse.contains(&file.path) {
             if let Some(entry) = analyzer.get_cached(&file.path) {
-                let parse_result = entry.parse_result.clone();
+                let mut parse_result = entry.parse_result.clone();
+                // The cache does not store per-reference imports, they are a
+                // copy of the file's list. Put them back before resolution,
+                // which reads them off the reference.
+                parse_result.restore_reference_imports();
                 builder.add_parse_result(parse_result);
                 cached_count += 1;
                 continue;

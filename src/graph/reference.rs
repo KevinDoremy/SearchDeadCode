@@ -151,7 +151,21 @@ pub struct UnresolvedReference {
     /// Location of the reference
     pub location: Location,
 
-    /// Imports available in scope (for resolution)
+    /// Imports available in scope (for resolution).
+    ///
+    /// Every reference in a file carries that file's import list, which makes
+    /// resolution a local lookup. It also means the same list is repeated once
+    /// per reference, and serializing that turned a real corpus cache into 943
+    /// MB where 880 MB was the same handful of lists written over and over: on
+    /// one 1070-reference file, 15.6 MB of 15.9.
+    ///
+    /// It is never anything but the file's own list. Measured across 569,035
+    /// cached references: 564,336 identical to their file's, 4,699 empty in
+    /// files with no imports, zero differing.
+    ///
+    /// So it is not written to the cache. `ParseResult` already holds the list
+    /// once, and `restore_reference_imports` puts it back on load.
+    #[serde(skip)]
     pub imports: Vec<String>,
 }
 
