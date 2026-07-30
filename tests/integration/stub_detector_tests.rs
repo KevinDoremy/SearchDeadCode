@@ -1,6 +1,6 @@
 //! Integration tests for DC005 (unused enum case) and DC007 (dead branch).
 //!
-//! Both were documented in docs/detectors.md but returned nothing. DC005
+//! Both were documented in DETECTORS.md but returned nothing. DC005
 //! flags enum entries nobody references, unless the enum is iterated
 //! reflectively (values()/entries/valueOf). DC007 flags branches gated on
 //! a literal `false`, the only kind of deadness provable from text alone.

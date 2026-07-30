@@ -30,6 +30,8 @@ searchdeadcode --deep --anti-patterns /path/to/project
 
 ## Dead Code Detectors (DC001-DC016)
 
+Resource-oriented detectors DC017-DC022 have their own section below.
+
 ### DC001: Unreferenced Declaration
 **Severity**: Warning | **Confidence**: Medium
 
@@ -290,6 +292,107 @@ if (str.isEmpty()) { }
 ```
 
 **CLI**: Opt-in via `--style` (style, not deadness — silent by default)
+
+---
+
+## Android Resource Detectors (DC017-DC022)
+
+These look outside the call graph, at the places Android keeps things a compiler
+never checks: XML resources, layouts, Intent keys, Remote Config defaults,
+locale folders. Findings flow through the normal report, so JSON, SARIF and the
+baseline see them like any other.
+
+### DC017: Unused Resource
+**Severity**: Warning | **Confidence**: Medium
+
+Strings, colors, dimensions and drawables that no code and no layout reference.
+Resource definitions are cross-referenced against every `R.<type>.<name>` use
+and every XML `@string/name` mention.
+
+```xml
+<!-- values/strings.xml -->
+<string name="checkout_title">Checkout</string>   <!-- used by CheckoutActivity -->
+<string name="legacy_promo_banner">Sale!</string> <!-- DEAD: nothing names it -->
+```
+
+**CLI**: `--unused-resources` (off by default, it is the slower pass)
+
+### DC018: Unused Layout
+**Severity**: Warning | **Confidence**: Medium
+
+A layout stays alive when anything mentions its generated Binding class, inflates
+it through `R.layout.<name>`, or `<include>`s it from another layout. When none of
+those happen, nothing can put it on screen.
+
+```
+res/layout/old_checkout.xml     DEAD: no OldCheckoutBinding, no R.layout.old_checkout
+res/layout/item_product.xml     alive: <include> from list_products.xml
+```
+
+ViewBinding-aware, which matters: `old_checkout.xml` generates `OldCheckoutBinding`,
+and that generated name is often the only thing the Kotlin side ever writes.
+
+### DC019: Unused Intent Extra
+**Severity**: Warning | **Confidence**: Medium
+
+Keys written with `putExtra` that nothing ever reads back. A common leftover when
+Activity or Fragment communication gets refactored: the sender keeps sending, the
+receiver stopped listening.
+
+```kotlin
+intent.putExtra("USER_ID", id)      // read by ProfileActivity
+intent.putExtra("SOURCE_SCREEN", s) // DEAD: no getStringExtra("SOURCE_SCREEN")
+```
+
+**CLI**: enabled by default
+
+### DC020: Dead Remote Config key
+**Severity**: Warning | **Confidence**: Medium
+
+Keys declared in `remote_config_defaults.xml` that no source literal mentions.
+Nobody reads them, so nobody sees them, whatever the console says.
+
+A key read through a constant still appears as a string literal at the point the
+constant is declared, so literal presence is the honest signal here rather than
+a guess about indirection.
+
+```xml
+<entry><key>enable_new_checkout</key><value>false</value></entry>  <!-- read -->
+<entry><key>enable_2023_promo</key><value>false</value></entry>    <!-- DEAD -->
+```
+
+### DC021: Dead DTO field
+**Severity**: Warning | **Confidence**: Medium
+
+Serialized fields nobody reads. Gson and friends fill `@SerializedName` fields by
+reflection, so reachability always sees them written and never flags them. A field
+that is written by the parser and read by no one is dead in the business sense,
+whatever the graph says.
+
+Signal: the property name occurs exactly once in the whole corpus, at its own
+declaration.
+
+```kotlin
+data class UserDto(
+    @SerializedName("id") val id: String,          // read by the mapper
+    @SerializedName("legacy_rank") val rank: Int,  // DEAD: parsed, never read
+)
+```
+
+### DC022: Orphan Translation
+**Severity**: Warning | **Confidence**: High
+
+A string in a locale folder whose key no longer exists in base `values/`. Android
+resolves through the base, so the key can never be reached: the base dropped it,
+the locale kept it.
+
+```
+values/strings.xml      (no checkout_promo)
+values-fr/strings.xml   <string name="checkout_promo">…</string>   DEAD
+```
+
+Confidence is High because this needs no inference: either the base key exists or
+it does not.
 
 ---
 
@@ -954,6 +1057,7 @@ retain_patterns:
 | Category | Count | Codes |
 |----------|-------|-------|
 | Dead Code | 16 | DC001-DC016 |
+| Android resources | 6 | DC017-DC022 |
 | Architecture | 4 | AP001-AP004 |
 | Kotlin (Phase 1) | 4 | AP007-AP010 |
 | Performance | 5 | AP011-AP015 |
@@ -961,4 +1065,4 @@ retain_patterns:
 | Kotlin (Phase 4) | 5 | AP021-AP025 |
 | Android (Phase 5) | 5 | AP026-AP030 |
 | Compose (Phase 6) | 4 | AP031-AP034 |
-| **Total** | **50** | |
+| **Total** | **56** | |
