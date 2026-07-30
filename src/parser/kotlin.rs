@@ -1193,6 +1193,28 @@ impl KotlinParser {
                         imports: imports.to_vec(),
                     });
 
+                    // A nested type is usually written through its parent, since
+                    // that is what the compiler accepts without an import:
+                    // `is Action.Toggled ->`, `Outer.Inner()`. Resolution matches
+                    // on the declared name, which is the last segment, so the
+                    // qualified form alone never binds and the declaration reads
+                    // as unreferenced.
+                    //
+                    // Emitting the tail as well costs a reference that resolves to
+                    // nothing when the type is external (kotlin.collections.List),
+                    // and rescues the nested case when it is ours.
+                    if let Some((_, tail)) = name.rsplit_once('.') {
+                        if !tail.is_empty() {
+                            result.references.push(UnresolvedReference {
+                                name: tail.to_string(),
+                                qualified_name: Some(name.clone()),
+                                kind: ReferenceKind::Type,
+                                location: location.clone(),
+                                imports: imports.to_vec(),
+                            });
+                        }
+                    }
+
                     // Extract generic type arguments (e.g., FeedState from List<FeedState>)
                     Self::extract_generic_type_arguments(current, source, path, imports, result);
                 }

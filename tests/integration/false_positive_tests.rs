@@ -1560,3 +1560,102 @@ class Derived : Base() {
         // car elles ajoutent du comportement
     }
 }
+
+// ============================================================================
+// VARIANTES SEALED CONSOMMÉES PAR UN when
+// ============================================================================
+
+mod sealed_variant_when_tests {
+    use super::*;
+    use searchdeadcode::analysis::detectors::{Detector, UnusedSealedVariantDetector};
+
+    /// Une variante testée par `is Parent.Variant ->` est vivante.
+    ///
+    /// Le nom qualifié est la forme courante quand la variante est imbriquée
+    /// dans sa sealed class : c'est ce que le compilateur exige sans import.
+    #[test]
+    fn test_qualified_when_branch_keeps_variant_alive() {
+        let content = r#"
+package app
+
+sealed class Action {
+    data class Toggled(val on: Boolean) : Action()
+}
+
+class ViewModel {
+    fun handle(action: Action) = when (action) {
+        is Action.Toggled -> "toggled"
+        else -> "other"
+    }
+}
+"#;
+
+        let graph = build_graph_from_content(content);
+        let issues = UnusedSealedVariantDetector::new().detect(&graph);
+        let names: HashSet<_> = issues.iter().map(|i| i.declaration.name.as_str()).collect();
+
+        assert!(
+            !names.contains("Toggled"),
+            "`is Action.Toggled ->` consomme la variante, elle n'est pas morte. Signalées: {names:?}"
+        );
+    }
+
+    /// Le nom simple marchait déjà. Ancré pour que le correctif du nom
+    /// qualifié ne le casse pas.
+    #[test]
+    fn test_simple_when_branch_keeps_variant_alive() {
+        let content = r#"
+package app
+
+import app.Action.Toggled
+
+sealed class Action {
+    data class Toggled(val on: Boolean) : Action()
+}
+
+class ViewModel {
+    fun handle(action: Action) = when (action) {
+        is Toggled -> "toggled"
+        else -> "other"
+    }
+}
+"#;
+
+        let graph = build_graph_from_content(content);
+        let issues = UnusedSealedVariantDetector::new().detect(&graph);
+        let names: HashSet<_> = issues.iter().map(|i| i.declaration.name.as_str()).collect();
+
+        assert!(!names.contains("Toggled"), "Signalées: {names:?}");
+    }
+
+    /// Le correctif ne doit pas rendre le détecteur muet : une variante que
+    /// personne ne nomme reste morte.
+    #[test]
+    fn test_variant_nobody_mentions_is_still_dead() {
+        let content = r#"
+package app
+
+sealed class Action {
+    data class Used(val on: Boolean) : Action()
+    data class Orphan(val on: Boolean) : Action()
+}
+
+class ViewModel {
+    fun handle(action: Action) = when (action) {
+        is Action.Used -> "used"
+        else -> "other"
+    }
+}
+"#;
+
+        let graph = build_graph_from_content(content);
+        let issues = UnusedSealedVariantDetector::new().detect(&graph);
+        let names: HashSet<_> = issues.iter().map(|i| i.declaration.name.as_str()).collect();
+
+        assert!(
+            names.contains("Orphan"),
+            "Orphan n'est nommée nulle part, elle doit rester signalée. Signalées: {names:?}"
+        );
+        assert!(!names.contains("Used"), "Signalées: {names:?}");
+    }
+}
