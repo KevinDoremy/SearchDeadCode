@@ -178,14 +178,26 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Point the tap at this release
+      # A token that merely exists is not enough: the failure that leaves the
+      # tap stale is one that is present but scoped to the wrong repository,
+      # and that only surfaces at the push. Prove the access first.
+      - name: Verify the tap token
         env:
           # PAT with contents:write on the tap repo. github.token only reaches
           # this repository.
           GH_TOKEN: ${{ secrets.TAP_TOKEN }}
         run: |
           if [ -z "${GH_TOKEN:-}" ]; then
-            echo "::error::TAP_TOKEN is not set, the tap will keep serving the previous version"
+            echo "::error::TAP_TOKEN is not set, the tap would keep serving the previous version"
             exit 1
           fi
-          ./scripts/update-homebrew-tap.sh "${GITHUB_REF#refs/tags/v}"
+          if ! gh api repos/KevinDoremy/homebrew-tap --silent 2>/dev/null; then
+            echo "::error::TAP_TOKEN cannot read KevinDoremy/homebrew-tap. Check it grants Contents on that repository."
+            exit 1
+          fi
+          echo "Tap token accepted."
+
+      - name: Point the tap at this release
+        env:
+          GH_TOKEN: ${{ secrets.TAP_TOKEN }}
+        run: ./scripts/update-homebrew-tap.sh "${GITHUB_REF#refs/tags/v}"
