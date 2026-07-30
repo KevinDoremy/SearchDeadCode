@@ -162,3 +162,30 @@ jobs:
         with:
           files: release/*
           generate_release_notes: true
+
+  # The formula pins four binaries by URL and checksum, and updating it by hand
+  # meant it silently drifted: the tap served 0.10.2 while the crate shipped
+  # 0.13.0, so `brew install` handed out a tool three releases behind, carrying
+  # false positives that had already been fixed. Nobody noticed, because a stale
+  # formula installs perfectly well.
+  #
+  # Separate job so a tap failure cannot roll back a published release: by this
+  # point the binaries and crates.io are already out.
+  homebrew:
+    name: Update Homebrew tap
+    runs-on: ubuntu-latest
+    needs: release
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Point the tap at this release
+        env:
+          # PAT with contents:write on the tap repo. github.token only reaches
+          # this repository.
+          GH_TOKEN: ${{ secrets.TAP_TOKEN }}
+        run: |
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::TAP_TOKEN is not set, the tap will keep serving the previous version"
+            exit 1
+          fi
+          ./scripts/update-homebrew-tap.sh "${GITHUB_REF#refs/tags/v}"
