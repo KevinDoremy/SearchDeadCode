@@ -1,30 +1,16 @@
 {
-  "version": "0.1.0",
+  "version": "0.1.1",
   "title": "What's New in SearchDeadCode",
-  "tagline": "Dead code across the whole workspace, in one pass",
-  "summary": "The first release brings the searchdeadcode CLI into the editor: one command sweeps the workspace, and every finding lands in the Problems panel where you already work.",
+  "tagline": "A newer analyzer, bundled",
+  "summary": "This release bundles searchdeadcode 0.14.0. The extension itself is unchanged; what changed is the analysis behind it.",
   "highlights": [
     {
-      "title": "One Command, Whole Workspace",
-      "kind": "feature",
-      "description": "\"Scan for dead code\" runs the analyzer over every Kotlin and Java file and reports what nothing reaches: unused declarations, dead parameters, orphaned resources."
-    },
-    {
-      "title": "No CLI Install Needed",
-      "kind": "feature",
-      "description": "Platform builds ship the analyzer inside the extension. Nothing to install, nothing to put on PATH. Point at your own build through searchdeadcode.path if you prefer."
-    },
-    {
-      "title": "Silence a Finding Without Deleting It",
-      "kind": "feature",
-      "description": "Not every finding should go. Add one to the baseline file, or drop an inline ignore that records why the declaration has to stay. Raise searchdeadcode.minConfidence to see only what the analyzer can prove."
+      "title": "Analyzer 0.14.0",
+      "kind": "improvement",
+      "description": "The bundled analyzer moves to 0.14.0. Scans pick up its fixes with nothing to install: see the crate changelog for what changed in the analysis."
     }
   ],
   "sections": [
-    {
-      "title": "Getting Started",
-      "body": "Open a Kotlin or Java project and run \"Scan for dead code (workspace)\" from the command palette. Findings appear in the Problems panel; \"Clear dead code findings\" empties it."
-    },
     {
       "title": "Requirements",
       "body": "The analyzer runs as a local process, so the extension needs a desktop VS Code. It is not available on vscode.dev."
