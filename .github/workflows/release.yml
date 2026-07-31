@@ -169,8 +169,42 @@ jobs:
   # false positives that had already been fixed. Nobody noticed, because a stale
   # formula installs perfectly well.
   #
+  # crates.io was three releases behind GitHub for the same reason the tap was:
+  # publishing it meant remembering to. `cargo install searchdeadcode` served
+  # 0.10.2 while the repo shipped 0.13.0, and the README recommends that command
+  # in two places.
+  #
+  # --locked so the published build resolves the dependency versions that were
+  # actually tested, not whatever is newest at publish time.
+  crates:
+    name: Publish to crates.io
+    runs-on: ubuntu-latest
+    needs: release
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          if [ -z "${CARGO_REGISTRY_TOKEN:-}" ]; then
+            echo "::error::CARGO_REGISTRY_TOKEN is not set, cargo install would keep serving the previous version"
+            exit 1
+          fi
+          # Re-running a release must not fail on a version already up.
+          published="$(curl -s "https://crates.io/api/v1/crates/searchdeadcode" \
+            | python3 -c 'import sys,json; print(json.load(sys.stdin)["crate"]["max_version"])' || echo "")"
+          want="${GITHUB_REF#refs/tags/v}"
+          if [ "$published" = "$want" ]; then
+            echo "crates.io already has $want, nothing to publish."
+            exit 0
+          fi
+          cargo publish --locked
+
   # Separate job so a tap failure cannot roll back a published release: by this
-  # point the binaries and crates.io are already out.
+  # point the binaries are out and crates.io has its own job.
   homebrew:
     name: Update Homebrew tap
     runs-on: ubuntu-latest
@@ -201,3 +235,107 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.TAP_TOKEN }}
         run: ./scripts/update-homebrew-tap.sh "${GITHUB_REF#refs/tags/v}"
+
+  # The extension bundles the analyzer, so a crate release that fixes a false
+  # positive does not reach extension users until the extension is republished.
+  # Left manual, that is the step everyone forgets: the tap and crates.io both
+  # drifted three versions behind for exactly that reason.
+  #
+  # Only the bundled binary changes here, so the extension takes a patch bump.
+  # Its own release workflow resolves the newest v[0-9]* release, which is the
+  # one this run just published.
+  vscode:
+    name: Republish the VS Code extension
+    runs-on: ubuntu-latest
+    needs: [crates, homebrew]
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          # A tag pushed with github.token starts no workflow: GitHub blocks
+          # that to stop runs from triggering runs. The extension's release
+          # would never fire. A PAT does not carry that restriction.
+          token: ${{ secrets.RELEASE_PAT }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+
+      - name: Check the token
+        run: |
+          if [ -z "${{ secrets.RELEASE_PAT }}" ]; then
+            echo "::error::RELEASE_PAT is not set. The extension keeps bundling the previous analyzer."
+            exit 1
+          fi
+
+      - name: Bump the extension patch and tag it
+        working-directory: editors/vscode
+        run: |
+          set -euo pipefail
+          current="$(node -p "require('./package.json').version")"
+          next="$(node -p "
+            const [maj, min, patch] = '$current'.split('.').map(Number);
+            [maj, min, patch + 1].join('.');
+          ")"
+          tag="vscode-v$next"
+
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null 2>&1; then
+            echo "$tag already exists, nothing to do."
+            exit 0
+          fi
+
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            pkg.version = '$next';
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+          # Bumping only the version would leave the panel announcing the
+          # previous release's news under a new number. This release carries
+          # one change, a newer analyzer, so the copy says exactly that.
+          crate_version="${GITHUB_REF#refs/tags/v}"
+          node -e "
+            const fs = require('fs');
+            const wn = JSON.parse(fs.readFileSync('media/whats-new.json', 'utf8'));
+            wn.version = '$next';
+            wn.tagline = 'A newer analyzer, bundled';
+            wn.summary =
+              'This release bundles searchdeadcode $crate_version. The extension itself is ' +
+              'unchanged; what changed is the analysis behind it.';
+            wn.highlights = [{
+              title: 'Analyzer $crate_version',
+              kind: 'improvement',
+              description:
+                'The bundled analyzer moves to $crate_version. Scans pick up its ' +
+                'fixes with nothing to install: see the crate changelog for what ' +
+                'changed in the analysis.',
+            }];
+            wn.sections = (wn.sections || []).filter(s => s.title === 'Requirements');
+            fs.writeFileSync('media/whats-new.json', JSON.stringify(wn, null, 2) + '\n');
+          "
+
+          crate="${GITHUB_REF#refs/tags/v}"
+          {
+            echo "## $next"
+            echo
+            echo "Bundles the searchdeadcode $crate analyzer. See the crate"
+            echo "[CHANGELOG](https://github.com/${GITHUB_REPOSITORY}/blob/main/CHANGELOG.md)"
+            echo "for what changed in the analysis."
+            echo
+          } > /tmp/entry.md
+          # Insert under the title, above the previous release.
+          head -6 CHANGELOG.md > /tmp/new-changelog.md
+          cat /tmp/entry.md >> /tmp/new-changelog.md
+          tail -n +7 CHANGELOG.md >> /tmp/new-changelog.md
+          mv /tmp/new-changelog.md CHANGELOG.md
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json media/whats-new.json CHANGELOG.md
+          git commit -m "chore: extension $next, bundling analyzer $crate"
+          git tag "$tag"
+          git push origin HEAD:main
+          git push origin "$tag"
+          echo "Tagged $tag; its own workflow publishes to both registries."

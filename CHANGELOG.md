@@ -5,6 +5,56 @@ All notable changes to SearchDeadCode will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2026-07-30
+
+### Fixed
+
+- **Nested types referenced through their parent no longer read as dead.**
+  `is Action.Toggled ->` left `Toggled` with no incoming reference, because the
+  parser emitted `Action.Toggled` while resolution matches declared names. The
+  qualified form is what the compiler requires when a variant lives inside its
+  sealed class, so this was the common spelling, not an edge case. Measured on a
+  large Android corpus: five fewer false positives, no finding lost.
+
+- **A cache written by another build is no longer reused.** The key held only
+  the crate version, which separates releases but not two builds of one version.
+  Rebuilding after a parser change silently served the old parser's results.
+
+- **Config parsing moved off the archived `serde_yaml`** to `serde_yaml_bw`,
+  picking up its fix for a memory leak on crafted YAML and for over-reads on
+  malformed streams.
+
+- **`--export-graph` lands through a rename.** It used to truncate in place, so
+  a reader could see a half-written export and a failed write destroyed the
+  previous one.
+
+### Changed
+
+- **The analysis cache is roughly a quarter of its former size.** Every
+  reference stored a copy of its file's import list; on one corpus that was 880
+  MB of a 943 MB cache. The list is written once per file now. Same findings,
+  verified identical down to rule, name, file and line.
+
+- Dependencies refreshed: quick-xml 0.41, ratatui 0.30, crossterm 0.29, clap
+  4.6, plus the lockfile. `tree-sitter` stays at 0.22, capped by
+  `tree-sitter-kotlin`.
+
+### Added
+
+- **A VS Code extension**, on the Marketplace and Open VSX. Platform builds ship
+  the analyzer inside them, so nothing else needs installing.
+
+- **Six detectors documented** that existed but appeared in no reference:
+  unused resources (DC017), unused layouts (DC018), unused Intent extras
+  (DC019), dead Remote Config keys (DC020), dead DTO fields (DC021), orphan
+  translations (DC022). `DETECTORS.md` is now the single reference and covers
+  all 22.
+
+- Releases now publish to crates.io and update the Homebrew tap themselves.
+  Both had drifted three versions behind, so `cargo install` and `brew install`
+  were handing out 0.10.2 with false positives that were already fixed.
+
+
 ## [Unreleased]
 
 ## [0.10.2] - 2026-07-26
