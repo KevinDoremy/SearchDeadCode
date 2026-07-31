@@ -14,7 +14,9 @@ use std::sync::LazyLock;
 static WORD: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"[A-Za-z_][A-Za-z0-9_]*").expect("Invalid word regex"));
 
-fn is_test_file(path: &Path) -> bool {
+/// A source file that belongs to a test source set, by directory
+/// (`test`, `androidTest`, `sharedTest`) or by `*Test`/`*Tests` stem.
+pub fn is_test_file(path: &Path) -> bool {
     let is_source = path
         .extension()
         .is_some_and(|e| e == "kt" || e == "kts" || e == "java");

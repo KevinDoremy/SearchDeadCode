@@ -249,7 +249,7 @@ impl DeepAnalyzer {
                         }
 
                         // Serialization members
-                        if self.is_serialization_member(decl) {
+                        if self.is_serialization_member(decl, graph) {
                             return Some(decl.id.clone());
                         }
 
@@ -306,7 +306,7 @@ impl DeepAnalyzer {
                             return Some(decl.id.clone());
                         }
 
-                        if self.is_serialization_member(decl) {
+                        if self.is_serialization_member(decl, graph) {
                             return Some(decl.id.clone());
                         }
 
@@ -394,7 +394,7 @@ impl DeepAnalyzer {
     }
 
     /// Check if a member is serialization-related
-    fn is_serialization_member(&self, decl: &Declaration) -> bool {
+    fn is_serialization_member(&self, decl: &Declaration, graph: &Graph) -> bool {
         // Check for serialization annotations
         let serialization_annotations = [
             "Serializable",
@@ -416,16 +416,47 @@ impl DeepAnalyzer {
             }
         }
 
-        // Check for common serialization method names
+        // A member of a serializable class is reached reflectively: Java
+        // serialization reads private fields without ever spelling them.
+        if matches!(
+            decl.kind,
+            DeclarationKind::Field | DeclarationKind::Property
+        ) {
+            if let Some(parent_id) = &decl.parent {
+                if let Some(parent) = graph.get_declaration(parent_id) {
+                    let parent_is_serializable = parent.super_types.iter().any(|s| {
+                        let last = s.rsplit('.').next().unwrap_or(s);
+                        matches!(last, "Serializable" | "Parcelable" | "Externalizable")
+                    }) || parent
+                        .annotations
+                        .iter()
+                        .any(|a| serialization_annotations.iter().any(|p| a.contains(p)));
+                    if parent_is_serializable {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        // Check for common serialization method names, including the
+        // reflective hooks of java.io.Serializable
         let serialization_methods = [
             "writeToParcel",
             "describeContents",
             "createFromParcel",
             "newArray",
             "readFromParcel",
+            "writeObject",
+            "readObject",
+            "readObjectNoData",
+            "writeReplace",
+            "readResolve",
         ];
 
-        if decl.kind == DeclarationKind::Function {
+        if matches!(
+            decl.kind,
+            DeclarationKind::Function | DeclarationKind::Method
+        ) {
             for method in &serialization_methods {
                 if decl.name == *method {
                     return true;
@@ -555,7 +586,7 @@ impl DeepAnalyzer {
             }
 
             // Skip serialization members
-            if self.is_serialization_member(decl) {
+            if self.is_serialization_member(decl, graph) {
                 continue;
             }
 
@@ -875,6 +906,12 @@ impl DeepAnalyzer {
 
         // Skip Kotlin const val properties (they are inlined at compile time)
         if self.is_const_val(decl) {
+            return true;
+        }
+
+        // Skip serialization members: a private field of a Serializable
+        // class is read reflectively, never by name
+        if self.is_serialization_member(decl, graph) {
             return true;
         }
 

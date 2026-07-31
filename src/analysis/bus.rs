@@ -11,10 +11,11 @@ use std::collections::BTreeSet;
 use std::sync::LazyLock;
 
 /// Kotlin: `@Subscribe ... fun name(param: Type` — tolère une annotation
-/// de paramètre (`@Suppress("unused") event: Type`)
+/// de paramètre (`@Suppress("unused") event: Type`), les arguments
+/// d'annotation, et le handler écrit sur la même ligne que `@Subscribe`
 static KOTLIN_SUBSCRIBER: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r#"@Subscribe\b[^\n]*\n\s*(?:[a-z]+\s+)*fun\s+\w+\(\s*(?:@\w+(?:\([^)]*\))?\s+)*\w+\s*:\s*([A-Z]\w*(?:\.[A-Z]\w*)*)"#,
+        r#"@Subscribe\b(?:\([^)]*\))?\s*(?:[a-z]+\s+)*fun\s+\w+\(\s*(?:@\w+(?:\([^)]*\))?\s+)*\w+\s*:\s*([A-Z]\w*(?:\.[A-Z]\w*)*)"#,
     )
     .expect("Invalid Kotlin subscriber regex")
 });
@@ -24,9 +25,18 @@ static KOTLIN_SUBSCRIBER: LazyLock<Regex> = LazyLock::new(|| {
 /// omniprésents dans les bases Java
 static JAVA_SUBSCRIBER: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r#"@Subscribe\b[^\n]*\n\s*(?:[a-z]+\s+)*void\s+\w+\(\s*(?:@\w+(?:\([^)]*\))?\s+)*(?:final\s+)?([A-Z]\w*(?:\.[A-Z]\w*)*)\s+\w+"#,
+        r#"@Subscribe\b(?:\([^)]*\))?\s*(?:[a-z]+\s+)*void\s+\w+\(\s*(?:@\w+(?:\([^)]*\))?\s+)*(?:final\s+)?([A-Z]\w*(?:\.[A-Z]\w*)*)\s+\w+"#,
     )
     .expect("Invalid Java subscriber regex")
+});
+
+/// Souscription inline sans `@Subscribe` : `bus.subscribe<FooEvent> { … }`,
+/// `bus.register(TapEvent::class) { … }`, `bus.subscribe(E::class.java, l)`
+static INLINE_SUBSCRIBER: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"\.(?:subscribe|register)\s*(?:<\s*([A-Z]\w*(?:\.[A-Z]\w*)*)\s*>|\(\s*([A-Z]\w*(?:\.[A-Z]\w*)*)::class)",
+    )
+    .expect("Invalid inline subscriber regex")
 });
 
 /// `.post(FooEvent(` / `.post(new FooEvent(` / `.post(Parent.Variant(` /
@@ -36,9 +46,37 @@ static LITERAL_POST: LazyLock<Regex> = LazyLock::new(|| {
         .expect("Invalid post regex")
 });
 
-/// `.post(someVariable)` — a post whose type cannot be known statically
+/// `.post(someVariable)` — the variable's declared type is looked up in the
+/// corpus; unresolved posts feed the honest caveat count
 static DYNAMIC_POST: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\.post(?:Sticky)?\(\s*[a-z]\w*\s*\)").expect("Invalid dynamic post regex")
+    Regex::new(r"\.post(?:Sticky)?\(\s*([a-z]\w*)\s*\)").expect("Invalid dynamic post regex")
+});
+
+/// `.post(buildEvent())` / `.post(factory.create(x))` — the callee's declared
+/// return type is looked up in the corpus
+static FACTORY_POST: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\.post(?:Sticky)?\(\s*(?:[\w.]+\.)?([a-z]\w*)\s*\(")
+        .expect("Invalid factory post regex")
+});
+
+/// Kotlin supertype list: `class Foo(...) : Bar(), Runnable, Baz<T>` —
+/// interfaces carry no parens, so this is broader than KOTLIN_SUBTYPE
+static KOTLIN_SUPERTYPES: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?:class|object)\s+(\w+)(?:\s*\([^)]*\))?\s*:\s*([^{\n]+)")
+        .expect("Invalid Kotlin supertypes regex")
+});
+
+/// Java implements clause: `class Foo extends Bar implements Runnable, Baz`
+static JAVA_IMPLEMENTS: LazyLock<Regex> = LazyLock::new(|| {
+    // `record` as well as `class`: a Java 16 record implements interfaces like
+    // anything else, and one posted to UIThread is thread dispatch. Asking for
+    // the literal `class` let records through as events.
+    // The record's component list sits between the name and `implements`, so it
+    // is skipped rather than assumed absent.
+    Regex::new(
+        r"(?:class|record)\s+(\w+)(?:\s*\([^)]*\))?(?:\s+extends\s+\w+)?\s+implements\s+([^{\n]+)",
+    )
+    .expect("Invalid Java implements regex")
 });
 
 /// Kotlin subclassing: `class Open(...) : MediaEvent(` — un handler abonné au
@@ -70,6 +108,48 @@ impl BusReport {
     }
 }
 
+/// Declared types of a variable posted dynamically: Kotlin `pending: Type`
+/// (val, var ou paramètre), Kotlin `val pending = Type(...)`, Java
+/// `Type pending`. Every match counts — ambiguity widens the covering set.
+fn variable_types(corpus: &str, name: &str) -> Vec<String> {
+    let patterns = [
+        format!(r"\b{name}\s*:\s*([A-Z][\w.]*)"),
+        format!(r"\b(?:val|var)\s+{name}\s*=\s*([A-Z][\w.]*)\s*\("),
+        format!(r"\b([A-Z][\w.]*)\s+{name}\s*[=;,)]"),
+    ];
+    collect_types(corpus, &patterns)
+}
+
+/// Declared return types of a factory posted from: Kotlin
+/// `fun make(...): Type`, Java `Type make(`.
+fn factory_return_types(corpus: &str, name: &str) -> Vec<String> {
+    let patterns = [
+        format!(r"\bfun\s+{name}\s*\([^)]*\)\s*:\s*([A-Z][\w.]*)"),
+        format!(r"\b([A-Z][\w.]*)\s+{name}\s*\("),
+    ];
+    collect_types(corpus, &patterns)
+}
+
+fn collect_types(corpus: &str, patterns: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    for pattern in patterns {
+        let Ok(re) = Regex::new(pattern) else {
+            continue;
+        };
+        for cap in re.captures_iter(corpus) {
+            let ty = cap[1].trim_end_matches('.').to_string();
+            // Any/Object ne bornent rien : le post reste dynamique.
+            if ty == "Any" || ty == "Object" {
+                continue;
+            }
+            if !out.contains(&ty) {
+                out.push(ty);
+            }
+        }
+    }
+    out
+}
+
 /// Analyze the concatenated project sources
 pub fn analyze(corpus: &str) -> BusReport {
     // Type qualifié (`MainActivity.PausedEvent`) : le type souscrit est le
@@ -77,11 +157,58 @@ pub fn analyze(corpus: &str) -> BusReport {
     let subscribed: BTreeSet<String> = KOTLIN_SUBSCRIBER
         .captures_iter(corpus)
         .chain(JAVA_SUBSCRIBER.captures_iter(corpus))
-        .map(|c| {
-            let path = c[1].to_string();
-            path.rsplit('.').next().unwrap_or(&path).to_string()
-        })
+        .map(|c| c[1].to_string())
+        .chain(INLINE_SUBSCRIBER.captures_iter(corpus).map(|c| {
+            c.get(1)
+                .or_else(|| c.get(2))
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default()
+        }))
+        .filter(|path| !path.is_empty())
+        .map(|path| path.rsplit('.').next().unwrap_or(&path).to_string())
         .collect();
+
+    // Toutes les relations de sous-typage, interfaces comprises : c'est ce
+    // qui permet de reconnaître un `FlushTask implements Runnable` posté.
+    let supertypes: std::collections::HashMap<String, Vec<String>> = {
+        let mut map: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
+        for cap in KOTLIN_SUPERTYPES
+            .captures_iter(corpus)
+            .chain(JAVA_IMPLEMENTS.captures_iter(corpus))
+        {
+            let child = cap[1].to_string();
+            let parents = cap[2]
+                .split(',')
+                .filter_map(|entry| {
+                    let entry = entry.trim();
+                    let end = entry
+                        .find(|c: char| !(c.is_alphanumeric() || c == '_'))
+                        .unwrap_or(entry.len());
+                    let name = &entry[..end];
+                    (!name.is_empty()).then(|| name.to_string())
+                })
+                .collect::<Vec<_>>();
+            map.entry(child).or_default().extend(parents);
+        }
+        map
+    };
+    let reaches_runnable = |name: &str| -> bool {
+        let mut stack = vec![name.to_string()];
+        let mut seen = std::collections::HashSet::new();
+        while let Some(current) = stack.pop() {
+            if current.ends_with("Runnable") {
+                return true;
+            }
+            if !seen.insert(current.clone()) {
+                continue;
+            }
+            if let Some(parents) = supertypes.get(&current) {
+                stack.extend(parents.iter().cloned());
+            }
+        }
+        false
+    };
     // Handler.post(new Runnable() {...}) is thread dispatch, not an event
     // Un post qualifié `Parent.Variant(...)` : seul le dernier segment est
     // le type instancié (signalable) ; les préfixes COUVRENT une
@@ -96,9 +223,9 @@ pub fn analyze(corpus: &str) -> BusReport {
         let Some(last) = segments.last().cloned() else {
             continue;
         };
-        // Un `SomeRunnable` posté est du thread dispatch (UIThread/Handler),
-        // pas un event — même logique que le Runnable anonyme
-        if last.ends_with("Runnable") {
+        // Un Runnable posté — par son nom ou par sa chaîne de supertypes —
+        // est du thread dispatch (UIThread/Handler), pas un event
+        if reaches_runnable(&last) {
             continue;
         }
         posted_covering.extend(segments.iter().cloned());
@@ -108,7 +235,38 @@ pub fn analyze(corpus: &str) -> BusReport {
             .extend(segments[..segments.len() - 1].iter().cloned());
         posted.insert(last);
     }
-    let dynamic_posts = DYNAMIC_POST.find_iter(corpus).count();
+    // Un post dynamique dont la variable a un type déclaré dans le corpus, ou
+    // dont la factory déclare son type de retour, est borné : le type COUVRE
+    // les souscriptions (jamais signalé comme orphelin — la résolution par
+    // nom est approximative). Seuls les posts irrésolus comptent au caveat.
+    let mut resolved_covering: BTreeSet<String> = BTreeSet::new();
+    let mut dynamic_posts = 0usize;
+    let mut cache: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    for cap in DYNAMIC_POST.captures_iter(corpus) {
+        let var = cap[1].to_string();
+        let types = cache
+            .entry(var.clone())
+            .or_insert_with(|| variable_types(corpus, &var))
+            .clone();
+        if types.is_empty() {
+            dynamic_posts += 1;
+        } else {
+            resolved_covering.extend(types);
+        }
+    }
+    for cap in FACTORY_POST.captures_iter(corpus) {
+        let callee = format!("{}()", &cap[1]);
+        let types = cache
+            .entry(callee)
+            .or_insert_with(|| factory_return_types(corpus, &cap[1]))
+            .clone();
+        if types.is_empty() {
+            dynamic_posts += 1;
+        } else {
+            resolved_covering.extend(types);
+        }
+    }
 
     if subscribed.is_empty() && posted.is_empty() {
         return BusReport::default(); // no bus in this project
@@ -152,7 +310,12 @@ pub fn analyze(corpus: &str) -> BusReport {
 
     let posted_with_ancestors: BTreeSet<String> = posted
         .iter()
-        .flat_map(|name| std::iter::once(name.clone()).chain(ancestors(name)))
+        .chain(resolved_covering.iter())
+        .flat_map(|name| {
+            let last = name.rsplit('.').next().unwrap_or(name).to_string();
+            let chain = ancestors(&last);
+            std::iter::once(last).chain(chain)
+        })
         .chain(posted_covering.iter().cloned())
         .collect();
     let subscribed_never_posted = subscribed
@@ -230,6 +393,24 @@ mod tests {
         assert!(
             report.is_empty(),
             "un Runnable nommé posté à un Handler n'est pas un event: {report:?}"
+        );
+    }
+
+    /// Java 16 records implement interfaces like anything else, and a record
+    /// posted to UIThread is thread dispatch. The supertype regex asked for
+    /// the literal `class`, so a record never reached the Runnable check.
+    #[test]
+    fn a_record_implementing_runnable_is_not_an_event() {
+        let corpus = "\
+UIThread.post(new HandleRefreshDone(this));
+private record HandleRefreshDone(WeakReference<Frag> ref) implements Runnable {
+    public void run() {}
+}
+";
+        let report = analyze(corpus);
+        assert!(
+            !report.posted_never_subscribed.contains("HandleRefreshDone"),
+            "a record implementing Runnable is thread dispatch: {report:?}"
         );
     }
 
@@ -400,6 +581,147 @@ mod tests {
             report.is_empty(),
             "un post qualifié Parent.Variant nourrit l'abonné du parent: {report:?}"
         );
+    }
+
+    #[test]
+    fn a_runnable_by_interface_posted_to_a_handler_is_not_an_event() {
+        // Cas réel : la classe ne s'appelle pas *Runnable mais implémente
+        // Runnable — la poster sur UIThread est du thread dispatch.
+        let corpus = concat!(
+            "class AdRefreshTask(private val ctx: Context) : Runnable {\n",
+            "    override fun run() {}\n",
+            "}\n",
+            "uiThread.post(AdRefreshTask(ctx))\n",
+        );
+        let report = analyze(corpus);
+        assert!(
+            report.is_empty(),
+            "une classe qui implémente Runnable n'est pas un event: {report:?}"
+        );
+    }
+
+    #[test]
+    fn a_java_runnable_implementer_posted_is_not_an_event() {
+        let corpus = concat!(
+            "public class FlushTask implements Runnable {\n",
+            "    public void run() {}\n",
+            "}\n",
+            "handler.post(new FlushTask());\n",
+        );
+        let report = analyze(corpus);
+        assert!(
+            report.is_empty(),
+            "implements Runnable = thread dispatch, pas un event: {report:?}"
+        );
+    }
+
+    #[test]
+    fn a_same_line_subscribe_fun_is_a_subscription() {
+        let corpus = concat!(
+            "@Subscribe fun onPing(event: PingEvent) = handle(event)\n",
+            "bus.post(PingEvent())\n",
+            "@Subscribe public void onPong(PongEvent event) {}\n",
+            "bus.post(new PongEvent());\n",
+        );
+        let report = analyze(corpus);
+        assert!(
+            report.is_empty(),
+            "@Subscribe et fun/void sur la même ligne restent une souscription: {report:?}"
+        );
+    }
+
+    #[test]
+    fn an_inline_generic_subscription_is_seen() {
+        let corpus = concat!(
+            "bus.subscribe<ScrollEvent> { handle(it) }\n",
+            "bus.post(ScrollEvent())\n",
+        );
+        let report = analyze(corpus);
+        assert!(
+            report.is_empty(),
+            "une souscription inline `subscribe<T> {{ }}` compte: {report:?}"
+        );
+    }
+
+    #[test]
+    fn a_class_literal_subscription_is_seen() {
+        let corpus = concat!(
+            "bus.register(TapEvent::class) { onTap(it) }\n",
+            "bus.post(TapEvent())\n",
+            "bus.subscribe(SwipeEvent::class.java, listener)\n",
+            "bus.post(SwipeEvent())\n",
+        );
+        let report = analyze(corpus);
+        assert!(
+            report.is_empty(),
+            "une souscription par littéral de classe compte: {report:?}"
+        );
+    }
+
+    #[test]
+    fn a_post_via_typed_variable_satisfies_the_subscription() {
+        let corpus = concat!(
+            "@Subscribe\nfun on(event: SyncEvent) {}\n",
+            "val pending: SyncEvent = SyncEvent()\n",
+            "bus.post(pending)\n",
+        );
+        let report = analyze(corpus);
+        assert!(
+            report.subscribed_never_posted.is_empty(),
+            "un post via variable typée nourrit la souscription: {report:?}"
+        );
+        assert_eq!(report.dynamic_posts, 0, "le post est résolu, pas dynamique");
+    }
+
+    #[test]
+    fn a_post_via_constructor_inferred_variable_satisfies_the_subscription() {
+        let corpus = concat!(
+            "@Subscribe\nfun on(event: RetryEvent) {}\n",
+            "val retry = RetryEvent()\n",
+            "bus.post(retry)\n",
+        );
+        let report = analyze(corpus);
+        assert!(
+            report.subscribed_never_posted.is_empty(),
+            "un post via variable inférée du constructeur nourrit la souscription: {report:?}"
+        );
+    }
+
+    #[test]
+    fn a_post_via_factory_return_type_satisfies_the_subscription() {
+        let corpus = concat!(
+            "@Subscribe\nfun on(event: BuiltEvent) {}\n",
+            "fun buildEvent(): BuiltEvent = BuiltEvent()\n",
+            "bus.post(buildEvent())\n",
+            "@Subscribe\npublic void onJ(MadeEvent event) {}\n",
+            "public MadeEvent makeEvent() { return new MadeEvent(); }\n",
+            "bus.post(makeEvent());\n",
+        );
+        let report = analyze(corpus);
+        assert!(
+            report.subscribed_never_posted.is_empty(),
+            "le type de retour d'une factory borne le post: {report:?}"
+        );
+    }
+
+    #[test]
+    fn a_resolved_variable_post_is_never_reported_as_orphan() {
+        // La résolution par nom est approximative : elle COUVRE les
+        // souscriptions mais ne fabrique jamais un orphelin signalable.
+        let corpus = "val e = LonelyEvent()\nbus.post(e)\n@Subscribe\nfun on(x: OtherEvent) {}\n";
+        let report = analyze(corpus);
+        assert!(
+            !report.posted_never_subscribed.contains("LonelyEvent"),
+            "un post résolu par variable ne devient pas un orphelin: {report:?}"
+        );
+    }
+
+    #[test]
+    fn an_unresolvable_variable_still_counts_as_dynamic() {
+        let corpus = "@Subscribe\nfun on(event: MaybeEvent) {}\nbus.post(mystery)\n";
+        let report = analyze(corpus);
+        assert_eq!(report.dynamic_posts, 1);
+        assert!(report.subscribed_never_posted.contains("MaybeEvent"));
     }
 
     #[test]
