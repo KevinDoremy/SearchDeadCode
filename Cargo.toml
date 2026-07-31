@@ -1,6 +1,6 @@
 [package]
 name = "searchdeadcode"
-version = "0.13.0"
+version = "0.14.0"
 edition = "2021"
 default-run = "searchdeadcode"
 rust-version = "1.80"  # MSRV - Minimum Supported Rust Version (LazyLock)

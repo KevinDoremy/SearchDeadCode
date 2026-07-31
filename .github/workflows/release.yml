@@ -169,8 +169,42 @@ jobs:
   # false positives that had already been fixed. Nobody noticed, because a stale
   # formula installs perfectly well.
   #
+  # crates.io was three releases behind GitHub for the same reason the tap was:
+  # publishing it meant remembering to. `cargo install searchdeadcode` served
+  # 0.10.2 while the repo shipped 0.13.0, and the README recommends that command
+  # in two places.
+  #
+  # --locked so the published build resolves the dependency versions that were
+  # actually tested, not whatever is newest at publish time.
+  crates:
+    name: Publish to crates.io
+    runs-on: ubuntu-latest
+    needs: release
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          if [ -z "${CARGO_REGISTRY_TOKEN:-}" ]; then
+            echo "::error::CARGO_REGISTRY_TOKEN is not set, cargo install would keep serving the previous version"
+            exit 1
+          fi
+          # Re-running a release must not fail on a version already up.
+          published="$(curl -s "https://crates.io/api/v1/crates/searchdeadcode" \
+            | python3 -c 'import sys,json; print(json.load(sys.stdin)["crate"]["max_version"])' || echo "")"
+          want="${GITHUB_REF#refs/tags/v}"
+          if [ "$published" = "$want" ]; then
+            echo "crates.io already has $want, nothing to publish."
+            exit 0
+          fi
+          cargo publish --locked
+
   # Separate job so a tap failure cannot roll back a published release: by this
-  # point the binaries and crates.io are already out.
+  # point the binaries are out and crates.io has its own job.
   homebrew:
     name: Update Homebrew tap
     runs-on: ubuntu-latest
