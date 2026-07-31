@@ -292,10 +292,27 @@ jobs:
             pkg.version = '$next';
             fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
           "
+          # Bumping only the version would leave the panel announcing the
+          # previous release's news under a new number. This release carries
+          # one change, a newer analyzer, so the copy says exactly that.
+          crate_version="${GITHUB_REF#refs/tags/v}"
           node -e "
             const fs = require('fs');
             const wn = JSON.parse(fs.readFileSync('media/whats-new.json', 'utf8'));
             wn.version = '$next';
+            wn.tagline = 'A newer analyzer, bundled';
+            wn.summary =
+              'This release bundles searchdeadcode $crate_version. The extension itself is ' +
+              'unchanged; what changed is the analysis behind it.';
+            wn.highlights = [{
+              title: 'Analyzer $crate_version',
+              kind: 'improvement',
+              description:
+                'The bundled analyzer moves to $crate_version. Scans pick up its ' +
+                'fixes with nothing to install: see the crate changelog for what ' +
+                'changed in the analysis.',
+            }];
+            wn.sections = (wn.sections || []).filter(s => s.title === 'Requirements');
             fs.writeFileSync('media/whats-new.json', JSON.stringify(wn, null, 2) + '\n');
           "
 
