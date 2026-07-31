@@ -92,7 +92,7 @@ pub use unused_param::UnusedParamDetector;
 pub use unused_property::UnusedPropertyDetector;
 pub use write_only::WriteOnlyDetector;
 pub use write_only_dao::{DaoAnalysis, DaoCollectionAnalysis, WriteOnlyDaoDetector};
-pub use write_only_prefs::{SharedPrefsAnalysis, WriteOnlyPrefsDetector};
+pub use write_only_prefs::{resolve_constant_keys, SharedPrefsAnalysis, WriteOnlyPrefsDetector};
 
 // Anti-pattern detectors
 pub use deep_inheritance::DeepInheritanceDetector;

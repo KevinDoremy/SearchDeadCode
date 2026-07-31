@@ -110,6 +110,13 @@ enum class Status {
 }
 ```
 
+Guards: an enum iterated exhaustively keeps every case — qualified
+(`Status.values()`, `Status.entries`, `Status.valueOf`, `enumValues<Status>()`,
+`enumEntries<Status>()`) or bare in the enum's own file (`values()`,
+`valueOf(`, `entries`, the companion-helper idiom). Annotated cases are kept
+(serialized names live in string form), and enums declared in test source
+sets are never reported.
+
 **CLI**: Enabled by default
 
 ---
@@ -190,6 +197,12 @@ Finds SharedPreferences keys that are written but never read.
 prefs.edit().putLong("last_sync", System.currentTimeMillis()).apply()
 // No getString("last_sync", ...) or getLong("last_sync", ...) anywhere
 ```
+
+Constant keys resolve to their literal value (`KEY_TOKEN` = `"auth_token"`),
+including qualified references (`PrefKeys.KEY_TOKEN`). When any read goes
+through a variable key (`prefs.getString(key, null)` — the
+wrapper-with-parameterized-keys idiom), the read side cannot be enumerated:
+candidates are withheld with an explicit caveat instead of guessed.
 
 **CLI**: `--write-only-prefs`
 

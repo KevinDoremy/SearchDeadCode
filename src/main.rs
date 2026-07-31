@@ -4029,16 +4029,19 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     // extracts enum entries; an enum iterated reflectively keeps its cases.
     {
         let reflective = analysis::detectors::reflectively_iterated_enum_ids(&graph);
-        if !reflective.is_empty() {
-            dead_code.retain(|dc| {
-                !(matches!(dc.issue, analysis::DeadCodeIssue::UnusedEnumCase)
-                    && dc
-                        .declaration
-                        .parent
-                        .as_ref()
-                        .is_some_and(|p| reflective.contains(p)))
-            });
-        }
+        dead_code.retain(|dc| {
+            if !matches!(dc.issue, analysis::DeadCodeIssue::UnusedEnumCase) {
+                return true;
+            }
+            // An enum declared in a test source set is the test's business.
+            if analysis::test_refs::is_test_file(&dc.declaration.location.file) {
+                return false;
+            }
+            !dc.declaration
+                .parent
+                .as_ref()
+                .is_some_and(|p| reflective.contains(p))
+        });
         let branch_issues = DeadBranchDetector::new().detect(&graph);
         if !branch_issues.is_empty() {
             info!("Found {} dead branches", branch_issues.len());
@@ -4299,6 +4302,7 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         // Analyze Kotlin AND Java files for SharedPreferences usage —
         // put/get patterns read the same in both languages
         let mut prefs_analysis = analysis::detectors::SharedPrefsAnalysis::new();
+        let mut prefs_corpus = String::new();
         for file in &files {
             if matches!(file.file_type, FileType::Kotlin | FileType::Java) {
                 if let Ok(content) = std::fs::read_to_string(&file.path) {
@@ -4314,12 +4318,34 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
                             prefs_analysis.add_read(key.clone(), loc.file, loc.line);
                         }
                     }
+                    prefs_analysis.dynamic_reads += file_analysis.dynamic_reads;
+                    prefs_corpus.push_str(&content);
+                    prefs_corpus.push('\n');
                 }
             }
         }
 
+        // Une écriture via constante et une lecture via littéral (ou une
+        // référence qualifiée) désignent la même clé une fois résolues
+        analysis::detectors::resolve_constant_keys(&mut prefs_analysis, &prefs_corpus);
+
         let write_only_keys = prefs_analysis.get_write_only_keys();
-        if !write_only_keys.is_empty() {
+        if prefs_analysis.dynamic_reads > 0 {
+            // Un wrapper à clés paramétrées lit des clés qu'aucun scan ne
+            // peut énumérer : le verdict write-only n'est pas prouvable.
+            if !write_only_keys.is_empty() && !cli.quiet {
+                println!();
+                println!(
+                    "{}",
+                    format!(
+                        "🔑 {} preference read(s) go through a variable key — write-only verdicts are unprovable, {} candidate key(s) not reported",
+                        prefs_analysis.dynamic_reads,
+                        write_only_keys.len()
+                    )
+                    .dimmed()
+                );
+            }
+        } else if !write_only_keys.is_empty() {
             info!(
                 "Found {} write-only SharedPreferences keys",
                 write_only_keys.len()

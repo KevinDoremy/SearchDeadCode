@@ -1,6 +1,6 @@
 [package]
 name = "searchdeadcode"
-version = "0.14.0"
+version = "0.14.1"
 edition = "2021"
 default-run = "searchdeadcode"
 rust-version = "1.80"  # MSRV - Minimum Supported Rust Version (LazyLock)
@@ -183,6 +183,18 @@ path = "tests/integration/module_usage_tests.rs"
 [[test]]
 name = "bus"
 path = "tests/integration/bus_tests.rs"
+
+[[test]]
+name = "enum_guards"
+path = "tests/integration/enum_guard_tests.rs"
+
+[[test]]
+name = "java_member_guards"
+path = "tests/integration/java_member_guard_tests.rs"
+
+[[test]]
+name = "prefs_guards"
+path = "tests/integration/prefs_guard_tests.rs"
 
 [[test]]
 name = "detectors"

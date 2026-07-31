@@ -5,6 +5,56 @@ All notable changes to SearchDeadCode will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.1] - 2026-07-31
+
+### Fixed
+
+- **DC005 no longer flags cases of an enum iterated without its type prefix.**
+  A companion `from()` helper writes `values().first { … }`, not
+  `Status.values()`; the guard only knew the qualified spellings. Bare
+  `values()` / `valueOf(` / `entries` in the enum's own file now protect it,
+  and `enumEntries<T>()` joins the qualified needle list. Measured against a
+  large Android corpus: nine false positives gone.
+
+- **DC005 stays out of test source sets.** An enum declared under `test/`,
+  `androidTest/`, `sharedTest/` or in a `*Test` file is the test's business;
+  its cases are no longer reported, on the detector path and on the
+  reachability retain alike.
+
+- **A class that implements `Runnable` is no longer a bus event.** The guard
+  matched on the `*Runnable` name suffix only; `uiThread.post(AdRefreshTask(…))`
+  slipped through. Posts now walk the supertype chain (Kotlin interface lists
+  and Java `implements` included) before calling something an event.
+
+- **A Java `record` implementing `Runnable` is no longer a bus event.** The
+  supertype regex asked for the literal `class`, so a record never reached the
+  thread-dispatch guard: `UIThread.post(new HandleRefreshDone(this))` read as a
+  posted event. Two more false positives gone on the same corpus.
+
+- **Inline subscriptions are seen.** `@Subscribe fun` on one line,
+  `bus.subscribe<FooEvent> { … }` and `bus.register(TapEvent::class) { … }`
+  all count as subscriptions; their events no longer read as
+  posted-never-subscribed.
+
+- **Dynamic posts resolve through variables and factories.** `bus.post(pending)`
+  looks up `pending`'s declared type, `bus.post(buildEvent())` looks up the
+  callee's return type; resolved types satisfy subscriptions (never reported
+  as orphans — name-level resolution stays approximate) and only truly
+  unresolvable posts feed the caveat count.
+
+- **DC001 leaves the fields of a `Serializable` class alone.** Java
+  serialization reads private fields reflectively; the serialization guard now
+  walks the parent's supertypes and covers `writeObject`/`readObject`-style
+  hooks, on both the unreachable and the unused-member paths.
+
+- **DC010 says "unprovable" instead of guessing.** A preference wrapper with a
+  parameterized key (`fun read(key: String) = prefs.getString(key, null)`)
+  makes the read side impossible to enumerate: write-only candidates are
+  withheld with an explicit caveat instead of reported. Constant keys resolve
+  to their literal (`KEY_TOKEN` = `"auth_token"`) so a write through the
+  constant meets its read through the literal, and qualified constant
+  references (`PrefKeys.KEY_SESSION`) match their unqualified spelling.
+
 ## [0.14.0] - 2026-07-30
 
 ### Fixed

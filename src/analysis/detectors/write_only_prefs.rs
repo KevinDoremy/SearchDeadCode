@@ -46,6 +46,9 @@ pub struct SharedPrefsAnalysis {
     pub writes: HashMap<String, Vec<PrefKeyLocation>>,
     /// Keys that are read (key -> locations)
     pub reads: HashMap<String, Vec<PrefKeyLocation>>,
+    /// Reads through a variable key (`prefs.getString(key, …)`): the read
+    /// side cannot be enumerated, so no write-only verdict is provable
+    pub dynamic_reads: usize,
 }
 
 impl SharedPrefsAnalysis {
@@ -172,11 +175,29 @@ impl WriteOnlyPrefsDetector {
             for pattern in &read_patterns {
                 if let Some(key) = self.extract_key_from_line(line, pattern) {
                     analysis.add_read(key, file.to_path_buf(), line_num + 1);
+                } else if Self::is_dynamic_pref_read(line, pattern) {
+                    analysis.dynamic_reads += 1;
                 }
             }
         }
 
         analysis
+    }
+
+    /// A read whose key is a variable, on a preferences receiver: the
+    /// wrapper-with-parameterized-keys idiom. `resources.getString(resId)`
+    /// and `list.contains(x)` share the pattern but not the receiver.
+    fn is_dynamic_pref_read(line: &str, pattern: &str) -> bool {
+        if !line.to_lowercase().contains("pref") {
+            return false;
+        }
+        let Some(idx) = line.find(pattern) else {
+            return false;
+        };
+        let arg = line[idx + pattern.len()..].trim_start();
+        arg.chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_lowercase() || c == '_')
     }
 
     /// Une ligne qui opère sur un Bundle/Intent, pas sur des prefs :
@@ -212,19 +233,21 @@ impl WriteOnlyPrefsDetector {
             return Some(rest[..end].to_string());
         }
 
-        // Handle constant reference: putString(KEY_NAME, ...)
-        // We need to track these separately
+        // Handle constant reference: putString(KEY_NAME, ...) — possibly
+        // qualified (`PrefKeys.KEY_NAME`): the constant is the last segment
         let trimmed = after_pattern.trim_start();
         if let Some(end) = trimmed.find(',').or_else(|| trimmed.find(')')) {
             let key_ref = trimmed[..end].trim();
-            // If it looks like a constant (all caps or contains underscore)
-            if key_ref
-                .chars()
-                .all(|c| c.is_ascii_uppercase() || c == '_' || c.is_ascii_digit())
+            let last = key_ref.rsplit('.').next().unwrap_or(key_ref);
+            if !last.is_empty()
+                && last.chars().next().is_some_and(|c| c.is_ascii_uppercase())
+                && last
+                    .chars()
+                    .all(|c| c.is_ascii_uppercase() || c == '_' || c.is_ascii_digit())
             {
-                // Return the constant name as the key for now
-                // A more sophisticated approach would resolve the constant value
-                return Some(format!("${}", key_ref));
+                // The `$` marks a symbolic key; resolve_constant_keys() maps
+                // it to its literal when the corpus pins a single value
+                return Some(format!("${}", last));
             }
         }
 
@@ -236,6 +259,45 @@ impl Default for WriteOnlyPrefsDetector {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Resolve `$CONSTANT` pseudo-keys against `CONSTANT = "literal"`
+/// assignments found in the corpus, unifying a write through the constant
+/// with a read through the literal (and vice versa). A constant bound to
+/// two different literals stays symbolic — guessing would fabricate reads.
+pub fn resolve_constant_keys(analysis: &mut SharedPrefsAnalysis, corpus: &str) {
+    use regex::Regex;
+    use std::sync::LazyLock;
+    static CONST_DEF: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r#"\b([A-Z][A-Z0-9_]*)\s*=\s*"([^"]*)""#).expect("Invalid constant regex")
+    });
+
+    let mut values: HashMap<String, Option<String>> = HashMap::new();
+    for cap in CONST_DEF.captures_iter(corpus) {
+        let name = cap[1].to_string();
+        let value = cap[2].to_string();
+        values
+            .entry(name)
+            .and_modify(|v| {
+                if v.as_deref() != Some(value.as_str()) {
+                    *v = None; // ambiguous
+                }
+            })
+            .or_insert(Some(value));
+    }
+
+    let rename = |map: &mut HashMap<String, Vec<PrefKeyLocation>>| {
+        let symbolic: Vec<String> = map.keys().filter(|k| k.starts_with('$')).cloned().collect();
+        for key in symbolic {
+            if let Some(Some(value)) = values.get(&key[1..]) {
+                if let Some(locations) = map.remove(&key) {
+                    map.entry(value.clone()).or_default().extend(locations);
+                }
+            }
+        }
+    };
+    rename(&mut analysis.writes);
+    rename(&mut analysis.reads);
 }
 
 /// Convert analysis results to DeadCode issues
@@ -411,6 +473,114 @@ mod tests {
         let write_only = analysis.get_write_only_keys();
         assert_eq!(write_only.len(), 1);
         assert!(write_only.contains(&&"key2".to_string()));
+    }
+
+    #[test]
+    fn a_parameterized_read_wrapper_is_counted_as_dynamic() {
+        // Cas réel : un PreferenceService expose `get(key: String)` — la
+        // lecture est inénumérable, aucun verdict write-only n'est prouvable.
+        let detector = WriteOnlyPrefsDetector::new();
+        let source = r#"
+            fun save() {
+                prefs.edit().putString("orphan_key", "value").apply()
+            }
+            fun read(key: String): String? {
+                return prefs.getString(key, null)
+            }
+        "#;
+
+        let analysis = detector.analyze_source(source, &PathBuf::from("PreferenceService.kt"));
+        assert_eq!(
+            analysis.dynamic_reads, 1,
+            "une lecture à clé variable est comptée, pas devinée"
+        );
+    }
+
+    #[test]
+    fn resources_get_string_is_not_a_dynamic_pref_read() {
+        let detector = WriteOnlyPrefsDetector::new();
+        let source = r#"
+            fun label(): String {
+                return resources.getString(R.string.title)
+            }
+            fun member(item: String): Boolean {
+                return allowed.contains(item)
+            }
+        "#;
+
+        let analysis = detector.analyze_source(source, &PathBuf::from("Ui.kt"));
+        assert_eq!(
+            analysis.dynamic_reads, 0,
+            "getString(resId) et contains() hors prefs ne comptent pas"
+        );
+    }
+
+    #[test]
+    fn a_qualified_constant_read_matches_the_constant_write() {
+        // Cas réel : écriture via `KEY_SESSION`, lecture via
+        // `PrefKeys.KEY_SESSION` — même constante, la clé n'est pas orpheline.
+        let detector = WriteOnlyPrefsDetector::new();
+        let source = r#"
+            fun save(id: String) {
+                prefs.edit().putString(KEY_SESSION, id).apply()
+            }
+            fun load(): String? {
+                return prefs.getString(PrefKeys.KEY_SESSION, null)
+            }
+        "#;
+
+        let analysis = detector.analyze_source(source, &PathBuf::from("Session.kt"));
+        assert!(
+            !analysis.is_write_only("$KEY_SESSION"),
+            "la référence qualifiée résout vers la même constante: {:?}",
+            analysis.reads.keys().collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_constant_key_resolves_to_its_literal() {
+        // Écriture via constante, lecture via littéral : même clé une fois
+        // la constante résolue sur le corpus.
+        let detector = WriteOnlyPrefsDetector::new();
+        let source = r#"
+            fun save(t: String) {
+                prefs.edit().putString(KEY_TOKEN, t).apply()
+            }
+            fun load(): String? {
+                return prefs.getString("auth_token", null)
+            }
+        "#;
+
+        let mut analysis = detector.analyze_source(source, &PathBuf::from("Auth.kt"));
+        let corpus = "const val KEY_TOKEN = \"auth_token\"\n";
+        resolve_constant_keys(&mut analysis, corpus);
+        assert!(
+            !analysis.is_write_only("auth_token") && !analysis.is_write_only("$KEY_TOKEN"),
+            "writes: {:?}, reads: {:?}",
+            analysis.writes.keys().collect::<Vec<_>>(),
+            analysis.reads.keys().collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn an_ambiguous_constant_is_left_alone() {
+        // Deux constantes homonymes avec des valeurs différentes : résoudre
+        // au hasard fabriquerait des lectures fantômes.
+        let detector = WriteOnlyPrefsDetector::new();
+        let source = r#"
+            fun save(t: String) {
+                prefs.edit().putString(KEY_MODE, t).apply()
+            }
+        "#;
+
+        let mut analysis = detector.analyze_source(source, &PathBuf::from("A.kt"));
+        let corpus = "const val KEY_MODE = \"mode_a\"\nconst val KEY_MODE = \"mode_b\"\n";
+        resolve_constant_keys(&mut analysis, corpus);
+        assert!(
+            analysis.writes.contains_key("$KEY_MODE"),
+            "une constante ambiguë reste symbolique: {:?}",
+            analysis.writes.keys().collect::<Vec<_>>()
+        );
     }
 
     #[test]

@@ -42,15 +42,41 @@ fn project_corpus(graph: &Graph) -> String {
     corpus
 }
 
-fn is_iterated_reflectively(corpus: &str, enum_name: &str) -> bool {
-    [
+fn is_iterated_reflectively(corpus: &str, enum_decl: &Declaration) -> bool {
+    let enum_name = &enum_decl.name;
+    let qualified = [
         format!("{enum_name}.values"),
         format!("{enum_name}.entries"),
         format!("{enum_name}.valueOf"),
         format!("enumValues<{enum_name}>"),
+        format!("enumEntries<{enum_name}>"),
     ]
     .iter()
-    .any(|needle| corpus.contains(needle.as_str()))
+    .any(|needle| corpus.contains(needle.as_str()));
+    if qualified {
+        return true;
+    }
+    // Inside the enum's own file the type prefix is optional: a companion
+    // `from()` helper writes `values().first { … }`, not `Status.values()`.
+    fs::read_to_string(&enum_decl.location.file)
+        .map(|own| has_bare_iteration(&own))
+        .unwrap_or(false)
+}
+
+/// A prefix-less `values()` / `valueOf(` / `entries` in the enum's own file.
+/// A leading `.` means some other receiver (`map.values()`), not the enum.
+fn has_bare_iteration(own_file: &str) -> bool {
+    ["values()", "valueOf(", "entries"].iter().any(|needle| {
+        // Only the bare word `entries` can be a prefix of a longer
+        // identifier; the other needles end in punctuation.
+        let word_needle = needle.chars().last().is_some_and(char::is_alphanumeric);
+        own_file.match_indices(needle).any(|(i, _)| {
+            let before = own_file[..i].chars().next_back();
+            let after = own_file[i + needle.len()..].chars().next();
+            !before.is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '.')
+                && !(word_needle && after.is_some_and(|c| c.is_alphanumeric() || c == '_'))
+        })
+    })
 }
 
 /// Enums iterated reflectively (`values()`, `entries`, `valueOf`,
@@ -67,7 +93,7 @@ pub fn reflectively_iterated_enum_ids(graph: &Graph) -> std::collections::HashSe
     let corpus = project_corpus(graph);
     enums
         .into_iter()
-        .filter(|e| is_iterated_reflectively(&corpus, &e.name))
+        .filter(|e| is_iterated_reflectively(&corpus, e))
         .map(|e| e.id.clone())
         .collect()
 }
@@ -77,6 +103,10 @@ impl Detector for UnusedEnumCaseDetector {
         let mut candidates: HashMap<&DeclarationId, Vec<&Declaration>> = HashMap::new();
         for decl in graph.declarations() {
             if decl.kind != DeclarationKind::EnumCase {
+                continue;
+            }
+            // An enum declared in a test source set is the test's business.
+            if crate::analysis::test_refs::is_test_file(&decl.location.file) {
                 continue;
             }
             if graph.is_referenced(&decl.id) {
@@ -99,7 +129,7 @@ impl Detector for UnusedEnumCaseDetector {
             let Some(enum_decl) = graph.get_declaration(enum_id) else {
                 continue;
             };
-            if is_iterated_reflectively(&corpus, &enum_decl.name) {
+            if is_iterated_reflectively(&corpus, enum_decl) {
                 continue;
             }
             for case in cases {
@@ -200,5 +230,26 @@ mod tests {
     fn an_empty_graph_reports_nothing() {
         let issues = UnusedEnumCaseDetector::new().detect(&Graph::new());
         assert!(issues.is_empty());
+    }
+
+    #[test]
+    fn bare_values_in_the_own_file_counts_as_iteration() {
+        assert!(has_bare_iteration(
+            "fun from(n: String) = values().firstOrNull { it.name == n }"
+        ));
+        assert!(has_bare_iteration("for (e in entries) println(e)"));
+        assert!(has_bare_iteration("val s = valueOf(raw)"));
+    }
+
+    #[test]
+    fn a_dotted_receiver_is_someone_elses_iteration() {
+        assert!(!has_bare_iteration("val v = map.values()"));
+        assert!(!has_bare_iteration("for (e in cache.entries) use(e)"));
+    }
+
+    #[test]
+    fn an_identifier_containing_the_word_does_not_count() {
+        assert!(!has_bare_iteration("val entriesCount = 3"));
+        assert!(!has_bare_iteration("fun valuesOfSomething() = 1"));
     }
 }
