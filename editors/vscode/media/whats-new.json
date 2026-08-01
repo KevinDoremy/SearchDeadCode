@@ -1,13 +1,13 @@
 {
-  "version": "0.1.2",
+  "version": "0.1.3",
   "title": "What's New in SearchDeadCode",
   "tagline": "A newer analyzer, bundled",
-  "summary": "This release bundles searchdeadcode 0.14.1. The extension itself is unchanged; what changed is the analysis behind it.",
+  "summary": "This release bundles searchdeadcode 0.15.0. The extension itself is unchanged; what changed is the analysis behind it.",
   "highlights": [
     {
-      "title": "Analyzer 0.14.1",
+      "title": "Analyzer 0.15.0",
       "kind": "improvement",
-      "description": "The bundled analyzer moves to 0.14.1. Scans pick up its fixes with nothing to install: see the crate changelog for what changed in the analysis."
+      "description": "The bundled analyzer moves to 0.15.0. Scans pick up its fixes with nothing to install: see the crate changelog for what changed in the analysis."
     }
   ],
   "sections": [
