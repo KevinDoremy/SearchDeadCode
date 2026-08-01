@@ -395,15 +395,32 @@ pub fn find_islands(
                 estimated_lines += bytes[start..end].iter().filter(|b| **b == b'\n').count() + 1;
             }
             let kept_alive_by: Vec<String> = {
+                // A holder sharing this member's name is named by its file
+                // instead of being dropped: filtering same-name holders left
+                // every homonym island with no reason line at all, which is
+                // exactly the island the reader most needs explained. Only a
+                // holder that IS this declaration is silent.
                 let mut names: Vec<String> = graph
                     .get_references_to(id)
                     .iter()
                     .filter(|(source, reference)| {
                         reference.kind != ReferenceKind::Import
                             && dead.contains(&source.id)
-                            && source.name != decl.name
+                            && &source.id != *id
                     })
-                    .map(|(source, _)| source.name.clone())
+                    .map(|(source, _)| {
+                        if source.name == decl.name {
+                            let file = source
+                                .location
+                                .file
+                                .file_name()
+                                .map(|n| n.to_string_lossy().into_owned())
+                                .unwrap_or_else(|| source.name.clone());
+                            format!("{} ({}:{})", source.name, file, source.location.line)
+                        } else {
+                            source.name.clone()
+                        }
+                    })
                     .collect();
                 names.sort();
                 names.dedup();

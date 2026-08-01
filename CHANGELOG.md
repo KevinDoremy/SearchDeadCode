@@ -5,6 +5,34 @@ All notable changes to SearchDeadCode will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Orphan re-parenting survives raw strings and char literals.** Counting
+  braces over raw text desynchronised on `"""say " hi"""`, on a raw string
+  ending in a backslash, and on `'{'`: the scan ran to end of file, returned
+  nothing, and silently abandoned re-parenting for the whole file. The brace
+  scan now runs over a copy with comments and literals blanked, the same
+  view the ERROR recovery already used.
+
+- **The parallel builder drops cross-file same-name property edges like the
+  serial one.** Two files declaring `count` linked to each other through the
+  simple-name fallback, which made every write-only property look read. The
+  serial builder has always had the guard; the two paths now agree.
+
+- **Every island member carries its reason line.** A holder sharing the
+  member's name was filtered out of the explanation, so an island grouped
+  BY that homonymy printed with nothing to explain it. Same-name holders are
+  now named by file and line: `'shared' kept alive only by helper,
+  shared (B.kt:3)`.
+
+### Changed
+
+- **DC006 computes a file's module once per directory.** The module lookup
+  ran a linear scan of the project's Gradle roots for every declaration and
+  every reference, costing about 40 % on a 150-module tree.
+
 ## [0.15.0] - 2026-08-01
 
 ### Added

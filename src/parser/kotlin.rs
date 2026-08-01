@@ -2216,11 +2216,16 @@ impl KotlinParser {
             return;
         }
 
-        // Compute actual end positions by scanning for matching braces
+        // Compute actual end positions by scanning for matching braces, over a
+        // copy with comments and literals blanked. Counting braces in raw text
+        // desyncs on `"""say " hi"""` (odd quote run), on a raw string ending
+        // in a backslash, and on `'{'` — each one made the scan run to end of
+        // file, return None, and silently abandon re-parenting for the file.
+        let scan = Self::blank_inert_regions(source);
         let type_ranges: Vec<(DeclarationId, usize, usize)> = type_decls
             .into_iter()
             .filter_map(|(id, start)| {
-                let actual_end = self.find_matching_brace(source, start)?;
+                let actual_end = self.find_matching_brace(&scan, start)?;
                 Some((id, start, actual_end))
             })
             .collect();
@@ -2935,6 +2940,33 @@ mod tests {
             "la récupération doit rendre l'essentiel des ~25 déclarations, obtenu {}",
             result.declarations.len()
         );
+    }
+
+    #[test]
+    fn test_orphan_reparenting_survives_raw_strings_and_char_literals() {
+        // Le comptage d'accolades sur texte brut désynchronise sur une raw
+        // string à nombre impair de guillemets, sur une raw string finissant
+        // par une contre-oblique, et sur `'{'`. Chaque cas faisait rendre
+        // None et abandonnait silencieusement le re-parentage du FICHIER.
+        let parser = KotlinParser::new();
+        for body in [
+            "    val s = \"\"\"say \" hi\"\"\"\n",
+            "    val c = charArrayOf('\\\\', '{')\n",
+            "    val brace = '{'\n",
+        ] {
+            let source =
+                format!("package sample\n\nclass Holder {{\n{body}    fun member() = 1\n}}\n");
+            let result = parser.parse(Path::new("Holder.kt"), &source).unwrap();
+            let member = result
+                .declarations
+                .iter()
+                .find(|d| d.name == "member")
+                .unwrap_or_else(|| panic!("`member` absent pour le corps : {body}"));
+            assert!(
+                member.parent.is_some(),
+                "`member` doit rester rattaché à Holder pour le corps : {body}"
+            );
+        }
     }
 
     #[test]

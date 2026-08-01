@@ -341,3 +341,45 @@ fn a_companion_under_a_module_class_is_di_convention_not_an_island() {
         "un companion sous @Module est de la convention DI, pas une île, stdout:\n{stdout}"
     );
 }
+
+#[test]
+fn a_homonym_holder_is_named_by_its_file_rather_than_dropped() {
+    // Une île dont des membres partagent un nom se groupe par les arêtes de
+    // résolution par nom simple, et s'affichait SANS ligne d'explication :
+    // le filtre `source.name != decl.name` retirait le seul détenteur qu'il
+    // y avait à nommer. C'est l'île que le lecteur a le plus besoin de
+    // comprendre, puisque le groupement vient justement de l'homonymie.
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(
+        temp.path().join("A.kt"),
+        "package sample\n\nfun helper() {\n    shared()\n}\n\nfun shared() {\n    helper()\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("B.kt"),
+        "package sample\n\nfun shared() {\n    helper()\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("Main.kt"),
+        "package sample\n\nfun main() {\n    println(\"app\")\n}\n",
+    )
+    .unwrap();
+
+    let stdout = stdout_of(&run(temp.path()));
+    assert!(
+        stdout.contains("dead island"),
+        "la paire mutuelle homonyme forme bien une île, stdout:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("shared (B.kt:3)") && stdout.contains("shared (A.kt:7)"),
+        "un détenteur homonyme est nommé par son fichier et sa ligne, stdout:\n{stdout}"
+    );
+    // Chaque membre rapporté porte sa raison.
+    let members = stdout.matches("   - ").count();
+    let reasons = stdout.matches("kept alive only by").count();
+    assert_eq!(
+        members, reasons,
+        "chaque membre a sa ligne d'explication, stdout:\n{stdout}"
+    );
+}

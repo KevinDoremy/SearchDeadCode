@@ -166,6 +166,27 @@ impl ParallelGraphBuilder {
                     continue;
                 }
 
+                // Skip cross-file same-name references for properties/fields.
+                // Two files declaring `count` linked to each other through the
+                // simple-name fallback, which made every write-only property
+                // look read. The serial builder has always had this guard; the
+                // parallel one is the default path, so its absence decided the
+                // verdict most of the time.
+                if let Some(from_decl) = graph.get_declaration(&unresolved.from) {
+                    if let Some(to_decl) = graph.get_declaration(&to_id) {
+                        if from_decl.name == to_decl.name
+                            && from_decl.location.file != to_decl.location.file
+                            && matches!(
+                                to_decl.kind,
+                                crate::graph::DeclarationKind::Property
+                                    | crate::graph::DeclarationKind::Field
+                            )
+                        {
+                            continue;
+                        }
+                    }
+                }
+
                 let reference = Reference::new(
                     unresolved.kind,
                     Location::new(
