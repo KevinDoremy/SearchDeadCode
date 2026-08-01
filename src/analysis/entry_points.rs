@@ -154,6 +154,19 @@ impl<'a> EntryPointDetector<'a> {
 
     /// Detect all entry points in the project
     pub fn detect(&self, graph: &Graph, root: &Path) -> Result<HashSet<DeclarationId>> {
+        self.detect_with_keep_rules(graph, root, true)
+    }
+
+    /// Same detection with the ProGuard/R8 keep category switchable off.
+    /// A -keep rule instructs the shrinker to retain BYTES for reflection;
+    /// it is not evidence the SOURCE is alive — the island analysis roots
+    /// only keeps that spell an exact name, and labels the rest.
+    pub fn detect_with_keep_rules(
+        &self,
+        graph: &Graph,
+        root: &Path,
+        honor_keep_rules: bool,
+    ) -> Result<HashSet<DeclarationId>> {
         let mut entry_points = HashSet::new();
 
         // 1. Detect entry points from code analysis
@@ -179,7 +192,11 @@ impl<'a> EntryPointDetector<'a> {
         self.add_configured_entry_points(graph, &mut entry_points);
 
         // 6b. Respect ProGuard/R8 -keep rules: kept classes are retained
-        let keep_patterns = crate::analysis::keep_rules::collect_keep_patterns(root);
+        let keep_patterns = if honor_keep_rules {
+            crate::analysis::keep_rules::collect_keep_patterns(root)
+        } else {
+            Vec::new()
+        };
         if !keep_patterns.is_empty() {
             for decl in graph.declarations() {
                 if let Some(fqn) = &decl.fully_qualified_name {
@@ -444,9 +461,15 @@ impl<'a> EntryPointDetector<'a> {
         // Handle class references
         for class_ref in &result.class_references {
             // Try to find by fully qualified name
-            if let Some(decl) = graph.find_by_fqn(class_ref) {
-                debug!("XML entry point: {} (fqn)", decl.name);
-                entry_points.insert(decl.id.clone());
+            // Tous les porteurs du FQN : deux source sets (main, debug)
+            // déclarent la même classe, et n'en raciner qu'un rapportait
+            // l'autre mort alors que le manifeste nomme les deux.
+            let carriers = graph.find_all_by_fqn(class_ref);
+            if !carriers.is_empty() {
+                for decl in carriers {
+                    debug!("XML entry point: {} (fqn)", decl.name);
+                    entry_points.insert(decl.id.clone());
+                }
                 continue;
             }
 
@@ -555,9 +578,12 @@ impl<'a> EntryPointDetector<'a> {
         entry_points: &mut HashSet<DeclarationId>,
     ) {
         for entry_point in &self.config.entry_points {
-            if let Some(decl) = graph.find_by_fqn(entry_point) {
-                debug!("Configured entry point: {}", decl.name);
-                entry_points.insert(decl.id.clone());
+            let carriers = graph.find_all_by_fqn(entry_point);
+            if !carriers.is_empty() {
+                for decl in carriers {
+                    debug!("Configured entry point: {}", decl.name);
+                    entry_points.insert(decl.id.clone());
+                }
             } else {
                 // Try as simple name
                 for decl in graph.find_by_name(entry_point) {

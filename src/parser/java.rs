@@ -788,7 +788,16 @@ impl JavaParser {
 
         // Check superclass
         if let Some(superclass) = node.child_by_field_name("superclass") {
-            super_types.push(node_text(superclass, source).to_string());
+            // The `superclass` node spans `extends Foo` — keep the type only,
+            // so consumers can match names exactly instead of by substring.
+            let text = match superclass.named_child(0) {
+                Some(type_node) => node_text(type_node, source).to_string(),
+                None => node_text(superclass, source)
+                    .trim_start_matches("extends")
+                    .trim_start()
+                    .to_string(),
+            };
+            super_types.push(text);
         }
 
         // Check interfaces
@@ -1034,5 +1043,31 @@ mod tests {
         let result = parser.parse(Path::new("Test.java"), source).unwrap();
 
         assert_eq!(result.imports.len(), 2);
+    }
+
+    #[test]
+    fn test_super_types_carry_no_extends_keyword() {
+        // P3 : le nœud `superclass` couvre `extends Foo` entier ; avant le fix,
+        // 631/3196 tableaux super_types du monorepo portaient "extends Foo".
+        let parser = JavaParser::new();
+        let source = r#"
+            package com.example;
+
+            public class Child extends Base implements Runnable, java.io.Closeable {
+            }
+        "#;
+
+        let result = parser.parse(Path::new("Test.java"), source).unwrap();
+
+        let child = result
+            .declarations
+            .iter()
+            .find(|d| d.name == "Child")
+            .unwrap();
+        assert_eq!(
+            child.super_types,
+            vec!["Base", "Runnable", "java.io.Closeable"],
+            "super_types must hold bare type names"
+        );
     }
 }

@@ -204,21 +204,34 @@ impl GraphBuilder {
 
     /// Try to resolve a reference to declarations (may return multiple for overloaded functions)
     fn resolve_reference(&self, unresolved: &UnresolvedRef) -> Vec<DeclarationId> {
-        let single = |decl: &Declaration| -> Vec<DeclarationId> {
-            if matches!(
-                unresolved.kind,
-                ReferenceKind::Call | ReferenceKind::Instantiation
-            ) {
-                self.graph.expand_call_target(&decl.id)
-            } else {
-                vec![decl.id.clone()]
+        // Tous les porteurs d'un FQN, cibles d'appel développées, dédupliquées.
+        // Deux surcharges partagent un FQN : ne lier que le vainqueur de
+        // collision privait la surcharge publique de ses appels cross-module.
+        let expand = |decls: Vec<&Declaration>| -> Vec<DeclarationId> {
+            let mut ids: Vec<DeclarationId> = Vec::new();
+            for decl in decls {
+                let targets = if matches!(
+                    unresolved.kind,
+                    ReferenceKind::Call | ReferenceKind::Instantiation
+                ) {
+                    self.graph.expand_call_target(&decl.id)
+                } else {
+                    vec![decl.id.clone()]
+                };
+                for id in targets {
+                    if !ids.contains(&id) {
+                        ids.push(id);
+                    }
+                }
             }
+            ids
         };
 
         // Try fully qualified name first
         if let Some(fqn) = &unresolved.qualified_name {
-            if let Some(decl) = self.graph.find_by_fqn(fqn) {
-                return single(decl);
+            let decls = self.graph.find_all_by_fqn(fqn);
+            if !decls.is_empty() {
+                return expand(decls);
             }
         }
 
@@ -228,14 +241,16 @@ impl GraphBuilder {
             if import.ends_with(".*") {
                 let package = &import[..import.len() - 2];
                 let fqn = format!("{}.{}", package, unresolved.name);
-                if let Some(decl) = self.graph.find_by_fqn(&fqn) {
-                    return single(decl);
+                let decls = self.graph.find_all_by_fqn(&fqn);
+                if !decls.is_empty() {
+                    return expand(decls);
                 }
             }
             // Specific import
             else if import.ends_with(&format!(".{}", unresolved.name)) {
-                if let Some(decl) = self.graph.find_by_fqn(import) {
-                    return single(decl);
+                let decls = self.graph.find_all_by_fqn(import);
+                if !decls.is_empty() {
+                    return expand(decls);
                 }
             }
             // Aliased import (Kotlin)
@@ -243,8 +258,9 @@ impl GraphBuilder {
                 let alias = &import[alias_start + 4..];
                 if alias == unresolved.name {
                     let original = &import[..alias_start];
-                    if let Some(decl) = self.graph.find_by_fqn(original) {
-                        return single(decl);
+                    let decls = self.graph.find_all_by_fqn(original);
+                    if !decls.is_empty() {
+                        return expand(decls);
                     }
                 }
             }
@@ -255,32 +271,52 @@ impl GraphBuilder {
         if !candidates.is_empty() {
             // For ambiguous references (overloaded functions), mark all as referenced
             // This is conservative but avoids false positives
-            return candidates.iter().map(|c| c.id.clone()).collect();
+            let mut ids: Vec<DeclarationId> = candidates.iter().map(|c| c.id.clone()).collect();
+            // Union, pas repli : un homonyme Java quelconque (n'importe quel
+            // getX() sans rapport) masquait la propriété Kotlin derrière le
+            // nom d'accesseur et la laissait sans référence. Plusieurs cibles
+            // sont déjà marquées ambiguës par l'appelant.
+            for id in self.accessor_property_targets(unresolved) {
+                if !ids.contains(&id) {
+                    ids.push(id);
+                }
+            }
+            return ids;
         }
 
         // Repli accesseur JVM → propriété Kotlin (appel depuis Java)
-        if unresolved.kind == ReferenceKind::Call {
-            if let Some(prop) = kotlin_property_behind_accessor(&unresolved.name) {
-                let props: Vec<DeclarationId> = self
-                    .graph
-                    .find_by_name(&prop)
-                    .iter()
-                    .filter(|d| {
-                        matches!(
-                            d.kind,
-                            crate::graph::DeclarationKind::Property
-                                | crate::graph::DeclarationKind::Field
-                        )
-                    })
-                    .map(|d| d.id.clone())
-                    .collect();
-                if !props.is_empty() {
-                    return props;
-                }
-            }
+        let props = self.accessor_property_targets(unresolved);
+        if !props.is_empty() {
+            return props;
         }
 
         Vec::new()
+    }
+
+    /// Cibles propriété/field Kotlin derrière un nom d'accesseur JVM
+    /// (`getLabel()` appelé depuis Java → `val label`). Kotlin seulement :
+    /// un champ Java n'engendre aucun accesseur généré, et le rattacher ici
+    /// ferait passer un `setNickname()` pour une lecture directe du champ.
+    fn accessor_property_targets(&self, unresolved: &UnresolvedRef) -> Vec<DeclarationId> {
+        if unresolved.kind != ReferenceKind::Call {
+            return Vec::new();
+        }
+        let Some(prop) = kotlin_property_behind_accessor(&unresolved.name) else {
+            return Vec::new();
+        };
+        self.graph
+            .find_by_name(&prop)
+            .iter()
+            .filter(|d| {
+                d.language == crate::graph::Language::Kotlin
+                    && matches!(
+                        d.kind,
+                        crate::graph::DeclarationKind::Property
+                            | crate::graph::DeclarationKind::Field
+                    )
+            })
+            .map(|d| d.id.clone())
+            .collect()
     }
 }
 
@@ -316,9 +352,75 @@ fn kotlin_property_behind_accessor(name: &str) -> Option<String> {
     }
 }
 
+/// Noms d'accesseurs Java derrière un accès propriété Kotlin — le miroir de
+/// `kotlin_property_behind_accessor`. `interactionCount` lu depuis Kotlin →
+/// `getInteractionCount`, écrit → `setInteractionCount` ; `isReady` garde son
+/// nom (Kotlin mappe `isX()` sur la propriété `isX`). Le genre de référence
+/// décide du sens : une écriture ne prouve pas que le getter est appelé,
+/// et l'inverse non plus — sinon un champ écrit une seule fois ressusciterait
+/// son getter mort et tuerait la détection write-only.
+pub fn java_accessors_behind_property(name: &str, kind: ReferenceKind) -> Vec<String> {
+    let mut first = name.chars();
+    let Some(head) = first.next() else {
+        return Vec::new();
+    };
+    // Un nom d'accesseur n'est jamais lui-même une propriété synthétique.
+    if !head.is_ascii_lowercase() || name.starts_with("get") || name.starts_with("set") {
+        return Vec::new();
+    }
+    let capitalized = format!("{}{}", head.to_ascii_uppercase(), first.as_str());
+    match kind {
+        ReferenceKind::Write => {
+            // `obj.isReady = x` compile vers `setReady()`, pas `setIsReady()`.
+            if let Some(rest) = name.strip_prefix("is") {
+                let mut c = rest.chars();
+                if let Some(head) = c.next() {
+                    if head.is_ascii_uppercase() {
+                        return vec![
+                            format!("set{head}{}", c.as_str()),
+                            format!("set{capitalized}"),
+                        ];
+                    }
+                }
+            }
+            vec![format!("set{capitalized}")]
+        }
+        ReferenceKind::Read => {
+            // `isReady` en Kotlin appelle `isReady()`, pas `getIsReady()`.
+            if name.starts_with("is") && name.len() > 2 {
+                vec![name.to_string(), format!("get{capitalized}")]
+            } else {
+                vec![format!("get{capitalized}")]
+            }
+        }
+        _ => Vec::new(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_java_accessors_behind_property() {
+        assert_eq!(
+            java_accessors_behind_property("interactionCount", ReferenceKind::Read),
+            vec!["getInteractionCount"]
+        );
+        assert_eq!(
+            java_accessors_behind_property("interactionCount", ReferenceKind::Write),
+            vec!["setInteractionCount"]
+        );
+        assert_eq!(
+            java_accessors_behind_property("isReady", ReferenceKind::Read),
+            vec!["isReady", "getIsReady"]
+        );
+        // Un appel n'est pas un accès propriété : pas de pont.
+        assert!(java_accessors_behind_property("count", ReferenceKind::Call).is_empty());
+        // Un nom d'accesseur ou un type ne sont pas des propriétés synthétiques.
+        assert!(java_accessors_behind_property("getCount", ReferenceKind::Read).is_empty());
+        assert!(java_accessors_behind_property("Button", ReferenceKind::Read).is_empty());
+    }
 
     #[test]
     fn test_graph_builder_creation() {

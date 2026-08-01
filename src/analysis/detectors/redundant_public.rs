@@ -38,9 +38,57 @@ fn common_root(files: &BTreeSet<&Path>) -> Option<PathBuf> {
     Some(root)
 }
 
-/// First path component under the shared root; None for files sitting
-/// directly at the root (they belong to no module).
-fn module_of(root: &Path, file: &Path) -> Option<String> {
+/// Directories under the shared root that hold a Gradle build script.
+/// `internal` is scoped to the Gradle module, so a nested layout like
+/// `shared/core` + `shared/ui` is TWO modules — reading the first path
+/// component as the module name merged them and advised making a symbol
+/// `internal` that a sibling module consumes, which breaks the build.
+fn gradle_module_roots(files: &BTreeSet<&Path>, root: &Path) -> BTreeSet<PathBuf> {
+    let mut seen: BTreeSet<PathBuf> = BTreeSet::new();
+    let mut roots: BTreeSet<PathBuf> = BTreeSet::new();
+    for file in files {
+        let mut dir = file.parent();
+        while let Some(current) = dir {
+            if !current.starts_with(root) || !seen.insert(current.to_path_buf()) {
+                break;
+            }
+            if current.join("build.gradle.kts").is_file() || current.join("build.gradle").is_file()
+            {
+                roots.insert(current.to_path_buf());
+            }
+            if current == root {
+                break;
+            }
+            dir = current.parent();
+        }
+    }
+    roots
+}
+
+/// Module a file belongs to: its deepest enclosing Gradle module when the
+/// project declares any, else the first path component under the shared
+/// root (a module needs at least `<dir>/<file>`).
+fn module_of(root: &Path, file: &Path, gradle_roots: &BTreeSet<PathBuf>) -> Option<String> {
+    let deepest = gradle_roots
+        .iter()
+        .filter(|m| file.starts_with(m) && *m != root)
+        .max_by_key(|m| m.components().count());
+    if let Some(module) = deepest {
+        return Some(
+            module
+                .strip_prefix(root)
+                .unwrap_or(module)
+                .to_string_lossy()
+                .into_owned(),
+        );
+    }
+    // Un script de build à la racine seule ne découpe rien : le repli par
+    // composant de chemin reprend la main plutôt que d'éteindre le détecteur.
+    if gradle_roots.iter().any(|m| m != root) {
+        // Le projet EST découpé en sous-modules mais ce fichier n'est dans
+        // aucun : il n'appartient à aucun module.
+        return None;
+    }
     let relative = file.strip_prefix(root).ok()?;
     let mut components = relative.components();
     let first = components.next()?;
@@ -57,7 +105,11 @@ impl Detector for RedundantPublicDetector {
         let Some(root) = common_root(&files) else {
             return Vec::new();
         };
-        let modules: BTreeSet<String> = files.iter().filter_map(|f| module_of(&root, f)).collect();
+        let gradle_roots = gradle_module_roots(&files, &root);
+        let modules: BTreeSet<String> = files
+            .iter()
+            .filter_map(|f| module_of(&root, f, &gradle_roots))
+            .collect();
         if modules.len() < 2 {
             return Vec::new();
         }
@@ -82,7 +134,7 @@ impl Detector for RedundantPublicDetector {
             ) {
                 continue;
             }
-            let Some(decl_module) = module_of(&root, &decl.location.file) else {
+            let Some(decl_module) = module_of(&root, &decl.location.file, &gradle_roots) else {
                 continue;
             };
             let references = graph.get_references_to(&decl.id);
@@ -90,7 +142,8 @@ impl Detector for RedundantPublicDetector {
                 continue; // unreferenced = dead code, another detector's job
             }
             let all_local = references.iter().all(|(source, _)| {
-                module_of(&root, &source.location.file).as_deref() == Some(decl_module.as_str())
+                module_of(&root, &source.location.file, &gradle_roots).as_deref()
+                    == Some(decl_module.as_str())
             });
             if !all_local {
                 continue;
@@ -169,6 +222,47 @@ mod tests {
         let issues = RedundantPublicDetector::new().detect(&graph);
 
         assert!(issues.is_empty());
+    }
+
+    #[test]
+    fn nested_gradle_modules_are_not_the_same_module() {
+        // `internal` est scopé au module GRADLE : dans un monorepo
+        // shared/core + shared/ui, lire le premier composant du chemin
+        // fusionnait deux modules et conseillait un `internal` qui casse
+        // la compilation du module voisin (cas réel sur un monorepo à modules imbriqués).
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        for module in ["shared/core", "shared/ui", "other"] {
+            std::fs::create_dir_all(root.join(module).join("src")).unwrap();
+            std::fs::write(root.join(module).join("build.gradle.kts"), "").unwrap();
+        }
+        let base = root.join("shared/core/src/Events.kt");
+        let app = root.join("shared/ui/src/Director.kt");
+        let other = root.join("other/src/Other.kt");
+        let files: BTreeSet<&Path> = [base.as_path(), app.as_path(), other.as_path()]
+            .into_iter()
+            .collect();
+
+        let gradle_roots = gradle_module_roots(&files, root);
+        assert_eq!(
+            gradle_roots.len(),
+            3,
+            "trois modules Gradle: {gradle_roots:?}"
+        );
+        let base_module = module_of(root, &base, &gradle_roots);
+        let app_module = module_of(root, &app, &gradle_roots);
+        assert_eq!(base_module.as_deref(), Some("shared/core"));
+        assert_eq!(app_module.as_deref(), Some("shared/ui"));
+        assert_ne!(
+            base_module, app_module,
+            "deux modules Gradle imbriqués ne se confondent pas"
+        );
+
+        // Sans build script, le repli historique par composant de chemin
+        // les fusionne — c'est exactement ce que le fix élimine.
+        let empty = BTreeSet::new();
+        assert_eq!(module_of(root, &base, &empty).as_deref(), Some("shared"));
+        assert_eq!(module_of(root, &app, &empty).as_deref(), Some("shared"));
     }
 
     #[test]

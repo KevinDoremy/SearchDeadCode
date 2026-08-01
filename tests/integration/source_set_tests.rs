@@ -151,3 +151,40 @@ fn without_build_file_no_phantom_detection() {
         "without a build file there is no ground truth, no phantom warning, stderr was:\n{stderr}"
     );
 }
+
+#[test]
+fn a_manifest_activity_declared_in_two_source_sets_roots_both() {
+    // Le manifeste nomme `com.ex.Screen` ; main et debug en déclarent chacun
+    // une. L'index FQN porte les deux, mais la détection de point d'entrée
+    // n'en racinait qu'UNE : la vraie Activity de l'autre source set
+    // ressortait morte.
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    for set in ["main", "debug"] {
+        let dir = root.join(format!("app/src/{set}/java/com/ex"));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("Screen.kt"),
+            "package com.ex\n\nclass Screen {\n    fun show() {}\n}\n",
+        )
+        .unwrap();
+    }
+    fs::write(
+        root.join("app/src/main/AndroidManifest.xml"),
+        concat!(
+            "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\" ",
+            "package=\"com.ex\">\n",
+            "  <application>\n",
+            "    <activity android:name=\"com.ex.Screen\"/>\n",
+            "  </application>\n",
+            "</manifest>\n",
+        ),
+    )
+    .unwrap();
+
+    let stdout = stdout_of(&run(root));
+    assert!(
+        !stdout.contains("class 'Screen' is never used"),
+        "les deux porteurs du FQN sont racinés par le manifeste, stdout:\n{stdout}"
+    );
+}

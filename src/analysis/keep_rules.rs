@@ -54,6 +54,13 @@ fn class_specs(text: &str) -> Vec<String> {
         if line.starts_with('#') || !line.starts_with("-keep") {
             continue;
         }
+        // -keepclassmembers / -keepclassmembernames keep MEMBERS of matching
+        // classes, never the classes themselves. Treating Otto's
+        // `-keepclassmembers class ** { @Subscribe public *; }` as a keep-all
+        // turned every declaration of a real corpus into a retention root.
+        if line.starts_with("-keepclassmember") {
+            continue;
+        }
         // "-keep[variant] [modifiers] class|interface|enum <spec> ..."
         let mut tokens = line.split_whitespace().peekable();
         let _keep = tokens.next();
@@ -110,6 +117,18 @@ fn pro_files(root: &Path) -> Vec<PathBuf> {
         }
     }
     files
+}
+
+/// Raw class specs of every class-keeping rule under the root, for
+/// callers that need to distinguish exact names from wildcard blankets.
+pub fn collect_keep_specs(root: &Path) -> Vec<String> {
+    let mut specs = Vec::new();
+    for path in pro_files(root) {
+        if let Ok(text) = fs::read_to_string(&path) {
+            specs.extend(class_specs(&text));
+        }
+    }
+    specs
 }
 
 /// Collect keep patterns from every *.pro file under the root
@@ -203,12 +222,15 @@ mod tests {
 
     #[test]
     fn keep_variants_and_modifiers_are_parsed() {
+        // -keepclassmembers keeps MEMBERS of matching classes, never the
+        // classes: Otto's `-keepclassmembers class ** { @Subscribe public *; }`
+        // parsed as a keep-all turned every declaration of a real corpus
+        // into a retention root. Only class-keeping variants yield patterns.
         let patterns = parse_keep_patterns(
-            "-keepclassmembers public class com.a.B { *; }\n-keepnames class com.c.D\n",
+            "-keepclassmembers public class com.a.B { *; }\n-keepclassmembers class ** { *; }\n-keepnames class com.c.D\n",
         );
-        assert_eq!(patterns.len(), 2);
-        assert!(patterns[0].matches("com.a.B"));
-        assert!(patterns[1].matches("com.c.D"));
+        assert_eq!(patterns.len(), 1);
+        assert!(patterns[0].matches("com.c.D"));
     }
 
     #[test]

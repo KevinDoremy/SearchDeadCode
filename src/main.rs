@@ -158,6 +158,11 @@ struct Cli {
     #[arg(help_heading = "Specialized views", long)]
     clusters: bool,
 
+    /// Dead islands: groups of declarations that reference only each other
+    /// and are referenced by nothing else — invisible to per-symbol counting
+    #[arg(help_heading = "Specialized views", long)]
+    islands: bool,
+
     /// Only the findings safe to delete blind: whole cluster dead, every
     /// member low risk
     #[arg(help_heading = "Specialized views", long)]
@@ -1957,6 +1962,54 @@ fn print_clusters(graph: &graph::Graph, clusters: Vec<Vec<graph::DeclarationId>>
             println!("{entry}");
         }
     }
+}
+
+/// Print dead islands: groups of declarations holding only each other.
+fn print_islands(islands: Vec<analysis::islands::DeadIsland>) {
+    if islands.is_empty() {
+        println!("No dead islands: nothing is kept alive only by dead code.");
+        return;
+    }
+    println!(
+        "🏝️  {} dead island(s) — declarations that reference only each other, biggest first",
+        islands.len()
+    );
+    for (index, island) in islands.iter().enumerate() {
+        let mut marker = String::new();
+        if island.test_only {
+            marker.push_str(
+                "  [test-only: its tests still reference it — deleting both is a human call]",
+            );
+        }
+        if island.keep_covered {
+            marker.push_str(
+                "  [matches a wildcard -keep rule — retire the rule together with the island]",
+            );
+        }
+        println!(
+            "\nIsland {}: {} declaration(s), ~{} lines{}",
+            index + 1,
+            island.total_declarations,
+            island.estimated_lines,
+            marker
+        );
+        for member in &island.members {
+            println!(
+                "   - {} — {}:{}",
+                member.name,
+                member.file.display(),
+                member.line
+            );
+        }
+        for member in &island.members {
+            if let Some(chain) = analysis::islands::chain_of(member) {
+                println!("     {chain}");
+            }
+        }
+    }
+    println!("\nEvery mention that cannot be placed inside the island itself counts as life:");
+    println!("XML, ProGuard, string literals, annotations and entry points all root. Verify");
+    println!("a member with: searchdeadcode . --deep --why-alive <name>");
 }
 
 /// Print the module usage attribution report
@@ -4973,7 +5026,16 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         return Ok(());
     }
 
-    if cli.clusters {
+    if cli.islands {
+        // Wildcard -keep rules retain shrinker bytes, not source: the island
+        // analysis re-detects entry points without them and labels instead.
+        let island_config = load_config(cli)?;
+        let island_entries = EntryPointDetector::new(&island_config)
+            .detect_with_keep_rules(&graph, &cli.path, false)?;
+        let islands =
+            analysis::islands::find_islands(&graph, &island_entries, &files, &cli.path, 8);
+        print_islands(islands);
+    } else if cli.clusters {
         let dead_ids: std::collections::HashSet<graph::DeclarationId> =
             dead_code.iter().map(|d| d.declaration.id.clone()).collect();
         let clusters = analysis::kill_list::dead_clusters(&graph, &dead_ids);

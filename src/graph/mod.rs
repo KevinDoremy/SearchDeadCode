@@ -6,7 +6,7 @@ mod declaration;
 mod parallel_builder;
 pub mod reference;
 
-pub use builder::GraphBuilder;
+pub use builder::{java_accessors_behind_property, GraphBuilder};
 pub use declaration::{
     Declaration, DeclarationId, DeclarationKind, Language, Location, Visibility,
 };
@@ -33,8 +33,10 @@ pub struct Graph {
     /// Map from simple name to possible declarations (for resolution)
     name_index: HashMap<String, Vec<DeclarationId>>,
 
-    /// Map from fully qualified name to declaration
-    fqn_index: HashMap<String, DeclarationId>,
+    /// Map from fully qualified name to its carriers — several declarations
+    /// can share one FQN (overloads at the same package level), and the
+    /// last-indexed one must not shadow the others
+    fqn_index: HashMap<String, Vec<DeclarationId>>,
 
     /// Map from parent to children (for fast member lookup)
     children_index: HashMap<DeclarationId, Vec<DeclarationId>>,
@@ -69,7 +71,10 @@ impl Graph {
 
         // Index by fully qualified name
         if let Some(fqn) = &decl.fully_qualified_name {
-            self.fqn_index.insert(fqn.clone(), id.clone());
+            self.fqn_index
+                .entry(fqn.clone())
+                .or_default()
+                .push(id.clone());
         }
 
         // Index by parent (for fast children lookup)
@@ -125,11 +130,26 @@ impl Graph {
             .unwrap_or_default()
     }
 
-    /// Find declaration by fully qualified name
+    /// Find the first declaration registered under a fully qualified name.
+    /// Resolution paths that must see every carrier use `find_all_by_fqn`.
     pub fn find_by_fqn(&self, fqn: &str) -> Option<&Declaration> {
         self.fqn_index
             .get(fqn)
+            .and_then(|ids| ids.first())
             .and_then(|id| self.declarations.get(id))
+    }
+
+    /// Find every declaration carrying a fully qualified name, in
+    /// insertion order.
+    pub fn find_all_by_fqn(&self, fqn: &str) -> Vec<&Declaration> {
+        self.fqn_index
+            .get(fqn)
+            .map(|ids| {
+                ids.iter()
+                    .filter_map(|id| self.declarations.get(id))
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     /// Get all declarations that reference the given declaration

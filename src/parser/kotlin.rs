@@ -17,6 +17,26 @@ use tree_sitter::{Node, Parser as TsParser};
 static MISPARSED_CALL_PATTERN: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"([a-z][a-zA-Z0-9]*)\s*\(\s*\)").expect("Invalid call regex"));
 
+/// Column-0 type header tree-sitter can lose entirely inside an ERROR region
+/// (the shape below: the `object` node is never produced at all).
+static LOST_TYPE_HEADER: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?m)^(?:(?:public|internal|private|protected|abstract|open|final|sealed|data|value)\s+)*(?:object|class|interface)\s+([A-Z][A-Za-z0-9_]*)",
+    )
+    .expect("Invalid lost type header regex")
+});
+
+/// Member headers inside a recovered type extent: functions and nested
+/// classes (properties stay out — a local `val` in a lost body is
+/// indistinguishable from a member). Modifiers and same-line annotations
+/// are absorbed so `private` is visible in the match.
+static LOST_MEMBER_HEADER: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?m)^[ \t]+(?:(?:@[A-Za-z0-9_.]+|public|internal|private|protected|open|final|override|inline|operator|infix|suspend|tailrec|external|data|sealed|value)\s+)*(?:(fun)\s+([A-Za-z_][A-Za-z0-9_]*)\s*[(<]|(class)\s+([A-Z][A-Za-z0-9_]*))",
+    )
+    .expect("Invalid lost member header regex")
+});
+
 /// Kotlin source code parser using tree-sitter
 pub struct KotlinParser {
     parser: TsParser,
@@ -1118,6 +1138,27 @@ impl KotlinParser {
                                 current.end_byte(),
                             );
 
+                            // Kotlin sees a Java class's `getX()`/`setX()` as
+                            // the synthetic property `x`, so `button.count` IS
+                            // a call to `getCount()`. The bridge belongs here,
+                            // where the syntax says this is an access through a
+                            // receiver: at resolution time a bare `count` local
+                            // is indistinguishable from it, and bridging there
+                            // resurrected every Java getter of that name.
+                            if parent.kind() == "navigation_suffix" {
+                                for accessor in
+                                    crate::graph::java_accessors_behind_property(&name, kind)
+                                {
+                                    result.references.push(UnresolvedReference {
+                                        name: accessor,
+                                        qualified_name: None,
+                                        kind: ReferenceKind::Call,
+                                        location: location.clone(),
+                                        imports: imports.to_vec(),
+                                    });
+                                }
+                            }
+
                             result.references.push(UnresolvedReference {
                                 name,
                                 qualified_name: None,
@@ -1925,15 +1966,31 @@ impl KotlinParser {
             | "as_expression"
             | "spread_expression"
             | "parenthesized_expression" => Some(ReferenceKind::Read),
-            // Indexing and range expressions
-            "indexing_expression" | "range_expression" => Some(ReferenceKind::Read),
+            // Indexing and range expressions — the index of a write
+            // (`arr[CONST] = x`) is still a read of CONST
+            "indexing_expression" | "indexing_suffix" | "range_expression" => {
+                Some(ReferenceKind::Read)
+            }
             // If/when conditions and bodies
             "if_expression"
             | "when_expression"
+            | "when_subject"
             | "when_condition"
             | "when_entry"
+            | "range_test"
             | "control_structure_body"
             | "statements" => Some(ReferenceKind::Read),
+            // Loops and exception handling
+            "for_statement" | "while_statement" | "do_while_statement" | "catch_block" => {
+                Some(ReferenceKind::Read)
+            }
+            // Delegation: `val x by impl`, `class Foo : Bar by impl`
+            "property_delegate" | "explicit_delegation" => Some(ReferenceKind::Read),
+            // Annotation collection literals `[A, B]`, enum entries, lambda
+            // parameters carrying an explicit type
+            "collection_literal" | "enum_entry" | "parameter_with_optional_type" => {
+                Some(ReferenceKind::Read)
+            }
             // Lambda and anonymous function bodies
             "lambda_literal" | "anonymous_function" => Some(ReferenceKind::Read),
             // String templates
@@ -2119,14 +2176,41 @@ impl KotlinParser {
     /// 1. Finding all class/object declarations and their ACTUAL byte ranges (by scanning for matching braces)
     /// 2. Finding orphaned functions (parent=None) that fall within those ranges
     /// 3. Setting the correct parent and updating kind to Method
-    fn fix_orphaned_declarations(&self, source: &str, result: &mut ParseResult) {
+    fn fix_orphaned_declarations(
+        &self,
+        path: &Path,
+        source: &str,
+        has_error: bool,
+        result: &mut ParseResult,
+    ) {
         // Collect class/object declarations - we'll compute actual end positions
-        let type_decls: Vec<(DeclarationId, usize)> = result
+        let mut type_decls: Vec<(DeclarationId, usize)> = result
             .declarations
             .iter()
             .filter(|d| d.kind.is_type() && d.parent.is_none())
             .map(|d| (d.id.clone(), d.id.start))
             .collect();
+
+        // R2b: an ERROR can swallow the enclosing `object` node WHOLE —
+        // orphans with no type to adopt them, and every reference after the
+        // ERROR falling to the first declaration of the file. Rebuild the
+        // type (and the members the same ERROR took) from the source text
+        // before giving up.
+        //
+        // `has_error` is the gate that keeps this off healthy files: a file of
+        // top-level functions (Utils.kt, Extensions.kt) legitimately has no
+        // type, and text-scanning it turned a commented-out class into a real
+        // declaration — with an FQN, competing with the live class of that name
+        // for its manifest entry point.
+        if has_error && type_decls.is_empty() {
+            self.recover_lost_enclosing_types(path, source, result);
+            type_decls = result
+                .declarations
+                .iter()
+                .filter(|d| d.kind.is_type() && d.parent.is_none())
+                .map(|d| (d.id.clone(), d.id.start))
+                .collect();
+        }
 
         if type_decls.is_empty() {
             return;
@@ -2146,6 +2230,7 @@ impl KotlinParser {
         }
 
         // Find orphaned declarations and fix their parent
+        let mut adopting_types: Vec<(DeclarationId, usize, usize)> = Vec::new();
         for decl in result.declarations.iter_mut() {
             // Only fix top-level functions (not already class members)
             if decl.parent.is_some() {
@@ -2164,13 +2249,15 @@ impl KotlinParser {
             let decl_start = decl.id.start;
             let decl_end = decl.id.end;
 
-            // Find the innermost containing type (smallest range that contains this declaration)
+            // Find the innermost containing type (smallest range that contains
+            // this declaration). `>=` on the end: the ERROR that orphaned the
+            // declaration can inflate its node to the type's own last byte.
             let containing_type = type_ranges
                 .iter()
-                .filter(|(_, start, end)| *start < decl_start && *end > decl_end)
+                .filter(|(_, start, end)| *start < decl_start && *end >= decl_end)
                 .min_by_key(|(_, start, end)| end - start);
 
-            if let Some((type_id, _, _)) = containing_type {
+            if let Some((type_id, type_start, type_end)) = containing_type {
                 // This declaration is inside a type but wasn't parsed as a member
                 decl.parent = Some(type_id.clone());
 
@@ -2182,6 +2269,10 @@ impl KotlinParser {
                 // Clear FQN for methods (they don't have their own FQN)
                 decl.fully_qualified_name = None;
 
+                if !adopting_types.iter().any(|(id, _, _)| id == type_id) {
+                    adopting_types.push((type_id.clone(), *type_start, *type_end));
+                }
+
                 debug!(
                     "Fixed orphaned {}: '{}' -> parent {:?}",
                     decl.kind.display_name(),
@@ -2189,6 +2280,246 @@ impl KotlinParser {
                     type_id
                 );
             }
+        }
+
+        // A type that had to adopt orphans sits on an ERROR region: the same
+        // ERROR usually swallowed member declarations whole (the partial
+        // partial shape — the object survives, everything after the
+        // broken function is missing). Rebuild them from the source text.
+        for (type_id, type_start, type_end) in adopting_types {
+            self.recover_lost_members(path, source, type_start, type_end, &type_id, result);
+        }
+    }
+
+    /// R2b recovery: tree-sitter lost an enclosing type node entirely (the
+    /// total-loss shape — fifteen orphans in the parse, the `object`
+    /// itself absent, nothing after the ERROR). Rebuild the type from its
+    /// column-0 header with the same brace scan the orphan fix trusts, then
+    /// rebuild the member functions and nested classes the ERROR swallowed,
+    /// so references get real extents to attribute to.
+    /// A copy of `source` with every comment and string literal blanked to
+    /// spaces, byte offsets preserved. The recovery below scans raw text, and
+    /// text inside a comment or a `"""…"""` block is not code: a commented-out
+    /// class became a declaration carrying a real FQN, and a raw string
+    /// holding a code template produced members out of nothing.
+    fn blank_inert_regions(source: &str) -> String {
+        let bytes = source.as_bytes();
+        let mut out = bytes.to_vec();
+        let len = bytes.len();
+        let mut i = 0;
+        // Blanks a byte range, keeping newlines so line numbers still hold.
+        let blank = |out: &mut Vec<u8>, from: usize, to: usize| {
+            for b in out.iter_mut().take(to.min(len)).skip(from) {
+                if *b != b'\n' {
+                    *b = b' ';
+                }
+            }
+        };
+        while i < len {
+            match bytes[i] {
+                b'/' if i + 1 < len && bytes[i + 1] == b'/' => {
+                    let start = i;
+                    while i < len && bytes[i] != b'\n' {
+                        i += 1;
+                    }
+                    blank(&mut out, start, i);
+                }
+                b'/' if i + 1 < len && bytes[i + 1] == b'*' => {
+                    let start = i;
+                    i += 2;
+                    while i + 1 < len && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                        i += 1;
+                    }
+                    i = (i + 2).min(len);
+                    blank(&mut out, start, i);
+                }
+                b'"' if i + 2 < len && bytes[i + 1] == b'"' && bytes[i + 2] == b'"' => {
+                    let start = i;
+                    i += 3;
+                    // A raw string ends at the LAST quote of its closing run,
+                    // and has no escapes.
+                    while i + 2 < len
+                        && !(bytes[i] == b'"' && bytes[i + 1] == b'"' && bytes[i + 2] == b'"')
+                    {
+                        i += 1;
+                    }
+                    i = (i + 3).min(len);
+                    while i < len && bytes[i] == b'"' {
+                        i += 1;
+                    }
+                    blank(&mut out, start, i);
+                }
+                b'"' => {
+                    let start = i;
+                    i += 1;
+                    while i < len && bytes[i] != b'"' {
+                        if bytes[i] == b'\\' {
+                            i += 1;
+                        }
+                        i += 1;
+                    }
+                    i = (i + 1).min(len);
+                    blank(&mut out, start, i);
+                }
+                // Char literal, blanked so `'{'` and `'\\'` stop counting as
+                // braces. A lone apostrophe in prose has no close nearby and
+                // is left alone.
+                b'\'' => {
+                    let close = (i + 1..(i + 5).min(len))
+                        .find(|&j| bytes[j] == b'\'' && bytes[j - 1] != b'\\');
+                    match close {
+                        Some(close) => {
+                            blank(&mut out, i, close + 1);
+                            i = close + 1;
+                        }
+                        None => i += 1,
+                    }
+                }
+                _ => i += 1,
+            }
+        }
+        // Blanking only ever replaces whole ASCII-delimited regions with ASCII
+        // spaces, so multi-byte characters inside them keep their length.
+        String::from_utf8(out).unwrap_or_else(|_| source.to_string())
+    }
+
+    fn recover_lost_enclosing_types(&self, path: &Path, source: &str, result: &mut ParseResult) {
+        // Offsets préservés : les spans restent valables sur la source réelle.
+        let scan = Self::blank_inert_regions(source);
+        let source = scan.as_str();
+        let package = result.package.clone();
+        let existing: Vec<(usize, usize)> = result
+            .declarations
+            .iter()
+            .map(|d| (d.id.start, d.id.end))
+            .collect();
+        let covered = |byte: usize| existing.iter().any(|(s, e)| *s <= byte && byte < *e);
+        let line_of = |byte: usize| source[..byte].matches('\n').count() + 1;
+
+        let mut recovered: Vec<(Declaration, usize, usize)> = Vec::new();
+        for caps in LOST_TYPE_HEADER.captures_iter(source) {
+            let header = caps.get(0).expect("whole match");
+            let name = caps.get(1).expect("type name").as_str();
+            if covered(header.start()) {
+                continue;
+            }
+            // The body brace must sit on the header line: a body-less
+            // `data class X(...)` must not steal the next block's braces.
+            let brace_on_header_line = source[header.end()..]
+                .bytes()
+                .take_while(|b| *b != b'\n')
+                .any(|b| b == b'{');
+            if !brace_on_header_line {
+                continue;
+            }
+            let Some(type_end) = self.find_matching_brace(source, header.start()) else {
+                continue;
+            };
+
+            let kind = if header.as_str().contains("interface") {
+                DeclarationKind::Interface
+            } else if header.as_str().contains("object") {
+                DeclarationKind::Object
+            } else {
+                DeclarationKind::Class
+            };
+            let type_id = DeclarationId::new(path.to_path_buf(), header.start(), type_end);
+            let location = Location::new(
+                path.to_path_buf(),
+                line_of(header.start()),
+                1,
+                header.start(),
+                type_end,
+            );
+            let mut decl = Declaration::new(
+                type_id.clone(),
+                name.to_string(),
+                kind,
+                location,
+                Language::Kotlin,
+            );
+            decl.fully_qualified_name = Some(self.build_fqn(&package, name));
+            if header.as_str().contains("private") {
+                decl.visibility = Visibility::Private;
+            }
+            debug!("Recovered lost enclosing type '{}' from source text", name);
+            recovered.push((decl, header.start(), type_end));
+        }
+
+        for (decl, type_start, type_end) in recovered {
+            let type_id = decl.id.clone();
+            result.declarations.push(decl);
+            self.recover_lost_members(path, source, type_start, type_end, &type_id, result);
+        }
+    }
+
+    /// Rebuild member functions and nested classes an ERROR swallowed from a
+    /// type's brace-scanned extent. A member is lost when no declaration OF
+    /// THAT NAME holds its name byte — plain span coverage lies here, since
+    /// the ERROR inflates the preceding orphan's node over everything it ate.
+    /// Spans run to the next lost member (or the closing brace): over-wide,
+    /// but attribution only needs the innermost extent to be the right one.
+    fn recover_lost_members(
+        &self,
+        path: &Path,
+        source: &str,
+        type_start: usize,
+        type_end: usize,
+        type_id: &DeclarationId,
+        result: &mut ParseResult,
+    ) {
+        let scan = Self::blank_inert_regions(source);
+        let source = scan.as_str();
+        // Offsets des retours à la ligne, calculés une fois : la version
+        // naïve re-scannait le fichier depuis l'octet 0 pour CHAQUE membre
+        // récupéré, soit un coût quadratique sur un gros fichier cassé.
+        let newlines: Vec<usize> = source
+            .bytes()
+            .enumerate()
+            .filter(|(_, b)| *b == b'\n')
+            .map(|(i, _)| i)
+            .collect();
+        let line_of = |byte: usize| newlines.partition_point(|nl| *nl < byte) + 1;
+        let body = &source[type_start..type_end];
+        let mut members: Vec<(usize, String, DeclarationKind, bool)> = Vec::new();
+        for mcaps in LOST_MEMBER_HEADER.captures_iter(body) {
+            let m = mcaps.get(0).expect("whole member match");
+            let abs = type_start + m.start();
+            let (name_cap, kind) = if let Some(name) = mcaps.get(2) {
+                (name, DeclarationKind::Method)
+            } else if let Some(name) = mcaps.get(4) {
+                (name, DeclarationKind::Class)
+            } else {
+                continue;
+            };
+            let name_abs = type_start + name_cap.start();
+            let already_declared = result.declarations.iter().any(|d| {
+                d.name == name_cap.as_str() && d.id.start <= name_abs && name_abs < d.id.end
+            });
+            if already_declared {
+                continue;
+            }
+            let is_private = m.as_str().contains("private");
+            members.push((abs, name_cap.as_str().to_string(), kind, is_private));
+        }
+        members.sort_by_key(|(start, _, _, _)| *start);
+        let ends: Vec<usize> = members
+            .iter()
+            .skip(1)
+            .map(|(start, _, _, _)| *start)
+            .chain(std::iter::once(type_end.saturating_sub(1)))
+            .collect();
+        for ((start, member_name, kind, is_private), end) in members.into_iter().zip(ends) {
+            let end = end.max(start + 1);
+            debug!("Recovered lost member '{}' from source text", member_name);
+            let id = DeclarationId::new(path.to_path_buf(), start, end);
+            let location = Location::new(path.to_path_buf(), line_of(start), 1, start, end);
+            let mut member = Declaration::new(id, member_name, kind, location, Language::Kotlin);
+            member.parent = Some(type_id.clone());
+            if is_private {
+                member.visibility = Visibility::Private;
+            }
+            result.declarations.push(member);
         }
     }
 
@@ -2320,48 +2651,68 @@ impl KotlinParser {
 
     /// Find the matching closing brace for a class/object declaration
     /// Returns the byte position of the closing brace, or None if not found
+    /// Byte just past the `}` matching the first `{` at or after
+    /// `start_byte`. Comments are skipped whole — a KDoc apostrophe
+    /// ("the section's first page") used to open a phantom char literal
+    /// that swallowed every brace to end of file. A real char literal is
+    /// always short (`'a'`, `'\n'`, `'￿'`): a lone apostrophe with
+    /// no close nearby is prose, not code.
     fn find_matching_brace(&self, source: &str, start_byte: usize) -> Option<usize> {
         let bytes = source.as_bytes();
-        let mut pos = start_byte;
         let len = bytes.len();
+        let mut pos = start_byte;
 
         // Find the opening brace
         while pos < len && bytes[pos] != b'{' {
             pos += 1;
         }
-
         if pos >= len {
             return None;
         }
-
-        // Skip the opening brace
         pos += 1;
-        let mut depth = 1;
-        let mut in_string = false;
-        let mut in_char = false;
-        let mut prev_char = b'\0';
+        let mut depth = 1i32;
 
         while pos < len && depth > 0 {
-            let ch = bytes[pos];
-
-            // Handle string literals
-            if ch == b'"' && prev_char != b'\\' && !in_char {
-                in_string = !in_string;
-            }
-            // Handle char literals
-            else if ch == b'\'' && prev_char != b'\\' && !in_string {
-                in_char = !in_char;
-            }
-            // Count braces only outside of strings/chars
-            else if !in_string && !in_char {
-                if ch == b'{' {
-                    depth += 1;
-                } else if ch == b'}' {
-                    depth -= 1;
+            match bytes[pos] {
+                // Line comment: skip to end of line
+                b'/' if pos + 1 < len && bytes[pos + 1] == b'/' => {
+                    while pos < len && bytes[pos] != b'\n' {
+                        pos += 1;
+                    }
                 }
+                // Block comment (KDoc included): skip past `*/`
+                b'/' if pos + 1 < len && bytes[pos + 1] == b'*' => {
+                    pos += 2;
+                    while pos + 1 < len && !(bytes[pos] == b'*' && bytes[pos + 1] == b'/') {
+                        pos += 1;
+                    }
+                    pos = (pos + 2).min(len);
+                    continue;
+                }
+                // String literal: skip whole, escapes included
+                b'"' => {
+                    pos += 1;
+                    while pos < len && bytes[pos] != b'"' {
+                        if bytes[pos] == b'\\' {
+                            pos += 1;
+                        }
+                        pos += 1;
+                    }
+                    pos = (pos + 1).min(len);
+                    continue;
+                }
+                // Char literal: jump to its close when one exists nearby
+                b'\'' => {
+                    let close = (pos + 1..(pos + 8).min(len))
+                        .find(|&i| bytes[i] == b'\'' && bytes[i - 1] != b'\\');
+                    if let Some(close) = close {
+                        pos = close;
+                    }
+                }
+                b'{' => depth += 1,
+                b'}' => depth -= 1,
+                _ => {}
             }
-
-            prev_char = ch;
             pos += 1;
         }
 
@@ -2405,7 +2756,7 @@ impl Parser for KotlinParser {
         // WORKAROUND: tree-sitter-kotlin sometimes parses class members as top-level
         // due to grammar bugs (e.g., when parsing else-if in certain contexts).
         // Fix orphaned functions by checking if they fall within a class's byte range.
-        temp_parser.fix_orphaned_declarations(contents, &mut result);
+        temp_parser.fix_orphaned_declarations(path, contents, root.has_error(), &mut result);
 
         // Extract references
         temp_parser.extract_references(path, root, contents, &imports, &mut result)?;
@@ -2467,5 +2818,206 @@ mod tests {
         let result = parser.parse(Path::new("test.kt"), source).unwrap();
 
         assert_eq!(result.imports.len(), 2);
+    }
+
+    #[test]
+    fn test_recovery_leaves_healthy_files_and_inert_text_alone() {
+        // La récupération ne doit tourner QUE sur un parse cassé, et ne
+        // jamais lire commentaires ni chaînes : un fichier de fonctions
+        // top-level (Utils.kt) n'a légitimement aucun type, et une classe
+        // en commentaire y devenait une déclaration avec un vrai FQN, qui
+        // disputait ensuite son point d'entrée à la vraie classe du manifeste.
+        let parser = KotlinParser::new();
+
+        let healthy = concat!(
+            "package com.ex\n",
+            "/*\n",
+            "class LegacyParser {\n",
+            "    fun parseOldFormat(raw: String): Int = raw.length\n",
+            "}\n",
+            "*/\n",
+            "// class CommentedOut\n",
+            "fun realHelper(x: Int): Int = x + 1\n",
+        );
+        let result = parser.parse(Path::new("Utils.kt"), healthy).unwrap();
+        let names: Vec<&str> = result
+            .declarations
+            .iter()
+            .map(|d| d.name.as_str())
+            .collect();
+        assert!(
+            !names.contains(&"LegacyParser") && !names.contains(&"CommentedOut"),
+            "aucune déclaration ne sort d'un commentaire, obtenu : {names:?}"
+        );
+
+        // Même exigence sur le chemin cassé : l'ERROR est réel (virgule
+        // terminale), mais le corps de la raw string reste du texte.
+        let broken = concat!(
+            "package com.ex\n\n",
+            "data class Holder(val a: String, val b: String)\n\n",
+            "object Broken {\n",
+            "    val TEMPLATE = \"\"\"\n",
+            "    fun generatedFromTemplate(): Int = 0\n",
+            "    class TemplateHolder\n",
+            "    \"\"\"\n",
+            "    fun build(x: String): Holder = Holder(\n",
+            "        a = x,\n",
+            "        b = x,\n",
+            "    )\n",
+            "    /*\n",
+            "    fun deletedLongAgo(): Int = 1\n",
+            "    */\n",
+            "}\n",
+        );
+        let result = parser.parse(Path::new("Broken.kt"), broken).unwrap();
+        let names: Vec<&str> = result
+            .declarations
+            .iter()
+            .map(|d| d.name.as_str())
+            .collect();
+        for phantom in ["generatedFromTemplate", "TemplateHolder", "deletedLongAgo"] {
+            assert!(
+                !names.contains(&phantom),
+                "`{phantom}` vit dans une chaîne ou un commentaire, obtenu : {names:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_error_swallowed_object_members_are_recovered() {
+        // P8 (île 7) : les virgules terminales dans les appels nommés font
+        // produire un ERROR à tree-sitter qui avale des membres entiers —
+        // parfois l'object lui-même. Un fichier réel donnait 15
+        // déclarations orphelines, rien après la ligne 62, et le repli
+        // fichier du builder attribuait toutes les références du reste à la
+        // PREMIÈRE déclaration du fichier. La fixture est son clone
+        // structurel anonymisé.
+        let source = include_str!("../../tests/fixtures/kotlin/RouteParserUtils.kt");
+        let parser = KotlinParser::new();
+        let result = parser
+            .parse(Path::new("RouteParserUtils.kt"), source)
+            .unwrap();
+
+        let object = result
+            .declarations
+            .iter()
+            .find(|d| d.name == "RouteParserUtils" && d.kind == DeclarationKind::Object)
+            .expect("l'object englobant doit exister, perdu ou pas");
+        for lost in [
+            "isValidUriParts",
+            "isActionCommandValid",
+            "isSubpagePartValid",
+            "RoutePageUidHolder",
+        ] {
+            let member = result
+                .declarations
+                .iter()
+                .find(|d| d.name == lost)
+                .unwrap_or_else(|| panic!("membre avalé par l'ERROR non récupéré : {lost}"));
+            assert_eq!(
+                member.parent.as_ref(),
+                Some(&object.id),
+                "{lost} doit être re-parenté sous l'object"
+            );
+        }
+        let orphans: Vec<&str> = result
+            .declarations
+            .iter()
+            .filter(|d| d.parent.is_none() && d.id != object.id)
+            .map(|d| d.name.as_str())
+            .collect();
+        assert!(
+            orphans.is_empty(),
+            "aucune déclaration ne doit rester orpheline, restent : {orphans:?}"
+        );
+        assert!(
+            result.declarations.len() >= 20,
+            "la récupération doit rendre l'essentiel des ~25 déclarations, obtenu {}",
+            result.declarations.len()
+        );
+    }
+
+    #[test]
+    fn test_matching_brace_survives_a_comment_apostrophe() {
+        // L'apostrophe d'un KDoc (« the section's first page ») ouvrait un
+        // char literal fantôme qui avalait toutes les accolades jusqu'à la
+        // fin du fichier — le brace-scan rendait None et le re-parentage
+        // des orphelins était silencieusement abandonné.
+        let parser = KotlinParser::new();
+        let source = "object X {\n    /** the section's first page */\n    fun f() {}\n    // don't\n    val c = '{'\n}\n";
+        let end = parser
+            .find_matching_brace(source, 0)
+            .expect("l'accolade fermante doit être trouvée malgré l'apostrophe");
+        assert_eq!(&source[end - 1..end], "}");
+        assert_eq!(end, source.len() - 1);
+    }
+
+    #[test]
+    fn test_reference_emitted_for_every_identifier_parent() {
+        // P5 (île 7) : `uriParts[ACTION_COMMAND_INDEX]` n'émettait que le
+        // receveur — indexing_suffix et onze autres parents de
+        // simple_identifier tombaient dans le bras `_ => None`.
+        let cases: &[(&str, &str, &str)] = &[
+            (
+                "indexing_suffix",
+                "fun f(arr: List<Int>) = arr[MAGIC_INDEX]",
+                "MAGIC_INDEX",
+            ),
+            (
+                "when_subject",
+                "fun f() = when (CURRENT_MODE) { else -> 0 }",
+                "CURRENT_MODE",
+            ),
+            (
+                "for_statement",
+                "fun f() { for (item in ALL_ENTRIES) { println(item) } }",
+                "ALL_ENTRIES",
+            ),
+            (
+                "while_statement",
+                "fun f() { while (KEEP_RUNNING) { } }",
+                "KEEP_RUNNING",
+            ),
+            (
+                "do_while_statement",
+                "fun f() { do { } while (KEEP_RUNNING) }",
+                "KEEP_RUNNING",
+            ),
+            (
+                "range_test",
+                "fun f(x: Int) = when (x) { in UPPER_BOUND -> 1; else -> 0 }",
+                "UPPER_BOUND",
+            ),
+            (
+                "collection_literal",
+                "@Ann(value = [LINKED_CLASS])\nfun f() {}",
+                "LINKED_CLASS",
+            ),
+            (
+                "property_delegate",
+                "class C { val x by SHARED_DELEGATE }",
+                "SHARED_DELEGATE",
+            ),
+            (
+                "explicit_delegation",
+                "class C(impl: Runnable) : Runnable by GLOBAL_IMPL",
+                "GLOBAL_IMPL",
+            ),
+        ];
+
+        let parser = KotlinParser::new();
+        for (parent, snippet, expected) in cases {
+            let source = format!("package sample\n\n{snippet}\n");
+            let result = parser.parse(Path::new("test.kt"), &source).unwrap();
+            assert!(
+                result.references.iter().any(|r| r.name == *expected),
+                "parent `{parent}` : `{expected}` doit produire une référence, refs: {:?}",
+                result
+                    .references
+                    .iter()
+                    .map(|r| r.name.as_str())
+                    .collect::<Vec<_>>()
+            );
+        }
     }
 }

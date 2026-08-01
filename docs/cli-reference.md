@@ -298,6 +298,7 @@ Generated from `--help`; every flag the binary accepts, alphabetically.
 | `--health` | Replace the report with an A-F health grade per module |
 | `--import-suppressions` | Convert @Suppress(\"unused\") annotations into entries of this baseline file (migration from Detekt-style triage), then exit |
 | `--import-detekt-baseline` | Convert the Unused* entries of a detekt-baseline.xml into the baseline given by --baseline, then exit |
+| `--islands` | Dead islands: groups of declarations that reference only each other and are referenced by nothing else — invisible to per-symbol counting |
 | `--min-grade` | With --health: exit 3 when any module grades below this letter |
 | `--init` | Generate a commented .deadcode.yml matching the project's shape (source sets, DI framework, exclusions) and exit |
 | `--install-hook` | Install a pre-commit hook running the fast diff mode, then exit |

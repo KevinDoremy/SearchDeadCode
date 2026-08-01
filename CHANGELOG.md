@@ -5,6 +5,128 @@ All notable changes to SearchDeadCode will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] - 2026-08-01
+
+### Added
+
+- **`--islands`: dead islands.** Groups of declarations that reference only
+  each other and are referenced by nothing else — the mutual pair, the chain
+  behind a dead entry point, the interface plus its only implementation
+  nobody constructs. `is_referenced` cannot see them (each member HAS an
+  incoming edge, from its dead sibling), and reachability-from-blessed-roots
+  overshoots the other way. The island model fixes the error direction:
+  every mention that cannot be placed is a root and roots mean life — entry
+  points, string literals (attributed by byte extent, so a class logging its
+  own name does not resurrect itself), every token of every XML, guarded
+  declarations' contents through their eligible ancestors. Liveness is a
+  least fixpoint from those roots; islands are the connected components of
+  the complement, computed by the same machinery as `--clusters`. Each
+  member's report names who held it: `'X' kept alive only by Y — themselves
+  dead`. An island referenced from tests is labeled `[test-only]` and left
+  as a human call. Algorithm notes in `docs/dead-islands-algorithm.md`.
+
+### Fixed
+
+- **DC006 tells nested Gradle modules apart.** The module of a file was its
+  first path component under the shared root, so a monorepo laid out as
+  `shared/core` + `shared/ui` read as one module — and the report advised
+  making a symbol `internal` that a sibling module consumes, which does not
+  compile (`internal` is scoped to the Gradle module). A file now belongs to
+  its deepest enclosing directory holding a `build.gradle`/`build.gradle.kts`;
+  projects with no build script keep the path-component fallback.
+
+- **A Java getter read from Kotlin as a synthetic property is alive.** Kotlin
+  sees a Java class's `getX()`/`setX()` as the property `x`, so
+  `button.interactionCount` IS a call to `getInteractionCount()`, and a Java
+  getter used solely from Kotlin read as dead. The bridge lives in the
+  parser, where the syntax says the access goes through a receiver: by
+  resolution time a bare `count` local looks the same as `widget.count`, and
+  bridging there resurrected every Java getter of that name in the corpus.
+  Two of the three false positives in a fifty-finding audit of the reference
+  corpus came from this gap.
+
+- **Declarations a tree-sitter ERROR swallowed are rebuilt from the source
+  text.** Trailing commas in named-argument calls can make the grammar
+  produce an ERROR that eats member declarations whole — sometimes the
+  enclosing `object` itself (one real file kept 15 of 26 declarations, all
+  orphaned, and the builder's file-level fallback attributed every
+  reference after the ERROR to the FIRST declaration of the file,
+  manufacturing an island). The orphan fix now synthesizes the lost
+  enclosing type from its column-0 header, rebuilds the member functions
+  and nested classes inside any type that had to adopt orphans, and adopts
+  members whose ERROR-inflated node runs to the type's own last byte.
+  Underneath it, the brace scanner learned to skip comments: a KDoc
+  apostrophe ("the section's first page") used to open a phantom char
+  literal that swallowed every brace to end of file and silently aborted
+  re-parenting. The recovery runs only when the parse actually carries an
+  ERROR, and reads a copy of the source with comments and string literals
+  blanked out: a file of top-level functions has no type by design, and
+  text-scanning one turned a commented-out class into a declaration with a
+  real fully qualified name, competing with the live class of that name for
+  its manifest entry point.
+
+- **Every carrier of a fully qualified name is rooted as an entry point.**
+  Two product flavors declare the same class and the manifest names it once;
+  rooting the first carrier alone reported the other as dead code.
+
+- **Two overloads sharing a fully qualified name are both reachable through
+  an import.** The FQN index kept one declaration per name, last write wins:
+  a cross-module call to an overloaded top-level function bound only to the
+  collision winner, so the public overload lost every imported call and read
+  as dead while the same call resolved to ALL overloads when made without an
+  import. The index now keeps every carrier; imported calls link them all,
+  marked ambiguous. This undercounted references everywhere, not just in
+  islands — expect finding counts to move.
+
+- **A Java homonym no longer masks the Kotlin property behind its JVM
+  accessor.** `getScreenContentWidth()` resolved to any unrelated Java
+  method carrying that name and the bridge to the Kotlin property never
+  ran — the property read as dead while Java called it on every launch.
+  The accessor bridge is a union with the name matches now, not a fallback,
+  and it only targets Kotlin declarations: a Java bean's own field must not
+  catch its setter's calls, that would erase write-only findings.
+
+- **An identifier under `indexing_suffix` emits a reference.**
+  `uriParts[ACTION_COMMAND_INDEX]` referenced the receiver and dropped the
+  index constant. Eleven more `simple_identifier` parents join the match —
+  `when` subjects, loop headers and conditions, `catch` clauses, range
+  tests, annotation collection literals, property and supertype delegation —
+  each of which silently dropped its mention before.
+
+- **Java `super_types` no longer carry the literal `extends ` prefix.**
+  The extractor took the whole `superclass` node's text; 631 of 3196
+  supertype arrays in the reference corpus said `extends Foo`. Every
+  consumer happened to survive by substring matching — exact-name matching
+  against a supertype was impossible.
+
+- **Islands: a declaration under a `@Module` class is DI convention, not a
+  corpse.** The processor generates factories from a module companion's
+  `@Provides` members into `build/`; the companion's own name never appears
+  in source, which read as an island of three `*ProvideModule` companions
+  whose deletion breaks the object graph at compile time.
+
+- **Islands: a Java `@Override` member leaves the population like a Kotlin
+  `override`.** Java stores the annotation in the modifiers list as
+  `"@Override"`; the guard compared against `"override"` exactly, so a
+  framework callback and the members only it used read as an island.
+
+- **Islands: a Java method under a class with any supertype is out of the
+  population.** `@Override` being optional in Java, `onPreDraw` under
+  `implements ViewTreeObserver.OnPreDrawListener` — an interface the corpus
+  never declares — is called by the framework with nothing for the graph to
+  see. Only supertype-free Java classes keep their methods as island
+  candidates; the real dead methods this silences fall back to the
+  per-symbol detectors, the accepted cost of never deleting a live callback.
+
+- **A `-keepclassmembers` rule no longer retains classes.** Otto's idiom
+  `-keepclassmembers class ** { @Subscribe public *; }` keeps annotated
+  MEMBERS, never classes — parsed as a keep-all it turned every declaration
+  of a real corpus into a retention root, which silently blinded the deep
+  analysis (`--why-alive` answered "retention root" for classes with zero
+  incoming references). Member-scoped keep variants now yield no class
+  pattern; class-keeping variants (`-keep`, `-keepnames`,
+  `-keepclasseswithmembers`) are untouched.
+
 ## [0.14.1] - 2026-07-31
 
 ### Fixed
@@ -327,7 +449,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Homebrew tap for easy installation
 - GitHub Action for CI integration
 
-[Unreleased]: https://github.com/KevinDoremy/SearchDeadCode/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/KevinDoremy/SearchDeadCode/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/KevinDoremy/SearchDeadCode/compare/v0.14.1...v0.15.0
 [0.4.0]: https://github.com/KevinDoremy/SearchDeadCode/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/KevinDoremy/SearchDeadCode/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/KevinDoremy/SearchDeadCode/compare/v0.1.0...v0.2.0

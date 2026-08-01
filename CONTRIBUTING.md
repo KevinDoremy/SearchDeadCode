@@ -26,6 +26,27 @@ cargo test
 cargo run -- /path/to/android/project
 ```
 
+### The fast loop
+
+`cargo install cargo-nextest --locked` once, then:
+
+| Question | Command | Typical |
+|---|---|---|
+| does it compile | `cargo c` | ~15 s |
+| does one area still pass | `cargo t <module>` | seconds |
+| does everything pass | `cargo tf` | ~12 s |
+| a binary to ship | `cargo build --release` | rare |
+
+`c`, `t` and `tf` are aliases defined in `.cargo/config.toml`.
+
+**Do not validate with `--release`.** That profile carries `lto = true` and
+`codegen-units = 1`; it exists to ship a binary, and it turns a one-line
+change into a three-minute rebuild.
+
+The 125 integration test files are modules of a single test binary declared
+in `tests/integration/main.rs`. Adding a test file means adding a `mod` line
+there, not a `[[test]]` block in `Cargo.toml`.
+
 ## How to Contribute
 
 ### Reporting Bugs

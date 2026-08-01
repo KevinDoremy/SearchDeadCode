@@ -9,14 +9,25 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+# Trois commits pousses d'affilee lançaient trois CI completes, dont deux
+# obsoletes avant leur premiere minute.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     name: Build & Test
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        rust: [stable]
+        # Une PR se valide sur ubuntu. macOS coute 10x, Windows 2x : ils
+        # gardent le portage honnete sur main et sur les tags, pas a chaque
+        # iteration.
+        os: ${{ github.event_name == 'pull_request'
+                && fromJSON('["ubuntu-latest"]')
+                || fromJSON('["ubuntu-latest", "macos-latest", "windows-latest"]') }}
 
     steps:
     - uses: actions/checkout@v7
@@ -24,25 +35,21 @@ jobs:
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
       with:
-        toolchain: ${{ matrix.rust }}
-        components: rustfmt, clippy
+        toolchain: stable
 
-    - name: Cache cargo registry
-      uses: actions/cache@v6
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          target
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-cargo-
+    # Remplace actions/cache sur target/ : rust-cache elague les artefacts
+    # avant de sauvegarder et invalide par crate, la ou l'archive complete
+    # coutait plus cher a transferer que la compilation qu'elle evitait.
+    - name: Cache
+      uses: Swatinem/rust-cache@v2
 
-    - name: Build
-      run: cargo build --release
+    - name: Install nextest
+      uses: taiki-e/install-action@nextest
 
+    # Plus de `cargo build --release` ici : la compilation des tests couvre
+    # deja tout le code, et le binaire distribue se construit sur tag.
     - name: Run tests
-      run: cargo test --all
+      run: cargo nextest run --no-fail-fast
 
   lint:
     name: Lint
@@ -56,11 +63,16 @@ jobs:
         toolchain: stable
         components: rustfmt, clippy
 
+    - name: Cache
+      uses: Swatinem/rust-cache@v2
+
     - name: Check formatting
       run: cargo fmt --all -- --check
 
+    # Sans --all-features : la feature `bench` ne sert qu'a construire le
+    # bench criterion, qui n'a rien a verifier ici.
     - name: Clippy
-      run: cargo clippy --all-targets --all-features -- -D warnings
+      run: cargo clippy --all-targets -- -D warnings
 
   # The branch protection on main requires a check named "CI". The matrix job
   # names carry their OS, so none of them can carry that name — this one does,

@@ -1,0 +1,12 @@
+# `cargo t` est la commande par defaut : compilation incrementale plus les
+# 1752 tests en une douzaine de secondes. Mesure : un `cargo check` seul
+# coute 14 s, soit plus que la suite complete. Le check ne sert que quand on
+# veut la premiere erreur sans attendre les tests.
+#
+# Piege mesure : alterner entre `check` et `check --all-targets` refait le
+# travail (37 s au lieu de 15 s), les deux ne partagent pas leurs artefacts.
+# Choisir une commande et s'y tenir.
+[alias]
+t  = "nextest run"
+tf = "nextest run --no-fail-fast"
+c  = "check --all-targets"

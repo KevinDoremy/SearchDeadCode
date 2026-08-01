@@ -184,21 +184,33 @@ impl ParallelGraphBuilder {
     }
 
     fn resolve_reference(&self, graph: &Graph, unresolved: &UnresolvedRef) -> Vec<DeclarationId> {
-        let single = |decl: &Declaration| -> Vec<DeclarationId> {
-            if matches!(
-                unresolved.kind,
-                ReferenceKind::Call | ReferenceKind::Instantiation
-            ) {
-                graph.expand_call_target(&decl.id)
-            } else {
-                vec![decl.id.clone()]
+        // Tous les porteurs d'un FQN, cibles d'appel développées, dédupliquées
+        // (miroir du builder série : deux surcharges partagent un FQN).
+        let expand = |decls: Vec<&Declaration>| -> Vec<DeclarationId> {
+            let mut ids: Vec<DeclarationId> = Vec::new();
+            for decl in decls {
+                let targets = if matches!(
+                    unresolved.kind,
+                    ReferenceKind::Call | ReferenceKind::Instantiation
+                ) {
+                    graph.expand_call_target(&decl.id)
+                } else {
+                    vec![decl.id.clone()]
+                };
+                for id in targets {
+                    if !ids.contains(&id) {
+                        ids.push(id);
+                    }
+                }
             }
+            ids
         };
 
         // Try fully qualified name first
         if let Some(fqn) = &unresolved.qualified_name {
-            if let Some(decl) = graph.find_by_fqn(fqn) {
-                return single(decl);
+            let decls = graph.find_all_by_fqn(fqn);
+            if !decls.is_empty() {
+                return expand(decls);
             }
         }
 
@@ -207,19 +219,22 @@ impl ParallelGraphBuilder {
             if import.ends_with(".*") {
                 let package = &import[..import.len() - 2];
                 let fqn = format!("{}.{}", package, unresolved.name);
-                if let Some(decl) = graph.find_by_fqn(&fqn) {
-                    return single(decl);
+                let decls = graph.find_all_by_fqn(&fqn);
+                if !decls.is_empty() {
+                    return expand(decls);
                 }
             } else if import.ends_with(&format!(".{}", unresolved.name)) {
-                if let Some(decl) = graph.find_by_fqn(import) {
-                    return single(decl);
+                let decls = graph.find_all_by_fqn(import);
+                if !decls.is_empty() {
+                    return expand(decls);
                 }
             } else if let Some(alias_start) = import.find(" as ") {
                 let alias = &import[alias_start + 4..];
                 if alias == unresolved.name {
                     let original = &import[..alias_start];
-                    if let Some(decl) = graph.find_by_fqn(original) {
-                        return single(decl);
+                    let decls = graph.find_all_by_fqn(original);
+                    if !decls.is_empty() {
+                        return expand(decls);
                     }
                 }
             }
@@ -228,32 +243,51 @@ impl ParallelGraphBuilder {
         // Try simple name match
         let candidates = graph.find_by_name(&unresolved.name);
         if !candidates.is_empty() {
-            return candidates.iter().map(|c| c.id.clone()).collect();
+            // Union, pas repli : un homonyme Java quelconque masquait la
+            // propriété Kotlin derrière le nom d'accesseur (miroir du
+            // builder série).
+            let mut ids: Vec<DeclarationId> = candidates.iter().map(|c| c.id.clone()).collect();
+            for id in accessor_property_targets(graph, unresolved) {
+                if !ids.contains(&id) {
+                    ids.push(id);
+                }
+            }
+            return ids;
         }
 
         // Repli accesseur JVM → propriété Kotlin (appel depuis Java)
-        if unresolved.kind == ReferenceKind::Call {
-            if let Some(prop) = kotlin_property_behind_accessor(&unresolved.name) {
-                let props: Vec<DeclarationId> = graph
-                    .find_by_name(&prop)
-                    .iter()
-                    .filter(|d| {
-                        matches!(
-                            d.kind,
-                            crate::graph::DeclarationKind::Property
-                                | crate::graph::DeclarationKind::Field
-                        )
-                    })
-                    .map(|d| d.id.clone())
-                    .collect();
-                if !props.is_empty() {
-                    return props;
-                }
-            }
+        let props = accessor_property_targets(graph, unresolved);
+        if !props.is_empty() {
+            return props;
         }
 
         Vec::new()
     }
+}
+
+/// Cibles propriété/field Kotlin derrière un nom d'accesseur JVM
+/// (`getLabel()` appelé depuis Java → `val label`). Kotlin seulement :
+/// un champ Java n'engendre aucun accesseur généré, et le rattacher ici
+/// ferait passer un `setNickname()` pour une lecture directe du champ.
+fn accessor_property_targets(graph: &Graph, unresolved: &UnresolvedRef) -> Vec<DeclarationId> {
+    if unresolved.kind != ReferenceKind::Call {
+        return Vec::new();
+    }
+    let Some(prop) = kotlin_property_behind_accessor(&unresolved.name) else {
+        return Vec::new();
+    };
+    graph
+        .find_by_name(&prop)
+        .iter()
+        .filter(|d| {
+            d.language == crate::graph::Language::Kotlin
+                && matches!(
+                    d.kind,
+                    crate::graph::DeclarationKind::Property | crate::graph::DeclarationKind::Field
+                )
+        })
+        .map(|d| d.id.clone())
+        .collect()
 }
 
 impl Default for ParallelGraphBuilder {

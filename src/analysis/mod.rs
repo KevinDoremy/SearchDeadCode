@@ -19,6 +19,7 @@ pub mod flags;
 pub mod gradle_deps;
 mod hybrid;
 pub mod ignore;
+pub mod islands;
 pub mod keep_rules;
 pub mod kill_list;
 pub mod layouts;
