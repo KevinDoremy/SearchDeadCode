@@ -245,6 +245,16 @@ impl<'a> EntryPointDetector<'a> {
 
     /// Check if a declaration is an entry point based on code analysis
     fn is_code_entry_point(&self, graph: &Graph, decl: &Declaration) -> bool {
+        // An `operator fun` is invoked by syntax, so no edge ever points at
+        // it. Sparing it from the report was only half the job: left out of
+        // the roots it stayed unreachable, and everything its body touched
+        // cascaded to "only referenced from dead code" — a delegate's backing
+        // property, any class built inside a `plus`. A root, since the call
+        // we cannot see is real.
+        if crate::analysis::deep::is_operator_convention(decl) {
+            return true;
+        }
+
         // DI providers (@Provides/@Binds) are roots only when their produced
         // type is actually consumed — an orphan binding is dead code
         let is_di_provider = decl

@@ -634,3 +634,64 @@ fn an_annotated_bodyless_class_does_not_lend_its_suppress_to_a_neighbour() {
         "and Annotated keeps its own @Suppress, stdout:\n{stdout}"
     );
 }
+
+#[test]
+fn an_operator_is_a_root_not_just_an_exemption() {
+    // Sparing operators from the report was half the job: left out of the
+    // roots they stayed unreachable, so everything their body touched
+    // cascaded to "only referenced from dead code" — a delegate's backing
+    // property, a class built inside `plus`. Both are live code SDC 0.16.0
+    // told you to delete.
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(
+        temp.path().join("Deleg.kt"),
+        concat!(
+            "package s\n\n",
+            "import kotlin.reflect.KProperty\n\n",
+            "class Deleg {\n",
+            "    private var stored: String = \"init\"\n",
+            "    operator fun getValue(t: Any?, p: KProperty<*>): String = stored\n",
+            "    operator fun setValue(t: Any?, p: KProperty<*>, v: String) { stored = v }\n",
+            "}\n",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("Helper.kt"),
+        "package s\n\nclass Helper {\n    fun compute(a: Int): Int = a * 2\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("Num.kt"),
+        concat!(
+            "package s\n\n",
+            "class Num(val v: Int) {\n",
+            "    operator fun plus(o: Num): Num = Num(Helper().compute(v + o.v))\n",
+            "}\n",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("Main.kt"),
+        concat!(
+            "package s\n\n",
+            "var greeting: String by Deleg()\n\n",
+            "fun main() {\n",
+            "    greeting = \"hello\"\n",
+            "    println(greeting)\n",
+            "    println((Num(1) + Num(2)).v)\n",
+            "}\n",
+        ),
+    )
+    .unwrap();
+
+    let stdout = stdout_of(&run(temp.path(), &["--deep"]));
+    assert!(
+        !stdout.contains("'stored'"),
+        "the delegate's backing property is written and read through it, stdout:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("'Helper'"),
+        "a class built inside an operator body is alive, stdout:\n{stdout}"
+    );
+}
