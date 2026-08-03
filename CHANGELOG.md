@@ -5,6 +5,105 @@ All notable changes to SearchDeadCode will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0] - 2026-08-02
+
+### Added
+
+- **DC003 works on Kotlin.** tree-sitter-kotlin declares no field names, so
+  every `child_by_field_name` call in the Kotlin parser silently returned
+  None: no Kotlin parameter ever entered the graph, and the unused-parameter
+  detector only fired on Java. Parameters are now extracted by node kind,
+  scoped to their own function — a parameter no longer answers for
+  same-named parameters elsewhere in the project, which also fixes the Java
+  side, where a used `commun` in one class hid the unused `commun` of
+  another — and excluded from reference attribution, so a parameter cannot
+  steal the type edges of its own signature. `@Suppress("UNUSED_PARAMETER")`
+  on the parameter or on its function is honored; `main`'s parameters are
+  never reported, the JVM imposes that signature.
+
+### Fixed
+
+- **`--delete` rewrites each file in one pass instead of corrupting it.**
+  Deletions were applied one at a time, each shifting the offsets the next
+  one trusted: with two findings in one file, the second removal hit
+  whatever sat at the stale position — sometimes a live line — while still
+  printing its checkmark. Measured on 0.15.1. All ranges of a file are now
+  resolved against a single read and removed in one masked write, so
+  overlapping ranges (a member inside its dead class, one symbol flagged by
+  two rules) merge instead of firing twice, and files keep their trailing
+  newline.
+
+- **`--delete` leaves parameters in place.** Removing one changes the
+  function's signature, and no call site is rewritten to match. The finding
+  stays; the deletion says so — in `--dry-run` too, which previously
+  promised an excision the real run mangled.
+
+- **A live declaration sharing its line with a dead one keeps its half.**
+  Deletion removed whole lines: `class Live { fun live() = 1; private fun
+  dead() = 2 }` lost the entire class while reporting one method deleted.
+  The mask now works in bytes, and a line is dropped only when nothing
+  meaningful survives on it. Annotations stacked above a removed
+  declaration go with it, multi-line ones included, and so does its
+  attached `/** … */` doc block — a leftover `@Deprecated` silently
+  re-attached to the next declaration. CRLF files keep their line endings.
+
+- **`--patch` emits what `--delete` does.** The patch is now derived from
+  the same rewrite plan: parameters excluded, overlapping findings merged
+  into shared hunks. Two findings a few lines apart used to produce
+  overlapping hunks `git apply` rejected wholesale, and a parameter finding
+  wrote a diff removing a live function's signature line.
+
+- **The undo script survives apostrophes and hostile content.** Contents
+  were apostrophe-escaped inside a QUOTED heredoc, corrupting every restored
+  file that contained one, and a source line equal to the fixed delimiter
+  closed the heredoc early — truncating the file and executing what
+  followed as shell. Contents are now written literally under a delimiter
+  checked against them.
+
+- **`@Suppress("UNUSED_PARAMETER")` is honored where the developer wrote
+  it.** On the parameter itself (its annotation sits in a sibling node the
+  extractor walked past), on the enclosing function — including top-level
+  functions, whose annotation arguments were captured without their
+  values — and on any enclosing type, in any case the compiler accepts.
+  Suppressions naming a different report (`UNUSED_VARIABLE`) do not spill
+  onto this one, and an annotated bodyless class no longer lends its
+  `@Suppress` to the next declaration through the grammar's garbled
+  expression parse. `@file:Suppress` is not read yet.
+
+- **A `typealias` keeps the type it names alive.** The alias never entered
+  the graph (the field-name lookup above), its file then held no declaration
+  at all, and the right-hand-side reference was dropped for lack of an
+  owner: `typealias Rows = List<RealClass>` left `RealClass` dead and
+  `--delete` removed it. Chains of aliases resolve to the end, and an alias
+  nobody uses is now itself reported.
+
+- **`import a.b.Foo as Bar` resolves to Foo.** The import extractor stopped
+  at the path and never read the `import_alias` node, so the resolver —
+  which already understood the `as` form — was never given one. Measured
+  side effect: the alias name fell back to the name index and wrongly
+  retained a same-named symbol from another file. Aliased imports of nested
+  classes, object members, sealed variants and enum entries resolve by
+  walking the dotted path down the children when the composed path is not
+  in the FQN index. The alias BINDS its name either way: an import that
+  resolves to nothing — a typo, a type outside the corpus — stays nothing
+  instead of handing the alias any same-named symbol elsewhere.
+
+- **Operator conventions are never reported dead.** `a[i]` calls `get`,
+  `a + b` calls `plus`, `for (x in c)` calls `iterator`, `val x by D()`
+  calls `getValue`: the name appears nowhere at the call site, so a
+  reference count of zero proves nothing. All twenty-four conventions were
+  reported dead. The guard sits on every analysis path — the default one
+  and `--deep` — and DC003 skips the parameters their signatures impose.
+
+- **Java records and enum bodies exist in the graph.** `record_declaration`
+  was not recognised and `enum_body_declarations` was never descended into:
+  everything a record used looked dead, `--delete` broke the build, and no
+  Java enum method was ever reported, alive or dead.
+
+- **A bodyless type no longer swallows its neighbour.** `class Thing`
+  declared before `fun main` adopted main's braces, re-parented it, and the
+  whole file came out dead.
+
 ## [0.15.1] - 2026-08-01
 
 ### Fixed
