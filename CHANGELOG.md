@@ -5,6 +5,19 @@ All notable changes to SearchDeadCode will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.1] - 2026-08-03
+
+### Fixed
+
+- **An operator convention is a root, not just an exemption.** Sparing
+  `operator fun` from the report was half the job: left out of the roots they
+  stayed unreachable, so everything their body touches cascaded to "only
+  referenced from dead code". A delegate's backing property behind
+  `by Deleg()`, any class built inside a `plus`. 0.16.0 pointed at live code
+  and told you to delete it, while `--explain` on the same symbol answered
+  ALIVE. Surfaced by running two analyzers over identical fixtures and
+  arbitrating the disagreements by hand.
+
 ## [0.16.0] - 2026-08-02
 
 ### Added
