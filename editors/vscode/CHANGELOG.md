@@ -4,6 +4,12 @@ All notable changes to the SearchDeadCode extension. The extension versions
 independently from the [`searchdeadcode` crate](https://github.com/KevinDoremy/SearchDeadCode):
 its tags are `vscode-v*`, the crate's are `v*`.
 
+## 0.1.5
+
+Bundles the searchdeadcode 0.16.0 analyzer. See the crate
+[CHANGELOG](https://github.com/KevinDoremy/SearchDeadCode/blob/main/CHANGELOG.md)
+for what changed in the analysis.
+
 ## 0.1.4
 
 Bundles the searchdeadcode 0.15.1 analyzer. See the crate
