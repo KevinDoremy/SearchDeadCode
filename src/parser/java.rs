@@ -80,7 +80,10 @@ impl JavaParser {
 
         for child in node.children(&mut cursor) {
             match child.kind() {
-                "class_declaration" => {
+                // A record IS a class. Without this arm neither the record nor
+                // its body existed in the graph, so everything the record used
+                // looked dead and `--delete` removed it.
+                "class_declaration" | "record_declaration" => {
                     self.extract_class(path, child, source, package, None, result)?;
                 }
                 "interface_declaration" => {
@@ -257,7 +260,22 @@ impl JavaParser {
     ) -> Result<()> {
         let mut cursor = body.walk();
 
+        // tree-sitter wraps everything past the `;` of an enum in an
+        // `enum_body_declarations` node. Without descending into it, no Java
+        // enum method or field existed in the graph at all.
+        let mut flat: Vec<Node> = Vec::new();
         for child in body.children(&mut cursor) {
+            if child.kind() == "enum_body_declarations" {
+                let mut inner = child.walk();
+                for decl in child.children(&mut inner) {
+                    flat.push(decl);
+                }
+            } else {
+                flat.push(child);
+            }
+        }
+
+        for child in flat {
             match child.kind() {
                 "enum_constant" => {
                     self.extract_enum_constant(path, child, source, parent.clone(), result)?;
@@ -373,7 +391,7 @@ impl JavaParser {
 
         for child in body.children(&mut cursor) {
             match child.kind() {
-                "class_declaration" => {
+                "class_declaration" | "record_declaration" => {
                     self.extract_class(path, child, source, package, Some(parent.clone()), result)?;
                 }
                 "interface_declaration" => {

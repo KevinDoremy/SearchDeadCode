@@ -121,6 +121,12 @@ impl GraphBuilder {
                     d.location.file == unresolved.location.file
                         && d.id.start <= ref_byte
                         && d.id.end >= ref_byte
+                        // A parameter is never the origin of a reference. Its own
+                        // span covers its type and its default value, so keeping it
+                        // here would make it the innermost match and steal those
+                        // edges from the function, which then stops retaining the
+                        // types it takes.
+                        && d.kind != crate::graph::DeclarationKind::Parameter
                 })
                 // Pick the smallest (innermost) containing declaration
                 .min_by_key(|d| d.id.end - d.id.start);
@@ -262,12 +268,29 @@ impl GraphBuilder {
                     if !decls.is_empty() {
                         return expand(decls);
                     }
+                    // `import a.Outer.Inner as Bar`: members are keyed by
+                    // their own FQN, not by the dotted access path of the
+                    // import, so the exact lookup misses nested classes,
+                    // object members and enum entries — all reported dead on
+                    // 0.15.1. Walk the path down the children instead:
+                    // precise, so an alias to a type outside the corpus
+                    // resolves to nothing rather than resurrecting a local
+                    // homonym by bare name.
+                    let walked = self.graph.resolve_dotted_path(original);
+                    // The alias BINDS this name, resolvable or not: falling
+                    // through to the bare-name index would hand the alias any
+                    // same-named symbol elsewhere in the project.
+                    return expand(walked);
                 }
             }
         }
 
         // Try simple name match - return ALL candidates for overloaded functions
         let candidates = self.graph.find_by_name(&unresolved.name);
+        let candidates: Vec<_> = candidates
+            .into_iter()
+            .filter(|c| self.parameter_is_in_scope(c, &unresolved.from))
+            .collect();
         if !candidates.is_empty() {
             // For ambiguous references (overloaded functions), mark all as referenced
             // This is conservative but avoids false positives
@@ -291,6 +314,31 @@ impl GraphBuilder {
         }
 
         Vec::new()
+    }
+
+    /// A parameter only exists inside the function that declares it. Simple-name
+    /// resolution is global, so without this a `value` read anywhere bound to
+    /// EVERY parameter named `value` in the project. Those parameters then went
+    /// reachable, and since reachability marks ancestors, they resurrected their
+    /// function and its whole class. Non-parameters are unaffected.
+    fn parameter_is_in_scope(&self, candidate: &Declaration, from: &DeclarationId) -> bool {
+        if candidate.kind != super::DeclarationKind::Parameter {
+            return true;
+        }
+        let Some(owner) = &candidate.parent else {
+            return false;
+        };
+        let mut current = Some(from.clone());
+        while let Some(id) = current {
+            if &id == owner {
+                return true;
+            }
+            current = self
+                .graph
+                .get_declaration(&id)
+                .and_then(|d| d.parent.clone());
+        }
+        false
     }
 
     /// Cibles propriété/field Kotlin derrière un nom d'accesseur JVM

@@ -217,6 +217,14 @@ impl EnhancedAnalyzer {
             return true;
         }
 
+        // Same rule as the deep analyzer: an `operator fun` is called by
+        // syntax, never by name, so a reference count of zero proves nothing.
+        // This copy of the rule was missing, which left every operator exposed
+        // on this path and on the default one.
+        if crate::analysis::deep::is_operator_convention(decl) {
+            return true;
+        }
+
         // Skip members of unreachable classes (report class instead)
         if !self.strict_mode {
             if let Some(parent_id) = &decl.parent {

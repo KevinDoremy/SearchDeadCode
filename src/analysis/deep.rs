@@ -580,6 +580,14 @@ impl DeepAnalyzer {
                 continue;
             }
 
+            // An `operator fun` is called by syntax, never by name. This loop
+            // runs over REACHABLE members only, so it is a second gate that
+            // `should_skip_declaration` never sees: an operator whose class is
+            // reachable lands straight here.
+            if is_operator_convention(decl) {
+                continue;
+            }
+
             // Skip constructors
             if decl.kind == DeclarationKind::Constructor {
                 continue;
@@ -867,6 +875,16 @@ impl DeepAnalyzer {
         // The detector checks if parameters are actually used in their function body,
         // which is more accurate than reachability-based detection
         if decl.kind == DeclarationKind::Parameter {
+            return true;
+        }
+
+        // An `operator fun` is called by SYNTAX, never by name: `a[i]` calls
+        // get, `a + b` calls plus, `for (x in c)` calls iterator, `val (a, b)`
+        // calls component1, `val x by D()` calls getValue. The name appears
+        // nowhere in the caller, so a reference count of zero proves nothing.
+        // Measured on the twenty-four operator conventions: all twenty-four
+        // were reported dead while being called on every line.
+        if is_operator_convention(decl) {
             return true;
         }
 
@@ -1324,6 +1342,60 @@ const LIFECYCLE_METHODS: &[&str] = &[
     "onLowMemory",
     "onTrimMemory",
 ];
+
+/// A Kotlin operator convention: called through syntax, so its name never
+/// appears at the call site. The `operator` modifier is the reliable signal;
+/// the name list catches the same conventions when a parser variant drops
+/// the modifier, and `componentN` for any arity of destructuring.
+pub(crate) fn is_operator_convention(decl: &Declaration) -> bool {
+    if decl.language != crate::graph::Language::Kotlin {
+        return false;
+    }
+    if !matches!(
+        decl.kind,
+        DeclarationKind::Method | DeclarationKind::Function
+    ) {
+        return false;
+    }
+    if decl.modifiers.iter().any(|m| m == "operator") {
+        return true;
+    }
+    const CONVENTIONS: &[&str] = &[
+        "unaryPlus",
+        "unaryMinus",
+        "not",
+        "inc",
+        "dec",
+        "plus",
+        "minus",
+        "times",
+        "div",
+        "rem",
+        "plusAssign",
+        "minusAssign",
+        "timesAssign",
+        "divAssign",
+        "remAssign",
+        "rangeTo",
+        "rangeUntil",
+        "contains",
+        "get",
+        "set",
+        "invoke",
+        "compareTo",
+        "equals",
+        "iterator",
+        "hasNext",
+        "next",
+        "getValue",
+        "setValue",
+        "provideDelegate",
+    ];
+    CONVENTIONS.contains(&decl.name.as_str())
+        || (decl.name.starts_with("component")
+            && decl.name.len() > 9
+            && decl.name[9..].chars().all(|c| c.is_ascii_digit()))
+}
 
 fn is_lifecycle_callback(graph: &Graph, decl: &Declaration) -> bool {
     if decl.kind != DeclarationKind::Method || !LIFECYCLE_METHODS.contains(&decl.name.as_str()) {

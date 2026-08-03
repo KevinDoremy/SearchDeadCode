@@ -4276,15 +4276,32 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
 
     // Step 9f4: Remote Config keys declared in defaults but never read
     {
+        // A sweep over every key (an admin panel reading `getInstance().all`)
+        // is not a behavioural read: nothing acts on that key. Keep the
+        // finding, but the caveat says where to look before deleting, and
+        // confidence drops since removal changes what a screen displays.
+        let sweep = analysis::remote_config::key_sweep_site(&files);
         for (key, file, line) in analysis::remote_config::dead_keys(&cli.path, &files) {
+            let (message, confidence) = match &sweep {
+                Some(site) => (
+                    format!(
+                        "Remote Config key \"{key}\" is declared in defaults and read by no name — a whole-key sweep at {site} still surfaces it"
+                    ),
+                    analysis::Confidence::Medium,
+                ),
+                None => (
+                    format!("Remote Config key \"{key}\" is declared in defaults but never read"),
+                    analysis::Confidence::High,
+                ),
+            };
             dead_code.push(synthetic_finding(
                 &file,
                 line,
                 &key,
                 graph::DeclarationKind::Property,
                 analysis::DeadCodeIssue::DeadConfigKey,
-                format!("Remote Config key \"{key}\" is declared in defaults but never read"),
-                analysis::Confidence::High,
+                message,
+                confidence,
             ));
         }
     }

@@ -141,6 +141,45 @@ impl Graph {
 
     /// Find every declaration carrying a fully qualified name, in
     /// insertion order.
+    /// Resolve a dotted access path (`a.Outer.Inner`, `a.Holder.helper`,
+    /// `a.Color.RED`) that the FQN index cannot answer directly: members are
+    /// keyed by their own FQN, not by every path that reaches them. Resolve
+    /// the longest prefix the index knows, then walk the remaining segments
+    /// down the children. Precise or nothing — a path whose prefix is outside
+    /// the corpus resolves to nothing, it must not fall back to bare names
+    /// and resurrect a local homonym.
+    pub fn resolve_dotted_path(&self, path: &str) -> Vec<&Declaration> {
+        let segments: Vec<&str> = path.split('.').collect();
+        for cut in (1..segments.len()).rev() {
+            let prefix = segments[..cut].join(".");
+            let bases = self.find_all_by_fqn(&prefix);
+            if bases.is_empty() {
+                continue;
+            }
+            let mut current = bases;
+            for segment in &segments[cut..] {
+                let mut next = Vec::new();
+                for base in current {
+                    for child_id in self.get_children(&base.id) {
+                        if let Some(child) = self.declarations.get(child_id) {
+                            if child.name == *segment && child.kind != DeclarationKind::Parameter {
+                                next.push(child);
+                            }
+                        }
+                    }
+                }
+                current = next;
+                if current.is_empty() {
+                    break;
+                }
+            }
+            if !current.is_empty() {
+                return current;
+            }
+        }
+        Vec::new()
+    }
+
     pub fn find_all_by_fqn(&self, fqn: &str) -> Vec<&Declaration> {
         self.fqn_index
             .get(fqn)

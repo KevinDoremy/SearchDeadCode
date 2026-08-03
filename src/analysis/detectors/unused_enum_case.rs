@@ -48,6 +48,12 @@ fn is_iterated_reflectively(corpus: &str, enum_decl: &Declaration) -> bool {
         format!("{enum_name}.values"),
         format!("{enum_name}.entries"),
         format!("{enum_name}.valueOf"),
+        // The callable-reference form: `result?.let(GameResult::valueOf)`
+        // parses a runtime string, so every case is reachable. Spelled with
+        // `::`, it never matched the dot form above.
+        format!("{enum_name}::valueOf"),
+        format!("{enum_name}::values"),
+        format!("{enum_name}::entries"),
         format!("enumValues<{enum_name}>"),
         format!("enumEntries<{enum_name}>"),
     ]

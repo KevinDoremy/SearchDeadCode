@@ -196,6 +196,14 @@ impl ReachabilityAnalyzer {
             return true;
         }
 
+        // Same rule as the deep analyzer: an `operator fun` is called by
+        // syntax, never by name. This is the default path, so without the rule
+        // here the twenty-four conventions stayed exposed for anyone not
+        // passing --deep.
+        if crate::analysis::deep::is_operator_convention(decl) {
+            return true;
+        }
+
         // Skip private/internal members of unreachable classes
         // (they should be reported at the class level, not individually)
         if let Some(parent_id) = &decl.parent {

@@ -108,12 +108,33 @@ impl KotlinParser {
                         // Find identifier by kind (not field name) since tree-sitter-kotlin
                         // doesn't use field names for import identifiers
                         let mut header_cursor = import.walk();
+                        let mut path_text: Option<String> = None;
+                        let mut alias: Option<String> = None;
                         for header_child in import.children(&mut header_cursor) {
-                            if header_child.kind() == "identifier" {
-                                let import_text = node_text(header_child, source);
-                                imports.push(import_text.to_string());
-                                break;
+                            match header_child.kind() {
+                                "identifier" if path_text.is_none() => {
+                                    path_text = Some(node_text(header_child, source).to_string());
+                                }
+                                // `import a.b.Foo as Bar`. The resolver already reads
+                                // the " as " form, it was simply never given one.
+                                "import_alias" => {
+                                    let mut alias_cursor = header_child.walk();
+                                    alias = header_child
+                                        .children(&mut alias_cursor)
+                                        .find(|n| {
+                                            n.kind() == "type_identifier"
+                                                || n.kind() == "simple_identifier"
+                                        })
+                                        .map(|n| node_text(n, source).to_string());
+                                }
+                                _ => {}
                             }
+                        }
+                        if let Some(path_text) = path_text {
+                            imports.push(match alias {
+                                Some(alias) => format!("{path_text} as {alias}"),
+                                None => path_text,
+                            });
                         }
                     }
                 }
@@ -496,7 +517,11 @@ impl KotlinParser {
         }
 
         // Extract parameters
-        if let Some(params) = node.child_by_field_name("function_value_parameters") {
+        let mut params_cursor = node.walk();
+        if let Some(params) = node
+            .children(&mut params_cursor)
+            .find(|c| c.kind() == "function_value_parameters")
+        {
             self.extract_parameters(path, params, source, decl.id.clone(), result)?;
         }
 
@@ -895,9 +920,23 @@ impl KotlinParser {
         result: &mut ParseResult,
     ) -> Result<()> {
         let mut cursor = node.walk();
+        // A parameter's annotation (`@Suppress("UNUSED_PARAMETER") b: Int`)
+        // lives in a `parameter_modifiers` node that PRECEDES the parameter as
+        // a sibling — it is not inside the parameter's own span. Carry it
+        // forward to the next parameter seen.
+        let mut pending_annotations: Vec<String> = Vec::new();
         for child in node.children(&mut cursor) {
+            if child.kind() == "parameter_modifiers" || child.kind() == "modifiers" {
+                pending_annotations.push(node_text(child, source).to_string());
+                continue;
+            }
             if child.kind() == "parameter" || child.kind() == "class_parameter" {
-                if let Some(name_node) = child.child_by_field_name("simple_identifier") {
+                let annotations = std::mem::take(&mut pending_annotations);
+                let mut name_cursor = child.walk();
+                let name_node = child
+                    .children(&mut name_cursor)
+                    .find(|n| n.kind() == "simple_identifier");
+                if let Some(name_node) = name_node {
                     let name = node_text(name_node, source).to_string();
                     let location = point_to_location(
                         path,
@@ -922,6 +961,7 @@ impl KotlinParser {
                     );
 
                     decl.parent = Some(parent.clone());
+                    decl.annotations = annotations;
 
                     result.declarations.push(decl);
                 }
@@ -1045,7 +1085,16 @@ impl KotlinParser {
         package: &Option<String>,
         result: &mut ParseResult,
     ) -> Result<()> {
-        if let Some(name_node) = node.child_by_field_name("simple_identifier") {
+        // tree-sitter-kotlin declares no field names at all, so every
+        // `child_by_field_name` call returns None. The alias name is the first
+        // `type_identifier` child: `typealias Box<T> = Wrapper<T>` gives `Box`,
+        // ahead of the type parameters and of the aliased type on the right.
+        let mut cursor = node.walk();
+        let name_node = node
+            .children(&mut cursor)
+            .find(|child| child.kind() == "type_identifier" || child.kind() == "simple_identifier");
+
+        if let Some(name_node) = name_node {
             let name = node_text(name_node, source).to_string();
             let location = point_to_location(
                 path,
@@ -1124,6 +1173,13 @@ impl KotlinParser {
                             } else {
                                 Some(ReferenceKind::Read)
                             }
+                        } else if self.is_parameter_own_name(parent, current) {
+                            // A parameter's own name is a `simple_identifier` under
+                            // `parameter`, exactly like a default value is. Emitting a
+                            // reference for it hands the parameter an incoming edge
+                            // from its own function, and DC003 then reads every
+                            // parameter as used.
+                            None
                         } else {
                             self.determine_reference_kind(parent)
                         };
@@ -1872,19 +1928,59 @@ impl KotlinParser {
         }
 
         // Also check for annotations in preceding prefix_expression siblings
-        // (tree-sitter-kotlin sometimes places annotations there instead of in modifiers)
+        // (tree-sitter-kotlin sometimes places annotations there instead of in
+        // modifiers). The argument list is a SIBLING parenthesized_expression
+        // inside the prefix_expression, so the annotation child alone reads as
+        // `@Suppress` without its arguments — capture the whole expression, or
+        // `@Suppress("UNUSED_PARAMETER")` loses what it suppresses. Capture
+        // ONLY when the expression is pure annotation syntax: an annotated
+        // BODYLESS class garbles into a prefix_expression that swallows the
+        // following declarations, and taking its text wholesale would hand
+        // this declaration a `@Suppress` that belongs to a neighbour.
         if let Some(prev) = node.prev_sibling() {
-            if prev.kind() == "prefix_expression" {
-                let mut prefix_cursor = prev.walk();
-                for child in prev.children(&mut prefix_cursor) {
-                    if child.kind() == "annotation" {
-                        annotations.push(node_text(child, source).to_string());
-                    }
-                }
+            if prev.kind() == "prefix_expression" && Self::is_annotation_only_prefix(prev) {
+                annotations.push(node_text(prev, source).to_string());
             }
         }
 
         annotations
+    }
+
+    /// True when a `prefix_expression` holds nothing but annotation syntax:
+    /// `annotation` nodes, their `parenthesized_expression` argument lists,
+    /// and nested prefixes of the same shape. Anything else means the grammar
+    /// swallowed a following declaration into the expression.
+    fn is_annotation_only_prefix(node: Node) -> bool {
+        let mut cursor = node.walk();
+        let mut saw_annotation = false;
+        for child in node.children(&mut cursor) {
+            match child.kind() {
+                "annotation" => saw_annotation = true,
+                "parenthesized_expression" => {}
+                "prefix_expression" => {
+                    if !Self::is_annotation_only_prefix(child) {
+                        return false;
+                    }
+                    saw_annotation = true;
+                }
+                _ => return false,
+            }
+        }
+        saw_annotation
+    }
+
+    /// True when `node` is the name a parameter declares, rather than something
+    /// the parameter uses. The name is the first `simple_identifier` under the
+    /// `parameter`; a default value always comes after it.
+    fn is_parameter_own_name(&self, parent: Node, node: Node) -> bool {
+        if !matches!(parent.kind(), "parameter" | "class_parameter") {
+            return false;
+        }
+        let mut cursor = parent.walk();
+        let first_name = parent
+            .children(&mut cursor)
+            .find(|c| c.kind() == "simple_identifier");
+        first_name.is_some_and(|first| first.id() == node.id())
     }
 
     fn determine_reference_kind(&self, parent: Node) -> Option<ReferenceKind> {
@@ -2225,6 +2321,14 @@ impl KotlinParser {
         let type_ranges: Vec<(DeclarationId, usize, usize)> = type_decls
             .into_iter()
             .filter_map(|(id, start)| {
+                // A type with NO body (`class Thing`) adopts nothing: the first
+                // brace ahead of it belongs to its neighbour. Without this
+                // guard a `class Thing` sitting before `fun main` swallowed
+                // main, which became a method and lost its entry-point status.
+                let own = scan.get(start..id.end.min(scan.len()))?;
+                if !own.contains('{') {
+                    return None;
+                }
                 let actual_end = self.find_matching_brace(&scan, start)?;
                 Some((id, start, actual_end))
             })

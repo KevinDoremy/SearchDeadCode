@@ -122,13 +122,17 @@ impl ParallelGraphBuilder {
         for unresolved in references {
             let ref_byte = unresolved.location.start_byte;
 
-            // Find innermost containing declaration
+            // Find innermost containing declaration. Parameters are excluded for
+            // the same reason as in the serial builder: their span covers their
+            // type and default value, and letting them win would strip those
+            // edges off the enclosing function.
             let from_decl = declarations
                 .iter()
                 .filter(|d| {
                     d.location.file == unresolved.location.file
                         && d.id.start <= ref_byte
                         && d.id.end >= ref_byte
+                        && d.kind != crate::graph::DeclarationKind::Parameter
                 })
                 .min_by_key(|d| d.id.end - d.id.start);
 
@@ -257,12 +261,22 @@ impl ParallelGraphBuilder {
                     if !decls.is_empty() {
                         return expand(decls);
                     }
+                    // Mirror of the serial builder: walk the dotted path down
+                    // the children for nested classes, object members and enum
+                    // entries named by an aliased import. The alias BINDS this
+                    // name, resolvable or not — no fall-through to bare names.
+                    let walked = graph.resolve_dotted_path(original);
+                    return expand(walked);
                 }
             }
         }
 
         // Try simple name match
         let candidates = graph.find_by_name(&unresolved.name);
+        let candidates: Vec<_> = candidates
+            .into_iter()
+            .filter(|c| parameter_is_in_scope(graph, c, &unresolved.from))
+            .collect();
         if !candidates.is_empty() {
             // Union, pas repli : un homonyme Java quelconque masquait la
             // propriété Kotlin derrière le nom d'accesseur (miroir du
@@ -290,6 +304,26 @@ impl ParallelGraphBuilder {
 /// (`getLabel()` appelé depuis Java → `val label`). Kotlin seulement :
 /// un champ Java n'engendre aucun accesseur généré, et le rattacher ici
 /// ferait passer un `setNickname()` pour une lecture directe du champ.
+/// Mirror of the serial builder's rule: a parameter is only visible inside the
+/// function that declares it, so global simple-name resolution must not bind a
+/// reference to a same-named parameter from somewhere else.
+fn parameter_is_in_scope(graph: &Graph, candidate: &Declaration, from: &DeclarationId) -> bool {
+    if candidate.kind != crate::graph::DeclarationKind::Parameter {
+        return true;
+    }
+    let Some(owner) = &candidate.parent else {
+        return false;
+    };
+    let mut current = Some(from.clone());
+    while let Some(id) = current {
+        if &id == owner {
+            return true;
+        }
+        current = graph.get_declaration(&id).and_then(|d| d.parent.clone());
+    }
+    false
+}
+
 fn accessor_property_targets(graph: &Graph, unresolved: &UnresolvedRef) -> Vec<DeclarationId> {
     if unresolved.kind != ReferenceKind::Call {
         return Vec::new();

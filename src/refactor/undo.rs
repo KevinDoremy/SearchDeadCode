@@ -37,21 +37,29 @@ impl UndoScript {
         script.push('\n');
 
         for (file_path, contents) in &self.file_states {
-            // Use heredoc to restore file contents
-            let escaped_path = file_path.display().to_string().replace("'", "'\\''");
-            let escaped_contents = contents.replace("'", "'\\''");
+            // The heredoc delimiter is quoted, so the body is LITERAL: no
+            // escaping of the contents — escaping apostrophes here corrupted
+            // every restored file that contained one. Only the delimiter must
+            // never appear as a line of the contents, or the heredoc closes
+            // early, truncates the file, and executes the remaining source
+            // lines as shell.
+            let mut delimiter = String::from("SEARCHDEADCODE_EOF");
+            let mut counter = 0usize;
+            while contents.lines().any(|line| line == delimiter) {
+                counter += 1;
+                delimiter = format!("SEARCHDEADCODE_EOF_{counter}");
+            }
+
+            let escaped_path = file_path.display().to_string().replace('\'', "'\\''");
 
             script.push_str(&format!("# Restore {}\n", file_path.display()));
-            script.push_str(&format!(
-                "cat > '{}' << 'SEARCHDEADCODE_EOF'\n",
-                escaped_path
-            ));
-            script.push_str(&escaped_contents);
-            if !escaped_contents.ends_with('\n') {
+            script.push_str(&format!("cat > '{escaped_path}' << '{delimiter}'\n"));
+            script.push_str(contents);
+            if !contents.ends_with('\n') {
                 script.push('\n');
             }
-            script.push_str("SEARCHDEADCODE_EOF\n");
-            script.push_str(&format!("echo '  Restored: {}'\n", file_path.display()));
+            script.push_str(&format!("{delimiter}\n"));
+            script.push_str(&format!("echo '  Restored: {escaped_path}'\n"));
             script.push('\n');
         }
 

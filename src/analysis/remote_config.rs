@@ -18,6 +18,19 @@ static KEY_VALUE_ENTRY: LazyLock<Regex> = LazyLock::new(|| {
         .expect("Invalid key/value regex")
 });
 
+/// Does the corpus read the whole key set at once? `getInstance().all`,
+/// `getAll()`, or `getKeysByPrefix` enumerate every declared default, which
+/// makes "declared but never read" unprovable for every key at once.
+pub fn enumerates_every_key(corpus: &str) -> bool {
+    const SWEEPS: &[&str] = &[
+        "RemoteConfig.getInstance().all",
+        "remoteConfig.all",
+        "getKeysByPrefix",
+        ".getAll()",
+    ];
+    SWEEPS.iter().any(|needle| corpus.contains(needle))
+}
+
 /// (key, defaults file, line of the <key> entry)
 pub fn dead_keys(root: &Path, files: &[SourceFile]) -> Vec<(String, PathBuf, usize)> {
     let defaults_files: Vec<PathBuf> = walkdir::WalkDir::new(root)
@@ -101,6 +114,32 @@ pub fn boolean_flags(root: &Path) -> Option<Vec<(String, bool)>> {
     }
     flags.sort();
     Some(flags)
+}
+
+/// Where this project reads its Remote Config keys as a whole set, if it
+/// does: `file:line` of the sweep. A sweep does not make a key USED by
+/// product code, it only means a debug surface still shows it — so the
+/// finding stays and carries the caveat instead of disappearing.
+pub fn key_sweep_site(files: &[SourceFile]) -> Option<String> {
+    for file in files {
+        if !matches!(file.file_type, FileType::Kotlin | FileType::Java) {
+            continue;
+        }
+        let Ok(content) = std::fs::read_to_string(&file.path) else {
+            continue;
+        };
+        for (i, line) in content.lines().enumerate() {
+            if enumerates_every_key(line) {
+                let name = file
+                    .path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                return Some(format!("{name}:{}", i + 1));
+            }
+        }
+    }
+    None
 }
 
 #[cfg(test)]

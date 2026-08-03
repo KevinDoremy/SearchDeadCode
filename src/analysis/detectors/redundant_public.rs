@@ -82,11 +82,11 @@ fn module_of(root: &Path, file: &Path, gradle_roots: &BTreeSet<PathBuf>) -> Opti
                 .into_owned(),
         );
     }
-    // Un script de build à la racine seule ne découpe rien : le repli par
-    // composant de chemin reprend la main plutôt que d'éteindre le détecteur.
+    // A build script at the root alone splits nothing: the path-component
+    // fallback takes over rather than switching the detector off.
     if gradle_roots.iter().any(|m| m != root) {
-        // Le projet EST découpé en sous-modules mais ce fichier n'est dans
-        // aucun : il n'appartient à aucun module.
+        // The project IS split into submodules but this file sits in none of
+        // them: it belongs to no module.
         return None;
     }
     let relative = file.strip_prefix(root).ok()?;
@@ -106,9 +106,9 @@ impl Detector for RedundantPublicDetector {
             return Vec::new();
         };
         let gradle_roots = gradle_module_roots(&files, &root);
-        // Le module ne dépend que du répertoire du fichier : le calculer une
-        // fois par répertoire évite un scan linéaire des racines Gradle par
-        // déclaration ET par référence (+40 % sur un projet à 150 modules).
+        // The module only depends on the file's directory: computing it once
+        // per directory avoids a linear scan of the Gradle roots for every
+        // declaration AND reference (+40% on a 150-module project).
         let mut memo: std::collections::HashMap<PathBuf, Option<String>> =
             std::collections::HashMap::new();
         for file in &files {
