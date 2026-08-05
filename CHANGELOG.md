@@ -5,6 +5,94 @@ All notable changes to SearchDeadCode will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.0] - 2026-08-05
+
+### Added
+
+- **`@file:Suppress` is read, as a reservation and never as a silence.** The
+  tool ignored file-level suppressions entirely: seventeen files of the demo
+  corpus carried `@file:Suppress("unused")` and every one of them still got
+  findings. The finding now stays, carries the reservation in its message and
+  drops one notch of confidence, because a file-wide opt-out is not evidence
+  that a symbol is alive and hiding it is how a temporary silence becomes
+  permanent. The header scan blanks comments first, so a commented-out
+  annotation or a licence block mentioning it counts for nothing, and stops at
+  the `package` line so a string four hundred lines down cannot silence the
+  file.
+
+- **One vocabulary for `@Suppress`.** Four spellings of the same test coexisted
+  with three different case semantics, spread across `deep.rs`, `main.rs` and
+  `unused_param.rs`. They live in `analysis/suppress.rs` now, matching on whole
+  words: `@Suppress("UNUSED_PARAMETER")` on a class no longer declines DC001,
+  because `_` is a word character and a parameter warning says nothing about
+  whether the class is reachable.
+
+### Fixed
+
+- **`@JvmStatic fun main` in a companion object is a JVM entry point.** The
+  Kotlin parser never sets `is_static` and a companion member is a Method, so
+  this shape was neither a root nor spared by DC003. `@JvmStatic` is the
+  reliable marker, since a companion may carry a custom name. A method merely
+  *named* `main` is still called like any other, so it stays reportable — and
+  beyond one parameter the signature is nobody's contract either, so
+  `main(config, unused)` gets its DC003 back.
+
+- **`--delete --dry-run` shows what the deletion actually does.** The preview
+  read the raw declaration span while the deletion applied a rewrite plan: it
+  showed neither the annotations nor the doc block the plan takes with it, and
+  rendered a line shared with live code as fully removed when only half of it
+  goes. Both now derive from the same plan, so the preview cannot promise less
+  than what happens.
+
+- **A member with a common name no longer resurrects its container.** When
+  type resolution fails, references fall back to simple-name matching and bind
+  every homonym at once, marking the edges ambiguous. Ancestor marking then
+  walked up from those guesses and kept the container alive: on a neutral
+  196-file Kotlin corpus, seven of the eight dead objects the tool missed
+  carried a member named `scope`, a name occurring 908 times, and `--explain`
+  answered `Incoming references: 0` and `reachable: yes` on the same symbol.
+  Ancestors are now seeded from the transitive closure that never crosses an
+  ambiguous edge, the one `kill_list::forward_closure` already computed. A
+  local test cannot do this: skipping the guessed member alone leaves it
+  reachable, so its own callees inherit a non-ambiguous edge and the
+  contamination just moves one hop. Applied to all three analyzers, including
+  the one `--explain` answers with, so the two stop disagreeing. Measured on a
+  325-file project: 29 containers appear, 99 member findings collapse into
+  them, none in a file that did not gain a container.
+
+- **`import a.Object.member` resolves to the member.** A member is indexed
+  under its own FQN, not under the dotted path of the import, so the exact
+  lookup missed and the reference fell through to the bare-name index, binding
+  every same-named symbol in the project by an ambiguous edge. Harmless while
+  ambiguity kept everything alive; with the ancestor fix above it condemned an
+  object whose only use was that import, which `--delete` would have removed
+  from compiling code. The alias branch already walked the dotted path for
+  this exact reason; the plain branch does now too.
+
+- **Two identical runs produce identical output.** Findings were sorted on
+  (file, line) only, the summary on count only, and `dead_clusters` returned
+  its clusters in `HashSet` traversal order. Ties therefore resolved
+  differently from one run to the next: 26 lines of diff between two runs of
+  the standard report on the Kotlin fixtures, up to 107 for `--islands`. That
+  makes a `scripts/check-corpus.sh` diff noise rather than a measurement,
+  which is the whole point of the script. All three orderings are total now.
+
+### Documented
+
+- **`DETECTORS.md` gains a `Suppressions` section.** The two levels are
+  deliberately asymmetric — an annotation on the declaration drops the
+  finding, `@file:Suppress` keeps it with a reservation and one notch less
+  confidence — and nothing said so anywhere. The section carries the reason,
+  the four declaration-level sites, and why `@Suppress("UNUSED_PARAMETER")` on
+  a class does not decline DC001.
+
+- **Why a bodyless interface method at a common name is not reported.** A
+  comparison run measured zero on them while the code said candidate. Both
+  were right: the public-API guard skips a member that is *referenced*, and a
+  method named `dispose` collects one incoming edge per homonym in the
+  project. The guard stays — counting a guess as a reference errs toward life,
+  the only direction a dead-code detector may err in — and now says so.
+
 ## [0.16.1] - 2026-08-03
 
 ### Fixed
