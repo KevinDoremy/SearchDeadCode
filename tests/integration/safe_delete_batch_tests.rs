@@ -132,3 +132,78 @@ fn dry_run_promises_exactly_what_the_real_run_delivers() {
         "the refused deletion did not, file:\n{after}"
     );
 }
+
+#[test]
+fn the_preview_shows_the_annotations_and_doc_it_will_remove() {
+    // `removal_diff` read the raw declaration span, so the dry run showed
+    // neither the `@Deprecated` nor the `/** */` block that the plan takes
+    // with the declaration. It under-promised, silently, and nothing tested
+    // the absorption at all.
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(
+        temp.path().join("Lib.kt"),
+        concat!(
+            "package s\n\n",
+            "/**\n",
+            " * Documents the dead one.\n",
+            " */\n",
+            "@Deprecated(\"old\")\n",
+            "fun deadOne(): Int = 1\n\n",
+            "fun liveOne(): Int = 2\n",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("Main.kt"),
+        "package s\n\nfun main() {\n    println(liveOne())\n}\n",
+    )
+    .unwrap();
+
+    let preview = stdout_of(&run(temp.path(), &["--delete", "--dry-run", "--yes"]));
+
+    for promised in ["/**", "Documents the dead one.", "@Deprecated(\"old\")"] {
+        assert!(
+            preview.contains(promised),
+            "the preview must show `{promised}`, stdout:\n{preview}"
+        );
+    }
+
+    run(temp.path(), &["--delete", "--yes"]);
+    let after = fs::read_to_string(temp.path().join("Lib.kt")).unwrap();
+    assert!(
+        !after.contains("Deprecated") && !after.contains("Documents the dead one"),
+        "and the deletion delivers exactly that, file:\n{after}"
+    );
+}
+
+#[test]
+fn the_preview_shows_a_shared_line_shrinking_not_vanishing() {
+    // A live declaration sharing its line with a dead one keeps its half. The
+    // preview used to print the whole line under a red minus, which read as
+    // "the class goes".
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(
+        temp.path().join("Lib.kt"),
+        "package s\n\nclass Live { fun live(): Int = 1; private fun deadInline(): Int = 2 }\n",
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("Main.kt"),
+        "package s\n\nfun main() {\n    println(Live().live())\n}\n",
+    )
+    .unwrap();
+
+    let preview = stdout_of(&run(temp.path(), &["--delete", "--dry-run", "--yes"]));
+
+    assert!(
+        preview.contains("+ class Live { fun live(): Int = 1;"),
+        "the surviving half is shown as an addition, stdout:\n{preview}"
+    );
+
+    run(temp.path(), &["--delete", "--yes"]);
+    let after = fs::read_to_string(temp.path().join("Lib.kt")).unwrap();
+    assert!(
+        after.contains("fun live()") && !after.contains("deadInline"),
+        "and that is what the file holds, file:\n{after}"
+    );
+}

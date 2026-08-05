@@ -94,9 +94,11 @@ impl TerminalReporter {
                 None
             };
 
-            // Sort items by line number
+            // Sort items by line number — ordre total, deux trouvailles sur
+            // la même ligne (deux paramètres, deux règles) doivent tomber
+            // toujours dans le même sens
             let mut sorted_items: Vec<_> = items.iter().collect();
-            sorted_items.sort_by_key(|i| i.declaration.location.line);
+            sorted_items.sort_by(|a, b| crate::analysis::report_order(a, b));
 
             for item in sorted_items {
                 self.print_item(item);

@@ -253,6 +253,14 @@ impl ParallelGraphBuilder {
                 if !decls.is_empty() {
                     return expand(decls);
                 }
+                // Mirror of the serial builder: a member is indexed under its
+                // own FQN, not under the dotted path of the import, so
+                // `import s.ConfigHolder.scope` missed and fell through to the
+                // bare-name index.
+                let walked = graph.resolve_dotted_path(import);
+                if !walked.is_empty() {
+                    return expand(walked);
+                }
             } else if let Some(alias_start) = import.find(" as ") {
                 let alias = &import[alias_start + 4..];
                 if alias == unresolved.name {

@@ -19,11 +19,62 @@ pub(crate) struct Deletion {
     pub removed_bytes: usize,
 }
 
+/// How one line of the original fares under the rewrite plan.
+#[derive(Clone, PartialEq)]
+pub(crate) enum LineFate {
+    Kept,
+    Dropped,
+    /// Live code shares the line with a removed span: the line shrinks
+    Shrunk(String),
+}
+
+/// Classify each line of the original against the byte mask.
+pub(crate) fn line_fates(content: &str, mask: &[bool]) -> Vec<LineFate> {
+    let bytes = content.as_bytes();
+    let mut fates = Vec::new();
+    let mut line_start = 0usize;
+    while line_start < bytes.len() {
+        let line_end = content[line_start..]
+            .find('\n')
+            .map_or(bytes.len(), |n| line_start + n);
+        let masked = |i: usize| mask.get(i).copied().unwrap_or(false);
+        let touched = (line_start..line_end).any(masked);
+        let fate = if !touched {
+            LineFate::Kept
+        } else if (line_start..line_end).all(masked) {
+            LineFate::Dropped
+        } else {
+            let survivor: String = (line_start..line_end)
+                .filter(|i| !masked(*i))
+                .map(|i| bytes[i] as char)
+                .collect();
+            let survivor = survivor.trim_end_matches('\r').to_string();
+            LineFate::Shrunk(survivor)
+        };
+        fates.push(fate);
+        line_start = line_end + 1;
+    }
+    fates
+}
+
 /// Delta-style preview: the exact lines a deletion would remove, prefixed
 /// with a red minus. Falls back to a one-line description when the source
 /// cannot be read.
+///
+/// Derived from the SAME rewrite plan the deletion applies, so the preview
+/// cannot promise less than what happens. Reading the raw declaration span
+/// instead showed neither the annotations nor the doc block the plan takes
+/// with it, and rendered a shared line as fully removed when only half of it
+/// goes.
 pub(crate) fn removal_diff(item: &DeadCode) -> String {
     let id = &item.declaration.id;
+    let header = format!(
+        "── {}:{} ({} {}) ",
+        item.declaration.location.file.display(),
+        item.declaration.location.line,
+        item.declaration.kind.display_name(),
+        item.declaration.name
+    );
     let Ok(content) = std::fs::read_to_string(&id.file) else {
         return format!(
             "  {} {} at {}:{}",
@@ -34,31 +85,28 @@ pub(crate) fn removal_diff(item: &DeadCode) -> String {
         );
     };
 
-    let end = id.end.min(content.len());
-    let start = id.start.min(end);
-    let snippet = &content[start..end];
-    let first_line = item.declaration.location.line;
+    let plan = plan_file_rewrite(&content, &[item]);
+    let fates = line_fates(&content, &plan.mask);
+    let lines: Vec<&str> = content.lines().collect();
 
     let mut out = String::new();
     out.push('\n');
-    out.push_str(
-        &format!(
-            "── {}:{} ({} {}) ",
-            item.declaration.location.file.display(),
-            first_line,
-            item.declaration.kind.display_name(),
-            item.declaration.name
-        )
-        .dimmed()
-        .to_string(),
-    );
-    for (offset, line) in snippet.lines().enumerate() {
-        out.push('\n');
-        out.push_str(&format!(
-            "{:>5} {}",
-            first_line + offset,
-            format!("- {}", line).red()
-        ));
+    out.push_str(&header.dimmed().to_string());
+    for (i, fate) in fates.iter().enumerate() {
+        let Some(source) = lines.get(i) else { continue };
+        match fate {
+            LineFate::Kept => {}
+            LineFate::Dropped => {
+                out.push('\n');
+                out.push_str(&format!("{:>5} {}", i + 1, format!("- {source}").red()));
+            }
+            LineFate::Shrunk(survivor) => {
+                out.push('\n');
+                out.push_str(&format!("{:>5} {}", i + 1, format!("- {source}").red()));
+                out.push('\n');
+                out.push_str(&format!("{:>5} {}", i + 1, format!("+ {survivor}").green()));
+            }
+        }
     }
     out
 }

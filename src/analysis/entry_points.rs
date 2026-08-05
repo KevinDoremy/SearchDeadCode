@@ -277,12 +277,14 @@ impl<'a> EntryPointDetector<'a> {
             }
         }
 
-        // Check for main functions — Kotlin top-level, or Java's
-        // public static void main (a Method, not a Function)
-        if decl.name == "main"
-            && (decl.kind == DeclarationKind::Function
-                || (decl.kind == DeclarationKind::Method && decl.is_static))
-        {
+        // Check for main functions — Kotlin top-level, Java's public static
+        // void main (a Method, not a Function), or Kotlin's `@JvmStatic fun
+        // main` inside a companion object. That last shape is a valid JVM
+        // entry point and used to be neither a root nor spared by DC003: the
+        // Kotlin parser never sets `is_static`, and a companion member is a
+        // Method. `@JvmStatic` is the reliable marker, since a companion may
+        // carry a custom name.
+        if decl.name == "main" && is_main_entry_shape(decl) {
             return true;
         }
 
@@ -828,6 +830,23 @@ impl<'a> EntryPointDetector<'a> {
                 entry_points.insert(field.id.clone());
             }
         }
+    }
+}
+
+/// The three shapes a JVM entry point named `main` can take: a Kotlin
+/// top-level function, a Java `public static void main`, or a Kotlin
+/// `@JvmStatic fun main` in a companion object.
+///
+/// The name alone is not the test. A method merely CALLED main — `class
+/// Runner { fun main(x: Int) }` — is invoked like any other, so it is neither
+/// a root nor exempt from the unused-parameter report.
+pub(crate) fn is_main_entry_shape(decl: &Declaration) -> bool {
+    match decl.kind {
+        DeclarationKind::Function => true,
+        DeclarationKind::Method => {
+            decl.is_static || decl.annotations.iter().any(|a| a.contains("JvmStatic"))
+        }
+        _ => false,
     }
 }
 

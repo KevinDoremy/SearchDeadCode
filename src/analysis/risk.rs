@@ -4,7 +4,7 @@
 //! or event-bus dispatch. Findings touched by those signals are flagged so
 //! the user knows which deletions need a second look.
 
-use crate::analysis::{Confidence, DeadCode, RiskLevel};
+use crate::analysis::{DeadCode, RiskLevel};
 use crate::discovery::{FileType, SourceFile};
 use regex::Regex;
 use std::collections::HashSet;
@@ -70,11 +70,7 @@ pub fn assess(dead_code: &mut [DeadCode], files: &[SourceFile]) {
             finding.message.push_str(
                 " — name appears in string literals (reflective or serialized use possible)",
             );
-            finding.confidence = match finding.confidence {
-                Confidence::Confirmed => Confidence::Confirmed,
-                Confidence::High => Confidence::Medium,
-                _ => Confidence::Low,
-            };
+            finding.confidence = finding.confidence.downgraded();
         }
     }
 }

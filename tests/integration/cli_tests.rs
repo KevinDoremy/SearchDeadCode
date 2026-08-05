@@ -196,13 +196,40 @@ fn test_cli_parallel_mode() {
         return;
     }
 
-    let (stdout, stderr, _) = run_cli(&[fixtures.to_str().unwrap(), "--parallel"]);
+    // Le test cherchait le mot « parallel » dans la sortie. Il ne le trouvait
+    // que parce qu'une fixture contenait une méthode nommée `loadDataParallel`
+    // signalée morte : la conclusion ne tenait pas au drapeau. Le vrai
+    // contrat de `--parallel` sous `--deep` (actif par défaut), c'est de
+    // rendre exactement le même verdict que la passe séquentielle.
+    let (parallel, _, ok_parallel) = run_cli(&[fixtures.to_str().unwrap(), "--parallel"]);
+    let (sequential, _, ok_sequential) = run_cli(&[fixtures.to_str().unwrap()]);
 
-    let combined = format!("{}{}", stdout, stderr);
+    let parallel = findings(&parallel);
+    let sequential = findings(&sequential);
+
+    // Sans ça, un rapport vide des deux côtés ferait passer le test — c'est
+    // exactement la panne qu'il est censé attraper.
     assert!(
-        combined.contains("Parallel") || combined.contains("parallel"),
-        "Should run in parallel mode"
+        !sequential.is_empty(),
+        "les fixtures doivent produire des trouvailles, sinon le test est vide"
     );
+    assert_eq!(ok_parallel, ok_sequential);
+    assert_eq!(
+        parallel, sequential,
+        "le parallélisme ne doit pas changer le verdict"
+    );
+}
+
+/// Les lignes de trouvaille d'un rapport, triées : le contenu comparable
+/// entre deux runs, sans les durées ni les compteurs.
+fn findings(report: &str) -> Vec<String> {
+    let mut lines: Vec<String> = report
+        .lines()
+        .filter(|l| l.contains("[DC") || l.contains("[AP"))
+        .map(|l| l.trim().to_string())
+        .collect();
+    lines.sort();
+    lines
 }
 
 // ============================================================================

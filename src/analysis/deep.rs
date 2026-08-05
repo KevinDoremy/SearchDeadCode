@@ -73,21 +73,9 @@ impl DeepAnalyzer {
         let pattern_dead = self.detect_dead_patterns(graph, &reachable);
         dead_code.extend(pattern_dead);
 
-        // Sort and deduplicate
-        dead_code.sort_by(|a, b| {
-            let file_cmp = a
-                .declaration
-                .location
-                .file
-                .cmp(&b.declaration.location.file);
-            if file_cmp != std::cmp::Ordering::Equal {
-                return file_cmp;
-            }
-            a.declaration
-                .location
-                .line
-                .cmp(&b.declaration.location.line)
-        });
+        // Sort and deduplicate — ordre total, sinon la déduplication qui suit
+        // ne garde pas le même représentant d'un run à l'autre
+        dead_code.sort_by(super::report_order);
 
         // Deduplicate by declaration ID
         let mut seen = HashSet::new();
@@ -140,8 +128,11 @@ impl DeepAnalyzer {
             }
         }
 
-        // Mark ancestors as reachable (batch collect to avoid repeated lookups)
-        let ancestor_ids: Vec<_> = reachable.iter().cloned().collect();
+        // Mark ancestors as reachable — mais seulement depuis les symboles qui
+        // l'ont mérité, pas depuis ceux qu'une devinette d'homonymie a
+        // atteints (voir `analysis::ancestry`)
+        let ancestor_ids =
+            crate::analysis::ancestry::ancestor_seeds(graph, entry_points, &reachable);
         for id in ancestor_ids {
             Self::collect_ancestors(graph, &id, &mut reachable);
         }
@@ -613,11 +604,11 @@ impl DeepAnalyzer {
                 continue;
             }
 
-            // Skip declarations with @Suppress("unused") or @Suppress("UnusedPrivateMember")
-            if decl.annotations.iter().any(|a| {
-                a.contains("Suppress")
-                    && (a.contains("unused") || a.contains("UnusedPrivateMember"))
-            }) {
+            // Skip declarations the author already declined this report for
+            if crate::analysis::suppress::annotations_suppress(
+                &decl.annotations,
+                crate::analysis::suppress::UNUSED_DECLARATION,
+            ) {
                 continue;
             }
 
@@ -649,6 +640,15 @@ impl DeepAnalyzer {
             }
 
             // Skip public API (might be used externally)
+            //
+            // `is_referenced` compte AUSSI les arêtes ambiguës, celles que la
+            // résolution par nom simple pose sur tous les homonymes. Un membre
+            // public au nom courant est donc gardé vivant par les homonymes
+            // d'à côté : une méthode d'interface `dispose()` ne ressort pas
+            // alors que sa voisine au nom unique, même interface, ressort
+            // (`tests/integration/interface_member_tests.rs`). C'est un faux
+            // négatif assumé — une devinette d'homonymie n'a le droit de se
+            // tromper que dans le sens de la vie.
             if decl.visibility == crate::graph::Visibility::Public {
                 // But still report if it's not referenced at all
                 if graph.is_referenced(&decl.id) {
@@ -953,11 +953,11 @@ impl DeepAnalyzer {
             return true;
         }
 
-        // Skip declarations with @Suppress("unused") or @Suppress("UnusedPrivateMember")
         // Developer explicitly acknowledges the code is unused but wants to keep it
-        if decl.annotations.iter().any(|a| {
-            a.contains("Suppress") && (a.contains("unused") || a.contains("UnusedPrivateMember"))
-        }) {
+        if crate::analysis::suppress::annotations_suppress(
+            &decl.annotations,
+            crate::analysis::suppress::UNUSED_DECLARATION,
+        ) {
             return true;
         }
 
@@ -1344,9 +1344,16 @@ const LIFECYCLE_METHODS: &[&str] = &[
 ];
 
 /// A Kotlin operator convention: called through syntax, so its name never
-/// appears at the call site. The `operator` modifier is the reliable signal;
-/// the name list catches the same conventions when a parser variant drops
-/// the modifier, and `componentN` for any arity of destructuring.
+/// appears at the call site.
+///
+/// The `operator` modifier is the signal, and it is reliable: measured on the
+/// committed parse caches, every `operator fun` of the corpus carries it. The
+/// name alone proves nothing — `fun div(init: Builder.() -> Unit)` is a DSL
+/// function and `fun getValue(): Int` an ordinary accessor, and exempting
+/// those also promoted them to roots, keeping alive whatever their bodies
+/// touched. An OVERRIDE is the one case where the name still counts: it does
+/// not repeat the `operator` keyword of the interface it implements.
+/// `componentN` stays unconditional, being synthesised by destructuring.
 pub(crate) fn is_operator_convention(decl: &Declaration) -> bool {
     if decl.language != crate::graph::Language::Kotlin {
         return false;
@@ -1391,10 +1398,15 @@ pub(crate) fn is_operator_convention(decl: &Declaration) -> bool {
         "setValue",
         "provideDelegate",
     ];
-    CONVENTIONS.contains(&decl.name.as_str())
-        || (decl.name.starts_with("component")
-            && decl.name.len() > 9
-            && decl.name[9..].chars().all(|c| c.is_ascii_digit()))
+    if decl.name.starts_with("component")
+        && decl.name.len() > 9
+        && decl.name[9..].chars().all(|c| c.is_ascii_digit())
+    {
+        return true;
+    }
+    let is_override = decl.modifiers.iter().any(|m| m == "override")
+        || decl.annotations.iter().any(|a| a.contains("Override"));
+    is_override && CONVENTIONS.contains(&decl.name.as_str())
 }
 
 fn is_lifecycle_callback(graph: &Graph, decl: &Declaration) -> bool {

@@ -2,6 +2,7 @@
 #![allow(dead_code)]
 
 pub mod accessors;
+mod ancestry;
 pub mod assets;
 pub mod blame;
 pub mod bus;
@@ -35,6 +36,7 @@ pub mod resources;
 pub mod risk;
 pub mod situations;
 pub mod strings_dup;
+pub mod suppress;
 pub mod test_refs;
 pub mod translations;
 pub mod twins;
@@ -84,6 +86,17 @@ impl Confidence {
             Confidence::Medium => 0.50,
             Confidence::High => 0.75,
             Confidence::Confirmed => 1.0,
+        }
+    }
+
+    /// One notch down, with a floor at Low. `Confirmed` is exempt: runtime
+    /// coverage showing the symbol never executed outranks any static
+    /// reservation we could add on top of it.
+    pub fn downgraded(self) -> Self {
+        match self {
+            Confidence::Confirmed => Confidence::Confirmed,
+            Confidence::High => Confidence::Medium,
+            Confidence::Medium | Confidence::Low => Confidence::Low,
         }
     }
 }
@@ -136,6 +149,37 @@ pub struct DeadCode {
 
     /// Deletion risk based on soft signals (string refs, reflection, bus)
     pub risk: RiskLevel,
+}
+
+/// L'ordre du rapport, et il doit être TOTAL.
+///
+/// Les trois analyseurs triaient sur (fichier, ligne) seulement. Les égalités
+/// — deux paramètres déclarés sur la même ligne, deux règles au même endroit —
+/// gardaient donc l'ordre d'entrée, qui vient d'un parcours de `HashSet` et
+/// change d'un run à l'autre. Mesuré : deux exécutions identiques sur les
+/// fixtures Kotlin rendaient 26 lignes de diff. C'est fatal pour
+/// `scripts/check-corpus.sh`, dont toute la valeur tient à ce qu'une sortie
+/// vide veuille dire « rien n'a bougé ».
+pub fn report_order(a: &DeadCode, b: &DeadCode) -> std::cmp::Ordering {
+    a.declaration
+        .location
+        .file
+        .cmp(&b.declaration.location.file)
+        .then(
+            a.declaration
+                .location
+                .line
+                .cmp(&b.declaration.location.line),
+        )
+        .then(
+            a.declaration
+                .location
+                .column
+                .cmp(&b.declaration.location.column),
+        )
+        .then(a.issue.code().cmp(b.issue.code()))
+        .then(a.declaration.name.cmp(&b.declaration.name))
+        .then(a.message.cmp(&b.message))
 }
 
 impl DeadCode {

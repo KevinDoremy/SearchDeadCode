@@ -258,6 +258,16 @@ impl GraphBuilder {
                 if !decls.is_empty() {
                     return expand(decls);
                 }
+                // Même raison que la branche alias plus bas : un membre est
+                // indexé sous son propre FQN, pas sous le chemin pointé de
+                // l'import. `import s.ConfigHolder.scope` ratait donc la
+                // recherche exacte, retombait sur le nom simple et liait TOUS
+                // les `scope` du projet par une arête ambiguë — l'objet
+                // n'était plus tenu vivant que par une devinette.
+                let walked = self.graph.resolve_dotted_path(import);
+                if !walked.is_empty() {
+                    return expand(walked);
+                }
             }
             // Aliased import (Kotlin)
             else if let Some(alias_start) = import.find(" as ") {

@@ -3112,10 +3112,14 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         };
         let mut imported = 0usize;
         for decl in graph.declarations() {
-            let suppressed_unused = decl
-                .annotations
-                .iter()
-                .any(|a| a.contains("Suppress") && a.to_lowercase().contains("unused"));
+            // Only a suppression that NAMES this report imports the symbol.
+            // `to_lowercase().contains("unused")` also matched
+            // `@Suppress("UNUSED_PARAMETER")` on a class, which says nothing
+            // about whether the class itself is reachable.
+            let suppressed_unused = analysis::suppress::annotations_suppress(
+                &decl.annotations,
+                analysis::suppress::UNUSED_DECLARATION,
+            );
             if !suppressed_unused {
                 continue;
             }
@@ -4669,6 +4673,23 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     // outlived its target, delete them together
     analysis::test_refs::annotate(&mut dead_code, &cli.path);
 
+    // Step 10a3: `@file:Suppress` — the author already declined this report
+    // for the whole file. The finding STAYS: a file-wide opt-out is not
+    // evidence of life, and hiding it is how a temporary silence becomes
+    // permanent. It carries the reservation and drops one notch of
+    // confidence. Deliberately after the Step 10 confidence filter, so the
+    // downgrade can never remove anything from the report.
+    let reserved = analysis::suppress::annotate(&mut dead_code);
+    if reserved > 0 && !cli.quiet {
+        println!(
+            "{}",
+            format!(
+                "{reserved} finding(s) in files marked @file:Suppress — kept, confidence lowered"
+            )
+            .dimmed()
+        );
+    }
+
     // Step 10b: ownership — after the filters, one git call per survivor
     if cli.blame {
         analysis::blame::annotate(&mut dead_code, &cli.path);
@@ -4698,6 +4719,12 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
             }
         }
     }
+    // Les analyseurs trient leur propre sortie, mais une vingtaine de
+    // détecteurs ont poussé la leur après coup, chacun dans son ordre. Un
+    // dernier tri total ici est le seul endroit qui voit tout le rapport :
+    // sans lui, deux exécutions identiques rendaient des sorties différentes,
+    // et le diff de `check-corpus.sh` devenait du bruit.
+    dead_code.sort_by(analysis::report_order);
     let dead_code = dead_code;
 
     info!("Found {} dead code candidates", dead_code.len());

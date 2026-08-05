@@ -62,21 +62,8 @@ impl ReachabilityAnalyzer {
             dead_code.push(finding);
         }
 
-        // Sort by file and location for consistent output
-        dead_code.sort_by(|a, b| {
-            let file_cmp = a
-                .declaration
-                .location
-                .file
-                .cmp(&b.declaration.location.file);
-            if file_cmp != std::cmp::Ordering::Equal {
-                return file_cmp;
-            }
-            a.declaration
-                .location
-                .line
-                .cmp(&b.declaration.location.line)
-        });
+        // Sort by file and location for consistent output — ordre total
+        dead_code.sort_by(super::report_order);
 
         (dead_code, reachable)
     }
@@ -102,22 +89,20 @@ impl ReachabilityAnalyzer {
                 while let Some(node_idx) = dfs.next(inner_graph) {
                     if let Some(node_id) = inner_graph.node_weight(node_idx) {
                         reachable.insert(node_id.clone());
-
-                        // Also mark parent declarations as reachable
-                        if let Some(decl) = graph.get_declaration(node_id) {
-                            if let Some(parent_id) = &decl.parent {
-                                reachable.insert(parent_id.clone());
-                            }
-                        }
                     }
                 }
             }
         }
 
         // Step 2: Mark all ancestors of reachable nodes as reachable
+        //
+        // Le parent était aussi inséré au fil de la DFS ci-dessus. Le doublon
+        // court-circuitait le filtre : le membre atteint par homonymie posait
+        // son conteneur dans `reachable` avant même qu'on ait le droit d'en
+        // décider. La seule voie est ici, et elle passe par `ancestry`.
         let mut ancestors = HashSet::new();
-        for id in &reachable {
-            Self::collect_ancestors(graph, id, &mut ancestors);
+        for id in crate::analysis::ancestry::ancestor_seeds(graph, entry_points, &reachable) {
+            Self::collect_ancestors(graph, &id, &mut ancestors);
         }
         reachable.extend(ancestors);
 

@@ -220,9 +220,10 @@ impl SummaryReporter {
     fn print_top_issues(&self, stats: &ResultStats) {
         println!("{}", "Top Issues:".white().bold());
 
-        // Sort by count
+        // Sort by count, le code départage : `by_rule` est une HashMap, et
+        // deux règles à égalité s'échangeaient d'une exécution à l'autre
         let mut rules: Vec<_> = stats.by_rule.iter().collect();
-        rules.sort_by(|a, b| b.1.cmp(a.1));
+        rules.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
 
         for (i, (rule, count)) in rules.iter().take(self.top_n).enumerate() {
             let desc = self.rule_short_description(rule);

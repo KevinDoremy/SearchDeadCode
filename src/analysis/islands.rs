@@ -452,11 +452,25 @@ pub fn find_islands(
         });
     }
 
+    // « biggest first », et l'ordre doit être TOTAL. Deux îles à égalité de
+    // membres visibles ET de lignes estimées gardaient l'ordre du parcours de
+    // `dead_clusters`, qui vient d'un ensemble : deux exécutions identiques
+    // renumérotaient les îles. `total_declarations` est le nombre AFFICHÉ,
+    // donc il départage avant l'identité, sinon la liste annonce 4 avant 5.
     islands.sort_by(|a, b| {
         b.members
             .len()
             .cmp(&a.members.len())
             .then(b.estimated_lines.cmp(&a.estimated_lines))
+            .then(b.total_declarations.cmp(&a.total_declarations))
+            .then_with(|| {
+                let key = |i: &DeadIsland| {
+                    i.members
+                        .first()
+                        .map(|m| (m.file.clone(), m.line, m.name.clone()))
+                };
+                key(a).cmp(&key(b))
+            })
     });
     islands
 }

@@ -8,20 +8,11 @@
 //! rejected, and parameters bypassed the hand-edit gate entirely.
 
 use crate::analysis::DeadCode;
-use crate::refactor::safe_delete::plan_file_rewrite;
+use crate::refactor::safe_delete::{line_fates, plan_file_rewrite, LineFate};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 const CONTEXT: usize = 3;
-
-/// How one line of the original fares under the rewrite plan.
-#[derive(Clone, PartialEq)]
-enum LineFate {
-    Kept,
-    Dropped,
-    /// Live code shares the line with a removed span: the line shrinks
-    Shrunk(String),
-}
 
 /// Build one unified patch covering every finding, one file at a time.
 pub fn unified_patch(dead_code: &[DeadCode], base: &Path) -> String {
@@ -54,35 +45,6 @@ pub fn unified_patch(dead_code: &[DeadCode], base: &Path) -> String {
         patch.push_str(&hunks(&content, &fates));
     }
     patch
-}
-
-/// Classify each line of the original against the byte mask.
-fn line_fates(content: &str, mask: &[bool]) -> Vec<LineFate> {
-    let bytes = content.as_bytes();
-    let mut fates = Vec::new();
-    let mut line_start = 0usize;
-    while line_start < bytes.len() {
-        let line_end = content[line_start..]
-            .find('\n')
-            .map_or(bytes.len(), |n| line_start + n);
-        let masked = |i: usize| mask.get(i).copied().unwrap_or(false);
-        let touched = (line_start..line_end).any(masked);
-        let fate = if !touched {
-            LineFate::Kept
-        } else if (line_start..line_end).all(masked) {
-            LineFate::Dropped
-        } else {
-            let survivor: String = (line_start..line_end)
-                .filter(|i| !masked(*i))
-                .map(|i| bytes[i] as char)
-                .collect();
-            let survivor = survivor.trim_end_matches('\r').to_string();
-            LineFate::Shrunk(survivor)
-        };
-        fates.push(fate);
-        line_start = line_end + 1;
-    }
-    fates
 }
 
 /// Emit hunks with shared context: change blocks whose context windows touch

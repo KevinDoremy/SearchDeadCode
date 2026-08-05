@@ -78,8 +78,13 @@ impl Aggregator {
             })
             .collect();
 
-        // Sort by count descending
-        by_rule.sort_by_key(|rule| std::cmp::Reverse(rule.count()));
+        // Sort by count descending, le code départage : deux règles à égalité
+        // de compte s'échangeaient d'un run à l'autre dans le récapitulatif
+        by_rule.sort_by(|a, b| {
+            b.count()
+                .cmp(&a.count())
+                .then(a.issue.code().cmp(b.issue.code()))
+        });
 
         // Group by category
         let by_category = self.group_by_category(&by_rule);

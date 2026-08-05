@@ -111,11 +111,12 @@ impl EnhancedAnalyzer {
             reachable.len()
         );
 
-        // Mark ancestors as reachable
+        // Mark ancestors as reachable — depuis les symboles qui l'ont mérité
+        // seulement (voir `analysis::ancestry`)
         info!("  → Marking ancestors...");
         let mut ancestors = HashSet::new();
-        for id in &reachable {
-            Self::collect_ancestors(graph, id, &mut ancestors);
+        for id in crate::analysis::ancestry::ancestor_seeds(graph, entry_points, &reachable) {
+            Self::collect_ancestors(graph, &id, &mut ancestors);
         }
         reachable.extend(ancestors);
         info!("  → Total with ancestors: {}", reachable.len());
@@ -346,21 +347,8 @@ impl EnhancedAnalyzer {
             dead_code.extend(additional);
         }
 
-        // Sort by file and location
-        dead_code.sort_by(|a, b| {
-            let file_cmp = a
-                .declaration
-                .location
-                .file
-                .cmp(&b.declaration.location.file);
-            if file_cmp != std::cmp::Ordering::Equal {
-                return file_cmp;
-            }
-            a.declaration
-                .location
-                .line
-                .cmp(&b.declaration.location.line)
-        });
+        // Sort by file and location — ordre total
+        dead_code.sort_by(super::report_order);
 
         dead_code
     }

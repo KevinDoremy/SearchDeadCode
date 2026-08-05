@@ -695,3 +695,170 @@ fn an_operator_is_a_root_not_just_an_exemption() {
         "a class built inside an operator body is alive, stdout:\n{stdout}"
     );
 }
+
+#[test]
+fn a_convention_name_without_the_operator_keyword_is_an_ordinary_method() {
+    // The name list used to exempt anything CALLED like a convention, so
+    // `fun div(init: Builder.() -> Unit)` and `fun getValue(): Int` were
+    // spared and, worse, promoted to roots. Measured on the fixtures: the
+    // fallback caught eight declarations, all ordinary methods, no real
+    // convention. The `operator` modifier is the signal.
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(
+        temp.path().join("Runner.kt"),
+        concat!(
+            "package s\n\n",
+            "class Runner {\n",
+            "    fun invoke(): Int = 1\n",
+            "    fun get(i: Int): String = \"x\"\n",
+            "}\n",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("Main.kt"),
+        "package s\n\nfun main() {\n    println(Runner())\n}\n",
+    )
+    .unwrap();
+
+    let stdout = stdout_of(&run(temp.path(), &["--deep"]));
+
+    assert!(
+        stdout.contains("'invoke'") && stdout.contains("'get'"),
+        "an ordinary method that nobody calls is dead, stdout:\n{stdout}"
+    );
+}
+
+#[test]
+fn an_ordinary_method_named_like_a_convention_is_not_a_root() {
+    // The other half of the exemption: while `get` was treated as an
+    // operator it rooted its whole body, so a class built only inside it
+    // stayed artificially alive.
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(temp.path().join("Helper.kt"), "package s\n\nclass Helper\n").unwrap();
+    fs::write(
+        temp.path().join("Cache.kt"),
+        "package s\n\nclass Cache {\n    fun get(k: String): Helper = Helper()\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("Main.kt"),
+        "package s\n\nfun main() {\n    println(\"nothing\")\n}\n",
+    )
+    .unwrap();
+
+    let stdout = stdout_of(&run(temp.path(), &["--deep"]));
+
+    assert!(
+        stdout.contains("'Helper'"),
+        "nothing reachable builds Helper any more, stdout:\n{stdout}"
+    );
+}
+
+#[test]
+fn an_override_of_a_convention_keeps_the_exemption() {
+    // An override does not repeat the interface's `operator` keyword, so the
+    // name is the only signal left. This is the one case the fallback exists
+    // for, and the reason it is kept for overrides only.
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(
+        temp.path().join("Bag.kt"),
+        "package s\n\ninterface Bag {\n    operator fun get(i: Int): String\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("MyBag.kt"),
+        "package s\n\nclass MyBag : Bag {\n    override fun get(i: Int): String = \"x\"\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("Main.kt"),
+        "package s\n\nfun main() {\n    println(MyBag()[0])\n}\n",
+    )
+    .unwrap();
+
+    let stdout = stdout_of(&run(temp.path(), &["--deep"]));
+
+    assert!(
+        !stdout.contains("'get'"),
+        "`myBag[0]` calls it, the name appears nowhere, stdout:\n{stdout}"
+    );
+}
+
+#[test]
+fn a_jvmstatic_main_in_a_companion_is_an_entry_point() {
+    // A valid JVM entry point that was neither a root nor spared: the Kotlin
+    // parser never sets `is_static`, and a companion member is a Method, so
+    // both rules judged it an ordinary function. `@JvmStatic` is the reliable
+    // marker — a companion object may carry a custom name.
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(
+        temp.path().join("App.kt"),
+        concat!(
+            "package s\n\n",
+            "class App {\n",
+            "    companion object {\n",
+            "        @JvmStatic\n",
+            "        fun main(args: Array<String>) {\n",
+            "            println(\"run\")\n",
+            "        }\n",
+            "    }\n",
+            "}\n",
+        ),
+    )
+    .unwrap();
+
+    let stdout = stdout_of(&run(temp.path(), &["--deep"]));
+
+    assert!(
+        !stdout.contains("DC003"),
+        "the JVM imposes the argument array, stdout:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("'main'"),
+        "and the entry point is a root, stdout:\n{stdout}"
+    );
+}
+
+#[test]
+fn a_method_merely_named_main_is_not_an_entry_point() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(
+        temp.path().join("Runner.kt"),
+        "package s\n\nclass Runner {\n    fun main(unused: Int): Int = 7\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("Main.kt"),
+        "package s\n\nfun main() {\n    println(Runner().main(1))\n}\n",
+    )
+    .unwrap();
+
+    let stdout = stdout_of(&run(temp.path(), &[]));
+
+    assert!(
+        stdout.contains("'unused'"),
+        "it is called like any other method, stdout:\n{stdout}"
+    );
+}
+
+#[test]
+fn a_top_level_main_beyond_one_parameter_is_nobody_s_contract() {
+    // `main(args)` is imposed. `main(config, neverRead)` is an ordinary
+    // function that happens to be called main, and its dead parameter is
+    // reportable. The parameter TYPES are not recorded, so arity is the
+    // signal available — a partial tightening, and a deliberate one.
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(
+        temp.path().join("Main.kt"),
+        "package s\n\nfun main(config: String, neverRead: Int) {\n    println(config)\n}\n",
+    )
+    .unwrap();
+
+    let stdout = stdout_of(&run(temp.path(), &[]));
+
+    assert!(
+        stdout.contains("neverRead"),
+        "two parameters is not the entry-point signature, stdout:\n{stdout}"
+    );
+}

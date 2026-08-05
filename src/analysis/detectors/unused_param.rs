@@ -44,21 +44,13 @@ impl UnusedParamDetector {
         false
     }
 
-    /// The developer already answered this diagnostic by name: `@Suppress`
-    /// on the parameter itself, its enclosing function, or an enclosing
-    /// type. Only the suppressions that NAME this report count —
-    /// `UNUSED_PARAMETER` in any case (the compiler reads them
-    /// case-insensitively), or the IDE-wide `"unused"` as a quoted literal.
-    /// A substring match let `@Suppress("UNUSED_VARIABLE")` silence a
-    /// different report.
+    /// The developer already answered this diagnostic by name: `@Suppress` on
+    /// the parameter itself, its enclosing function, or an enclosing type.
     fn is_suppressed(annotations: &[String]) -> bool {
-        annotations.iter().any(|a| {
-            let upper = a.to_uppercase();
-            upper.contains("SUPPRESS")
-                && (upper.contains("UNUSED_PARAMETER")
-                    || upper.contains("\"UNUSED\"")
-                    || upper.contains("'UNUSED'"))
-        })
+        crate::analysis::suppress::annotations_suppress(
+            annotations,
+            crate::analysis::suppress::UNUSED_PARAMETER,
+        )
     }
 
     /// Check if a parameter's parent function should be skipped
@@ -69,19 +61,26 @@ impl UnusedParamDetector {
                 return true;
             }
 
-            // The JVM entry point's signature is imposed: Java requires
-            // `main(String[])` to exist at all, and a Kotlin top-level
-            // `main(args)` reads as the same contract. A METHOD merely named
-            // main is not an entry point, its dead parameters stay reportable:
-            // Kotlin's entry is top-level, Java's is static.
-            if parent.name == "main" {
-                let is_entry_shape = match parent.language {
-                    crate::graph::Language::Kotlin => parent.parent.is_none(),
-                    crate::graph::Language::Java => parent.is_static,
-                };
-                if is_entry_shape {
-                    return true;
-                }
+            // The JVM entry point's signature is imposed: it takes the
+            // argument array whether it reads it or not. A method merely
+            // NAMED main is called like any other, so its dead parameters
+            // stay reportable. Beyond one parameter the signature is nobody's
+            // contract either — `main(config, unused)` is an ordinary
+            // function that happens to be called main.
+            if parent.name == "main"
+                && crate::analysis::entry_points::is_main_entry_shape(parent)
+                && graph
+                    .get_children(&parent.id)
+                    .iter()
+                    .filter(|c| {
+                        graph
+                            .get_declaration(c)
+                            .is_some_and(|d| d.kind == DeclarationKind::Parameter)
+                    })
+                    .count()
+                    <= 1
+            {
+                return true;
             }
 
             if Self::is_suppressed(&parent.annotations) {

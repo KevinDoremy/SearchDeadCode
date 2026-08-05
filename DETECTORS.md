@@ -1014,6 +1014,79 @@ fun HomeScreen(onNavigateToDetails: (String) -> Unit) {
 
 ---
 
+## Suppressions
+
+`@Suppress` and its cousins are honoured, but not the same way depending on
+where they are written. The two levels are deliberately asymmetric, and this
+section exists because nothing else in the codebase said so.
+
+| Where | Effect |
+|-------|--------|
+| On the declaration itself | The finding is dropped. |
+| `@file:Suppress(...)` at the top of a file | The finding stays, carries a reservation in its message, and loses one notch of confidence. |
+
+### Why the two are not treated alike
+
+An annotation on the declaration names one symbol. Its author wrote it while
+looking at the symptom, on the line that produced it, and that is the contract
+detekt, ktlint and the Kotlin compiler all honour. Dropping the finding is
+obeying an instruction, not guessing.
+
+A file-level annotation covers everything the file will ever contain,
+including what did not exist when it was written. One `@file:Suppress("unused")`
+added for a single property in 2023 silently covers the twelve classes added
+since. Hiding those is how a temporary silence becomes permanent, so the tool
+keeps them visible and marks them instead. `src/analysis/suppress.rs` states
+this rule at the top of the module.
+
+### Where the declaration level is applied
+
+| Site | Effect |
+|------|--------|
+| `src/analysis/deep.rs` — unused members of a reachable class | declaration skipped |
+| `src/analysis/deep.rs` — `should_skip_declaration` | treated as "ignore" |
+| `src/analysis/detectors/unused_param.rs` | the caller drops the parameter |
+| `src/main.rs` — `--import-suppressions` | imported into the baseline |
+
+The last one is the only site where erasing is the point rather than a side
+effect: `--import-suppressions` is a migration command the user runs on
+purpose, to turn annotations already in the source into baseline entries.
+
+### Which diagnostic silences which rule
+
+A suppression only counts when it names a diagnostic this rule answers to.
+Every rule answers to its own code (`DC001`, `DC003`, …), plus the compiler or
+linter warning it is the counterpart of:
+
+| Rule | Also answers to |
+|------|-----------------|
+| DC001 and the whole unreferenced family | `unused`, `UnusedPrivateMember`, `UnusedPrivateClass`, `UnusedPrivateProperty` |
+| DC002 write-only | `unused`, `UNUSED_VARIABLE`, `UNUSED_EXPRESSION`, `ASSIGNED_VALUE_IS_NEVER_READ` |
+| DC003 unused parameter | `unused`, `UNUSED_PARAMETER` |
+| DC004 unused import | `unused`, `UNUSED_IMPORT`, `UnusedImports` |
+| DC006 redundant public | `MemberVisibilityCanBePrivate`, `RedundantVisibilityModifier` |
+| DC007 dead branch | `UNREACHABLE_CODE`, `SENSELESS_COMPARISON` |
+
+The match is on whole words, case ignored. That matters more than it looks:
+`UNUSED_PARAMETER` contains the letters of `unused`, but `_` is a word
+character, so `@Suppress("UNUSED_PARAMETER")` written on a class does **not**
+decline DC001 on that class. Silencing a warning about a parameter says
+nothing about whether the class is reachable.
+
+```kotlin
+@Suppress("unused")
+class KeptOnPurpose            // no DC001 finding at all
+
+@Suppress("UNUSED_PARAMETER")
+class StillReported            // DC001 still fires: different diagnostic
+```
+
+Comments do not count. A `// TODO remove: @file:Suppress("unused")` is a note
+about an opt-out, not an opt-out, and the header scan blanks comments before
+looking.
+
+---
+
 ## Configuration
 
 ### YAML Configuration
