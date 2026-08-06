@@ -122,6 +122,17 @@ else
   die "cannot write to ${INSTALL_DIR}. Set SDC_INSTALL_DIR to a directory you own, e.g. SDC_INSTALL_DIR=\$HOME/.local/bin"
 fi
 
+# Channel counters: a fire-and-forget GET on a tiny marker asset bumps a
+# per-release counter GitHub already keeps. Event counts only — nothing
+# identifying travels beyond the HTTP request GitHub sees for any download.
+# Releases before 0.18.0 have no markers: -f turns the 404 into silence.
+mark() { curl -fsSL -m 5 -o /dev/null "${base}/channel-$1" 2> /dev/null || true; }
+mark install-sh
+if [ -n "${CI:-}" ]; then mark install-ci; fi
+# Coding agents set these; knowing the share of agent-driven installs says
+# whether the docs should keep being written for them too.
+if [ -n "${CLAUDECODE:-}${CURSOR_TRACE_ID:-}" ]; then mark install-agent; fi
+
 echo "Installed: $("$target" --version)"
 case ":${PATH}:" in
   *":${INSTALL_DIR}:"*) ;;

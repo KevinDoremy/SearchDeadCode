@@ -144,6 +144,18 @@ jobs:
             fi
             sha256sum "$f" > "$f.sha256"
           done
+
+          # Channel counters. GitHub keeps a download_count per asset and
+          # nothing else — no user-agent, no channel. These four tiny files
+          # give each install path its own counter: install.sh, action.yml
+          # and agent sessions GET the matching one, fire-and-forget, and the
+          # daily stats snapshot reads the counts back. An event count only:
+          # no identity travels beyond the HTTP request GitHub already sees.
+          # The `channel-` prefix keeps them out of the searchdeadcode-*
+          # loops above and below (no sha256, no cosign).
+          for c in install-sh install-ci install-agent install-action; do
+            echo "download counter for the '$c' channel — see download-stats.yml" > "channel-$c"
+          done
           ls -la
 
       - name: Sign release artifacts with cosign

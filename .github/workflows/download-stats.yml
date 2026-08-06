@@ -39,14 +39,42 @@ jobs:
           views=$(gh api "repos/${{ github.repository }}/traffic/views" 2>/dev/null \
             | jq -c 'select(.count != null) | {count, uniques}' 2>/dev/null)
 
+          # Split the raw asset total into what it actually mixes: real
+          # binaries, and the per-channel markers that install.sh / the
+          # action bump on each install. github_assets keeps its historical
+          # meaning (everything summed) so the series stays comparable.
+          releases_json=$(gh api "repos/${{ github.repository }}/releases?per_page=100" 2>/dev/null)
+          binaries=$(printf '%s' "$releases_json" \
+            | jq '[.[].assets[] | select(.name | startswith("searchdeadcode-"))
+                   | select(.name | test("\\.(sha256|sig|pem)$") | not)
+                   | .download_count] | add // 0' 2>/dev/null)
+          channels=$(printf '%s' "$releases_json" \
+            | jq -c '[.[].assets[] | select(.name | startswith("channel-"))]
+                     | group_by(.name) | map({(.[0].name | sub("^channel-"; "")):
+                       ([.[].download_count] | add)}) | add // {}' 2>/dev/null)
+
+          # The VS Code extension bundles the analyzer: every install is a
+          # distribution this snapshot never saw — 5582 on Open VSX the day
+          # this was added, against 72 counted binaries. Both registries.
+          openvsx=$(curl -s -m 20 "https://open-vsx.org/api/elumine/searchdeadcode" \
+            | jq '.downloadCount // 0' 2>/dev/null)
+          marketplace=$(curl -s -m 20 -X POST \
+            "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json;api-version=3.0-preview.1" \
+            -d '{"filters":[{"criteria":[{"filterType":7,"value":"elumine.searchdeadcode"}]}],"flags":914}' \
+            | jq '[.results[0].extensions[0].statistics[]?
+                   | select(.statisticName == "install") | .value] | add // 0
+                  | floor' 2>/dev/null)
+
           # Validate every piece; anything invalid is reported and replaced
-          for name in crates assets stars; do
+          for name in crates assets stars binaries openvsx marketplace; do
             if ! printf '%s' "${!name}" | jq -e . >/dev/null 2>&1; then
               echo "invalid $name: <${!name}>, using 0"
               printf -v "$name" '0'
             fi
           done
-          for name in clones views; do
+          for name in clones views channels; do
             if ! printf '%s' "${!name}" | jq -e . >/dev/null 2>&1; then
               echo "invalid $name: <${!name}>, using {}"
               printf -v "$name" '{}'
@@ -57,10 +85,16 @@ jobs:
             --arg date "$date_utc" \
             --argjson crates "$crates" \
             --argjson assets "$assets" \
+            --argjson binaries "$binaries" \
+            --argjson channels "$channels" \
+            --argjson openvsx "$openvsx" \
+            --argjson marketplace "$marketplace" \
             --argjson stars "$stars" \
             --argjson clones "$clones" \
             --argjson views "$views" \
             '{date: $date, crates_io: $crates, github_assets: $assets,
+              binaries: $binaries, channels: $channels,
+              vscode_openvsx: $openvsx, vscode_marketplace: $marketplace,
               stars: $stars, clones_14d: $clones, views_14d: $views}' \
             >> stats/downloads.jsonl
 

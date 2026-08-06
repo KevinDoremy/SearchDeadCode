@@ -170,6 +170,11 @@ runs:
         fi
         rm -f "${ASSET}.sha256"
 
+        # Channel counter — mirrors real binary downloads (cache hits skip
+        # this whole step, and rightly do not count). Fire-and-forget; absent
+        # on releases before 0.18.0.
+        curl -fsSL -m 5 -o /dev/null "${BASE}/channel-install-action" 2>/dev/null || true
+
     - name: Add to PATH
       shell: bash
       run: echo "$HOME/.searchdeadcode/bin" >> $GITHUB_PATH
