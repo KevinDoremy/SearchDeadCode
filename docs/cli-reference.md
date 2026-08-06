@@ -12,7 +12,7 @@ Options:
   -e, --exclude <PATTERN>  Patterns to exclude (can be repeated)
   -r, --retain <PATTERN>   Patterns to retain as entry points (can be repeated)
   -f, --format <FORMAT>    Output format [default: terminal]
-                           [possible values: terminal, json, sarif, csv]
+                           [possible values: terminal, compact, json, sarif, html, markdown, reviewdog, csv, gitlab, checkstyle]
   -o, --output <FILE>      Output file for json/sarif formats
       --delete             Enable safe delete mode
       --interactive        Interactive deletion (confirm each item)
@@ -285,16 +285,16 @@ Generated from `--help`; every flag the binary accepts, alphabetically.
 | `--expand-rule` | Expand a specific rule's issues (e.g., --expand-rule AP017) |
 | `--explain` | Explain why a symbol (simple name or FQN) is considered dead or alive |
 | `--export-graph` | Write the reference graph to this file (.json or .dot), then exit |
-| `--fail-on-findings` | Exit 1 when findings remain after filtering (baseline included) — the scriptable CI gate |
+| `--fail-on-findings` | Exit 1 when findings remain after filtering (baseline included) — the scriptable CI gate. Implied by --profile ci [possible values: true, false] |
 | `--fix` | Apply zero-risk fixes automatically (unused imports). Combine with --dry-run to preview. Always writes an undo script |
 | `--flag` | Feature flag cleanup: name (or key) of the flag being settled |
-| `--format` | Output format (defaults to report.format from .deadcode.yml, else terminal) [possible values: terminal, compact, json, sarif, html, markdown, reviewdog] |
+| `--format` | Output format (defaults to report.format from .deadcode.yml, else terminal) [possible values: terminal, compact, json, sarif, html, markdown, reviewdog, csv, gitlab, checkstyle] |
 | `--generate-baseline` | Generate a baseline file from current results |
 | `--generate-report` | Generate a filtered dead code report from ProGuard usage.txt Filters out generated code (Dagger, Hilt, _Factory, _Impl, etc.) |
 | `--graph-file` | A saved --export-graph JSON to answer queries from (no re-scan) |
 | `--group-by` | Group results by: rule, category, severity, file |
 | `--include-runtime-dead` | Include runtime-dead code (reachable but never executed) |
-| `--incremental` | Enable incremental analysis with caching (enabled by default) Skips re-parsing unchanged files for faster subsequent runs [default: true] [possible values: true, false] |
+| `--incremental` | Enable incremental analysis with caching (enabled by default, off under --profile ci). Skips re-parsing unchanged files, at the cost of a cache file next to the project — 221 MB on a 9000-file repository, which is why a pipeline does not want it [possible values: true, false] |
 | `--health` | Replace the report with an A-F health grade per module |
 | `--import-suppressions` | Convert @Suppress(\"unused\") annotations into entries of this baseline file (migration from Detekt-style triage), then exit |
 | `--import-detekt-baseline` | Convert the Unused* entries of a detekt-baseline.xml into the baseline given by --baseline, then exit |
@@ -318,7 +318,7 @@ Generated from `--help`; every flag the binary accepts, alphabetically.
 | `--patch` | With --delete --dry-run: write the would-be deletion as a unified diff, reviewable and applicable with git apply |
 | `--performance-patterns` | Enable performance anti-pattern detectors (AP011-AP015) Detects: memory leaks, long methods, large classes, collection inefficiencies, loop allocations |
 | `--pr-description` | Replace the report with a paste-ready cleanup-PR description (stats, proof of death, residual risks) |
-| `--profile` | Preset for an audience: ci (strict, high confidence only) or explore (everything down to low) Possible values: - ci:      Strict: high-confidence findings only — for pipelines - explore: Everything down to low confidence — for humans digging |
+| `--profile` | Preset for an audience: ci (the whole pipeline setup in one flag) or explore (everything down to low confidence) Possible values: - ci: Pipeline preset: exit 1 on findings, no cache file left in the workspace, and .deadcode-baseline.json picked up if the project committed one - explore: Everything down to low confidence — for humans digging |
 | `--proguard-usage` | ProGuard/R8 usage.txt file for enhanced detection This file lists code that R8 determined is unused |
 | `--promises` | Cross TODO remove / FIXME delete comments with the symbol's real reference count, then exit |
 | `--quick-wins` | Only the findings safe to delete blind: whole cluster dead, every member low risk |

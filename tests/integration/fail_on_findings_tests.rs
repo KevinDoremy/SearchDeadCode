@@ -81,6 +81,78 @@ fn without_the_flag_findings_still_exit_zero() {
 }
 
 #[test]
+fn a_deletion_that_ran_disarms_the_gate_a_dry_run_does_not() {
+    // Un pipeline d'auto-delete : la suppression résout les trouvailles,
+    // sortir 1 ensuite bloquerait l'étape commit qui suit. Le dry-run ne
+    // touche à rien, donc il gate normalement.
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(
+        temp.path().join("Ghost.kt"),
+        "package sample\n\nclass Ghost {\n    fun haunt() {}\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("Main.kt"),
+        "package sample\n\nfun main() {\n    println(\"alive\")\n}\n",
+    )
+    .unwrap();
+
+    let dry = bin(temp.path(), &["--profile", "ci", "--delete", "--dry-run"]);
+    assert_eq!(
+        dry.status.code(),
+        Some(1),
+        "dry-run : rien n'est résolu, la porte ferme. Output:\n{dry:?}"
+    );
+
+    let deleted = bin(temp.path(), &["--profile", "ci", "--delete", "--yes"]);
+    assert_eq!(
+        deleted.status.code(),
+        Some(0),
+        "suppression faite : les trouvailles sont résolues, exit 0. Output:\n{deleted:?}"
+    );
+    let remaining = fs::read_to_string(temp.path().join("Ghost.kt")).unwrap_or_default();
+    assert!(
+        !remaining.contains("class Ghost"),
+        "et la classe est bien partie du fichier"
+    );
+}
+
+#[test]
+fn a_corrupt_baseline_is_exit_2_not_a_burst_of_findings() {
+    // Le contrat documenté : 2 = l'outil n'a pas pu travailler. Avant, un
+    // baseline illisible hors --ratchet donnait un warning + le rapport NON
+    // filtré → exit 1 sous la porte — la CI criait « du code mort » quand le
+    // vrai problème était le fichier.
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(
+        temp.path().join("Ghost.kt"),
+        "package sample\n\nclass Ghost {\n    fun haunt() {}\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("Main.kt"),
+        "package sample\n\nfun main() {\n    println(\"alive\")\n}\n",
+    )
+    .unwrap();
+    let baseline = temp.path().join("baseline.json");
+    fs::write(&baseline, "{ this is not json").unwrap();
+
+    let out = bin(
+        temp.path(),
+        &[
+            "--baseline",
+            baseline.to_str().unwrap(),
+            "--fail-on-findings",
+        ],
+    );
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "présent mais inutilisable = erreur d'outillage. Output:\n{out:?}"
+    );
+}
+
+#[test]
 fn baselined_findings_do_not_fail_the_gate() {
     let temp = tempfile::tempdir().unwrap();
     fs::write(

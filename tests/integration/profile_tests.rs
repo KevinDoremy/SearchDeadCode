@@ -1,6 +1,13 @@
 //! Integration tests for --profile: two audiences, one flag.
-//! `ci` is strict (high-confidence findings only), `explore` shows
-//! everything down to Low. An explicit --min-confidence always wins.
+//! `ci` is the pipeline preset, `explore` shows everything down to Low.
+//! An explicit --min-confidence always wins.
+//!
+//! `ci` used to also raise the bar to `high`. It no longer does, and the
+//! measurement is why: on a 9135-file project, `high` saw 126 findings out of
+//! 2058, and 79 of those came from DC013, a cosmetic rule. A dead class
+//! someone just pushed is reported at `medium` — so the strict preset was
+//! blind to the one thing a pipeline gate exists for. Keeping the noise down
+//! is the baseline's job (see `ci_profile_tests`), not the threshold's.
 
 use std::fs;
 use std::path::Path;
@@ -46,14 +53,42 @@ fn stdout_of(output: &Output) -> String {
 }
 
 #[test]
-fn the_ci_profile_hides_medium_confidence_findings() {
+fn the_ci_profile_keeps_medium_confidence_findings() {
+    // The reversal, and the reason it matters: DC005 here is Medium, exactly
+    // like the DC001 a pull request introduces. Hiding it made the gate green
+    // on the code it was installed to stop.
     let temp = tempfile::tempdir().unwrap();
     write_project(temp.path());
 
-    let stdout = stdout_of(&run(temp.path(), &["--profile", "ci"]));
+    let stdout = stdout_of(&run(
+        temp.path(),
+        &["--profile", "ci", "--fail-on-findings=false"],
+    ));
+    assert!(
+        stdout.contains("LEGACY"),
+        "a pipeline has to see what a branch adds, stdout was:\n{stdout}"
+    );
+}
+
+#[test]
+fn the_ci_profile_can_still_be_made_strict() {
+    // Teams that want the old behaviour keep it with one flag.
+    let temp = tempfile::tempdir().unwrap();
+    write_project(temp.path());
+
+    let stdout = stdout_of(&run(
+        temp.path(),
+        &[
+            "--profile",
+            "ci",
+            "--min-confidence",
+            "high",
+            "--fail-on-findings=false",
+        ],
+    ));
     assert!(
         !stdout.contains("LEGACY"),
-        "ci wants confirmed corpses only, stdout was:\n{stdout}"
+        "an explicit high still filters the mediums out, stdout was:\n{stdout}"
     );
 }
 

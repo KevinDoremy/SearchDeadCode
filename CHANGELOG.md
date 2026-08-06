@@ -5,6 +5,127 @@ All notable changes to SearchDeadCode will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`--profile ci` is now the whole pipeline setup in one flag.** It existed,
+  described itself as "for pipelines", and did exactly one thing: raise the
+  confidence threshold. It now also exits 1 on findings, leaves no cache file
+  in the workspace, and picks up `.deadcode-baseline.json` when the project
+  committed one, so a CI step is `searchdeadcode . --profile ci`, the way
+  detekt's is `./gradlew detekt`. Explicit flags still win, both ways.
+
+  Three deliberate carve-outs, each the result of chasing the gate through
+  every mode: a run carrying `--generate-baseline` never exits 1 (freezing
+  debt is acceptance; failing the adoption step would teach teams to skip
+  it); a `--delete` that actually ran disarms the gate (the findings are
+  resolved; exiting 1 would block the commit step of an auto-delete
+  pipeline) while `--delete --dry-run` still gates; and `--baseline-prune` /
+  `--necromancy` accept the conventional baseline under the profile instead
+  of demanding a flag naming the exact file the run was about to load anyway.
+
+- **`--format checkstyle`.** The XML that Jenkins Warnings Next Generation and
+  SonarQube read natively, and the format detekt publishes for CI. Chosen over
+  JUnit XML on purpose: findings are warnings, and filing them as failed tests
+  pollutes test metrics and history with things that are not tests. A clean
+  project still emits a valid empty document — zero bytes makes parsers report
+  a broken build on the day everything is fine.
+
+- **`install.sh`.** One line, any platform:
+  `curl -fsSL .../install.sh | sh`. Verifies the published SHA-256, honours
+  `SDC_INSTALL_DIR` and `SDC_VERSION`. Every CI that is not GitHub Actions was
+  being told to run `cargo install`, which recompiles the tool on every build.
+
+### Fixed
+
+- **The GitHub action downloaded a URL that does not exist.** It built Rust
+  target triples (`searchdeadcode-x86_64-unknown-linux-gnu`) while releases
+  publish `searchdeadcode-linux-x86_64`. Verified: 404 against 200. It now uses
+  the published names and checks the `.sha256` that ships beside every binary —
+  the check that would have caught this on the first release instead of the
+  fifth.
+
+- **`uses: KevinDoremy/SearchDeadCode@v0` resolved to a broken action.** A
+  `v0` tag existed on the remote, pointing at a months-old commit whose action
+  built the wrong asset names and silently fell back to installing 0.4.0. The
+  release workflow now repoints the floating tag after every release — peeling
+  annotated tags to their commit, refusing to move backwards when an older
+  series is re-released, and serialized so two releases cannot race.
+
+- **`latest` resolved to the VS Code extension.** `/releases/latest` returns
+  the newest release by date, and this repository also tags `vscode-v*`, which
+  publishes no binary. The release list is not version-ordered either: the API
+  returns `v0.4.0` ahead of `v0.17.0`. Both the action and the installer now
+  keep the crate tags and take the highest. The action's silent fallback to a
+  hard-coded `0.4.0` is gone: installing a year-old analyzer quietly is worse
+  than a red job.
+
+- **The action gated on a grep of its own output.** It counted findings by
+  matching `Found [0-9]+ dead code` in stdout, so a crashed binary looked like
+  a clean project. It reads the exit code now, and tells exit 2 (the tool could
+  not work) apart from exit 1 (there are findings). The command is a bash
+  array rather than an unquoted string (a path with a space split in two), the
+  JSON count reads the `issues` key that actually exists (`.findings` was
+  null, and `null | length` is 0 in jq — zero findings reported on every JSON
+  run, without ever erroring), and stderr no longer bleeds into stdout, so
+  machine formats stay parsable.
+
+- **`--changed-since` never consulted the gate.** It printed its findings and
+  returned 0 — so `--profile ci --changed-since` could not fail a pipeline,
+  and the pre-commit hook written by `--install-hook`, which uses that mode,
+  blocked nothing at all. The gate now fires there too, and the installed hook
+  arms it with `--fail-on-findings`.
+
+- **A nonexistent path exited 0.** "No Kotlin or Java files found", then a
+  clean exit. A CI concluded "no dead code" on a botched checkout or a typo.
+  A path that does not exist is exit 2, tooling error; an existing directory
+  with no sources remains a legitimate empty report.
+
+- **A corrupt baseline exited 1, blaming the code.** Outside `--ratchet`, an
+  unreadable baseline produced a warning plus the unfiltered report, which the
+  gate then failed with "findings remain". The truthful diagnosis was the
+  file, not the code. Present-but-unusable is exit 2 now, in every mode.
+
+- **Baseline status lines went to stdout.** "📋 Baseline: …" and friends
+  corrupted piped output the moment a machine format was combined with a
+  baseline, which is exactly the documented reviewdog setup. All baseline
+  status goes to stderr; stdout belongs to the report.
+
+- **`report.format` in `.deadcode.yml` knew three formats out of ten.** Any
+  other value (`gitlab`, `html`, `checkstyle`) silently fell back to
+  terminal. The full table is wired, and an unknown value warns instead of
+  pretending the config was read.
+
+### Changed
+
+- **`--profile ci` no longer raises the threshold to `high`.** Measured on a
+  9135-file project: `high` saw 126 findings out of 2058, and 79 of those came
+  from DC013, a cosmetic rule. A dead class someone just pushed is reported at
+  `medium` — the strict preset was blind to the one thing a pipeline gate is
+  installed for. Noise is the baseline's job, not the threshold's.
+  `--min-confidence high` restores the old behaviour.
+
+### Documented
+
+- **`docs/ci-integration.md` covers eight platforms**, ordered by real
+  adoption, each one the same two lines in that platform's syntax. It also
+  states three things that were nowhere: the exit-code contract (0 / 1 / 2 / 3),
+  that the analysis must run at the repository root and never per module —
+  reachability needs the whole project, which is the structural difference with
+  a per-file linter — and that the job needs no JDK, no Gradle and no build,
+  since `**/build/**` and `**/generated/**` are excluded by default.
+
+- **The cache is 221 MB on a real project**, lands next to the analysed code,
+  and was mentioned nowhere. It halves a run (330 s → 163 s) and costs more
+  than that to ship through a CI cache. Now documented in the README, the CLI
+  reference and the CI guide, with the advice to add it to `.gitignore`.
+
+- **`--format reviewdog` and `--format gitlab` existed and were invisible.**
+  reviewdog posts inline pull-request comments on GitHub, GitLab, Bitbucket,
+  CircleCI and Jenkins; the GitLab format renders in the merge-request widget.
+  Neither appeared once in the CI documentation.
+
 ## [0.17.0] - 2026-08-05
 
 ### Added

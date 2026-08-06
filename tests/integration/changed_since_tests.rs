@@ -71,6 +71,68 @@ fn stdout_of(output: &Output) -> String {
 }
 
 #[test]
+fn the_gate_fires_in_pr_scope_too() {
+    // Le mode PR imprimait ses trouvailles puis sortait 0 sans consulter la
+    // porte : `--profile ci --changed-since` ne pouvait pas faire échouer un
+    // pipeline, et le hook écrit par --install-hook (qui utilise ce mode) ne
+    // bloquait aucun commit — un garde-fou qui ne gardait rien.
+    let temp = tempfile::tempdir().unwrap();
+    let base = write_repo(
+        temp.path(),
+        &[(
+            "DeadNew.kt",
+            "package sample\n\nclass DeadNew {\n    fun rot() {}\n}\n",
+        )],
+    );
+
+    let gated = Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+        .arg(temp.path())
+        .args(["--changed-since", &base, "--profile", "ci"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        gated.status.code(),
+        Some(1),
+        "des trouvailles stables sous le profil ferment la porte"
+    );
+
+    let observed = Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+        .arg(temp.path())
+        .args([
+            "--changed-since",
+            &base,
+            "--profile",
+            "ci",
+            "--fail-on-findings=false",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        observed.status.code(),
+        Some(0),
+        "et le drapeau explicite garde le droit de regarder sans casser"
+    );
+
+    // Sans trouvaille stable, la porte armée laisse passer. Le diff propre
+    // modifie le CORPS d'un symbole existant : introduire une fonction neuve
+    // jamais appelée serait, précisément, une trouvaille stable.
+    let clean = tempfile::tempdir().unwrap();
+    let clean_base = write_repo(
+        clean.path(),
+        &[(
+            "UsedTool.kt",
+            "package sample\n\nclass UsedTool {\n    fun work() {\n        println(\"more\")\n    }\n}\n",
+        )],
+    );
+    let ok = Command::new(env!("CARGO_BIN_EXE_searchdeadcode"))
+        .arg(clean.path())
+        .args(["--changed-since", &clean_base, "--profile", "ci"])
+        .output()
+        .unwrap();
+    assert_eq!(ok.status.code(), Some(0), "diff propre : exit 0");
+}
+
+#[test]
 fn a_new_unmentioned_symbol_is_a_stable_finding() {
     let temp = tempfile::tempdir().unwrap();
     let base = write_repo(

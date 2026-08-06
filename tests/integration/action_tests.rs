@@ -76,12 +76,19 @@ fn the_run_steps_wire_the_inputs_through() {
 }
 
 #[test]
-fn the_json_findings_count_reads_the_findings_array() {
-    // the JSON report is {"findings": [...], "summary": {...}} — a bare
-    // `jq 'length'` counts the two object keys and always answers 2
+fn the_json_findings_count_reads_the_issues_array() {
+    // Ce test exigeait `.findings | length` — une clé que le rapport JSON n'a
+    // JAMAIS eue : src/report/json.rs sérialise `issues`/`total_issues`. En
+    // jq, `.findings` sur cet objet vaut null et `null | length` vaut 0 sans
+    // erreur : l'action rapportait zéro trouvaille sur chaque run JSON, et ce
+    // test protégeait précisément ce bug.
     let run_all = all_run_steps();
     assert!(
-        run_all.contains(".findings | length"),
-        "the count must target the findings array, steps were:\n{run_all}"
+        run_all.contains(".issues | length"),
+        "the count must target the issues array (the key that exists), steps were:\n{run_all}"
+    );
+    assert!(
+        !run_all.contains(".findings | length"),
+        "jq on `.findings` counts a key that does not exist — the always-zero bug"
     );
 }

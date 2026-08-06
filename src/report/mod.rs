@@ -1,4 +1,5 @@
 mod aggregator;
+mod checkstyle;
 mod colors;
 mod compact;
 mod csv;
@@ -46,6 +47,8 @@ pub enum ReportFormat {
     Csv,
     /// GitLab Code Quality JSON for the MR widget
     Gitlab,
+    /// Checkstyle XML — Jenkins Warnings NG, SonarQube, detekt parity
+    Checkstyle,
     /// JSON machine-readable format
     Json,
     /// SARIF format for IDE integration
@@ -187,6 +190,12 @@ impl Reporter {
             ReportFormat::Gitlab => {
                 let reporter = gitlab::GitlabReporter::new(self.options.output_path.clone())
                     .with_base_path(self.options.base_path.clone());
+                reporter.report(dead_code)
+            }
+            ReportFormat::Checkstyle => {
+                let reporter =
+                    checkstyle::CheckstyleReporter::new(self.options.output_path.clone())
+                        .with_base_path(self.options.base_path.clone());
                 reporter.report(dead_code)
             }
             ReportFormat::Html => {

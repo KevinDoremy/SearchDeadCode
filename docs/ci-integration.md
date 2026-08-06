@@ -1,97 +1,230 @@
 # CI integration
 
+Two lines, on any platform:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/KevinDoremy/SearchDeadCode/main/install.sh | sh
+searchdeadcode . --profile ci
+```
+
+`--profile ci` is the whole pipeline setup in one flag: exit 1 on findings, no
+cache file left in the workspace, and `.deadcode-baseline.json` picked up if
+your project committed one. It is the equivalent of `./gradlew detekt`.
+
+Everything below is the same two lines wrapped in each platform's syntax, plus
+optional reporting for teams who want more than a red build.
+
+## Before the first green build
+
+A codebase that never ran this tool has existing dead code, and failing on all
+of it teaches the team to ignore the job. Freeze it once, like detekt's
+baseline:
+
+```sh
+searchdeadcode . --generate-baseline .deadcode-baseline.json   # commit this
+```
+
+From then on the pipeline only breaks on what a branch **adds**. `--profile ci`
+finds the file by name; you never pass it again.
+
+That one command runs outside the CI profile, so it leaves a
+`.searchdeadcode-cache.json` next to your project — useful locally, 221 MB on a
+9000-file repository. Add it to `.gitignore` now rather than discovering it in
+a `git status`.
+
+Keeping the baseline honest:
+
+| | |
+|---|---|
+| `--baseline-prune` | drop entries whose finding no longer exists, so the file shrinks as you clean |
+| `--baseline-stats` | entries per rule — where the tool cries wolf the most |
+| `--baseline-rm <name>` | remove one entry, to start failing on it again |
+
+If your team refuses one more file in the repository, `--diff-base origin/main`
+reports only what became dead since that reference instead. It needs the full
+history: shallow clones are the number one cause of surprises with it
+(`fetch-depth: 0` on GitHub Actions, `GIT_DEPTH: 0` on GitLab).
+
+## Exit codes
+
+| code | meaning |
+|------|---------|
+| 0 | analysis ran, nothing left after filtering |
+| 1 | findings remain, and the gate was asked for |
+| 2 | the tool could not work: unreadable path, corrupt baseline, invalid config |
+| 3 | `--ratchet` refused a count increase against the baseline |
+
+The 1 / 2 split is what stops a pipeline from reporting "no dead code" when the
+binary never started. Script against the code, never against the output text.
+
+One deliberate exception: a run carrying `--generate-baseline` never exits 1.
+Freezing the debt is an act of acceptance, and failing the step that performs
+it would break the adoption command this guide opens with.
+
+## Two things worth knowing before you wire it up
+
+**Run it at the repository root, never per module.** Reachability needs to see
+the whole project: analysed module by module, every symbol used from elsewhere
+looks dead. This is the structural difference with detekt, which lints file by
+file and can be split any way you like.
+
+**The job needs no JDK, no Gradle, no build.** `**/build/**` and
+`**/generated/**` are excluded by default, so a fresh checkout gives the same
+answer as your machine after a full build. A small container is enough — do not
+put this on your expensive Android executor, and do not make it wait for a
+build.
+
+One constraint on that container: the Linux binary links against **glibc**, so
+a musl image (`alpine`) will not start it — the loader is simply absent, and
+the error says "not found" about a file that visibly exists. The examples
+below use `buildpack-deps:curl`, a slim Debian with curl preinstalled; any
+glibc image works. On Alpine specifically, `apk add gcompat` usually suffices,
+but that is Alpine's compatibility shim, not something this project tests.
+
+**Do not cache anything.** The incremental cache halves the run (330 s → 163 s
+on a 9000-file project) but weighs 221 MB. Shipping that to and from a CI cache
+costs more than it saves, and it lands in your workspace. `--profile ci`
+already turns it off; if you run without the profile, add `--incremental=false`
+and put `.searchdeadcode-cache.json` in your `.gitignore`.
+
+---
+
+# Per platform
+
+Ordered by real-world adoption.
+
 ## GitHub Actions
 
-The simplest setup uses the published action:
+The published action installs, caches and runs in one step:
 
 ```yaml
 # .github/workflows/dead-code.yml
-name: Dead Code Detection
-
+name: Dead code
 on: [push, pull_request]
 
 jobs:
   dead-code:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Detect Dead Code
-        uses: KevinDoremy/SearchDeadCode@v0
+      - uses: actions/checkout@v7
+      - uses: KevinDoremy/SearchDeadCode@v0
         with:
-          path: '.'
-          min-confidence: 'medium'
+          args: '--profile ci'
 ```
-
-### Action inputs
 
 | Input | Description | Default |
 |---|---|---|
 | `path` | Path to analyze | `.` |
-| `version` | SearchDeadCode version | `latest` |
-| `format` | `terminal`, `json`, `sarif` | `terminal` |
-| `output` | Output file path | - |
-| `args` | Additional CLI arguments | - |
-| `fail-on-findings` | Fail if dead code found | `false` |
+| `version` | Version to install, or `latest` | `latest` |
+| `format` | `terminal`, `compact`, `json`, `sarif`, `html`, `markdown`, `reviewdog`, `csv`, `gitlab`, `checkstyle` | `terminal` |
+| `output` | Output file | - |
+| `args` | Extra CLI arguments | - |
+| `fail-on-findings` | Fail the workflow on findings | `false` |
 | `min-confidence` | `low`, `medium`, `high`, `confirmed` | `medium` |
 
-### Fail CI on dead code
+`@v0` follows every 0.x release. Pin `@v0.17.0` if you would rather upgrade by
+hand.
+
+### Findings in the Security tab
 
 ```yaml
-- uses: KevinDoremy/SearchDeadCode@v0
-  with:
-    fail-on-findings: 'true'
-    min-confidence: 'high'
+jobs:
+  dead-code:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: KevinDoremy/SearchDeadCode@v0
+        with:
+          format: 'sarif'
+          output: 'deadcode.sarif'
+          args: '--profile ci'
 ```
 
-### SARIF output for GitHub Security tab
+The action uploads the SARIF itself; results land in **Security → Code scanning**
+and annotate the pull request diff. The `permissions` block is not optional:
+the upload needs `security-events: write`, and on repositories where the
+default token is read-only it fails silently without it — listing a permission
+turns every unlisted one off, so `contents: read` must be spelled out too or
+checkout stops working.
 
-```yaml
-- name: Detect Dead Code
-  uses: KevinDoremy/SearchDeadCode@v0
-  with:
-    format: 'sarif'
-    output: 'dead-code.sarif'
+## Jenkins
 
-- name: Upload SARIF
-  uses: github/codeql-action/upload-sarif@v2
-  with:
-    sarif_file: dead-code.sarif
+```groovy
+stage('Dead code') {
+  steps {
+    sh '''
+      curl -fsSL https://raw.githubusercontent.com/KevinDoremy/SearchDeadCode/main/install.sh \
+        | SDC_INSTALL_DIR="$WORKSPACE/bin" sh
+      "$WORKSPACE/bin/searchdeadcode" . --profile ci \
+        --format checkstyle --output deadcode.xml
+    '''
+  }
+  post {
+    always {
+      recordIssues tools: [checkStyle(pattern: 'deadcode.xml', name: 'Dead code')]
+    }
+  }
+}
 ```
 
-### Deep analysis with all detectors
-
-```yaml
-- uses: KevinDoremy/SearchDeadCode@v0
-  with:
-    args: '--deep --unused-params --write-only --sealed-variants'
-```
-
-### Manual install (fallback)
-
-If you cannot use the action:
-
-```yaml
-- name: Install SearchDeadCode
-  run: cargo install searchdeadcode
-
-- name: Run analysis
-  run: searchdeadcode . --format sarif --output deadcode.sarif
-```
+`recordIssues` comes from the Warnings Next Generation plugin, which reads
+Checkstyle natively — the same format detekt publishes. You get the findings
+list, the new/fixed/outstanding split and trend charts.
 
 ## GitLab CI
 
 ```yaml
-deadcode:
-  stage: analyze
-  image: rust:latest
+dead-code:
+  stage: test
+  image: buildpack-deps:curl
+  before_script:
+    - curl -fsSL https://raw.githubusercontent.com/KevinDoremy/SearchDeadCode/main/install.sh | sh
   script:
-    - cargo install searchdeadcode
-    - searchdeadcode . --format json --output deadcode.json
+    - searchdeadcode . --profile ci --format gitlab --output gl-code-quality.json
   artifacts:
-    paths:
-      - deadcode.json
+    reports:
+      codequality: gl-code-quality.json
     when: always
+```
+
+The Code Quality report renders inline in the merge request widget, so a
+reviewer sees the findings next to the diff.
+
+## CircleCI
+
+```yaml
+jobs:
+  dead_code:
+    docker:
+      - image: cimg/base:current
+    steps:
+      - checkout
+      - run:
+          name: Install SearchDeadCode
+          command: curl -fsSL https://raw.githubusercontent.com/KevinDoremy/SearchDeadCode/main/install.sh | sudo sh
+      - run:
+          name: Dead code
+          command: searchdeadcode . --profile ci
+```
+
+A plain `cimg/base` image, not your Android executor: this job needs no
+toolchain and no cache, so it is cheap and runs in parallel with the rest.
+
+## Azure Pipelines
+
+```yaml
+- job: DeadCode
+  pool:
+    vmImage: ubuntu-latest
+  steps:
+    - checkout: self
+    - script: |
+        curl -fsSL https://raw.githubusercontent.com/KevinDoremy/SearchDeadCode/main/install.sh | sudo sh
+        searchdeadcode . --profile ci
+      displayName: Dead code
 ```
 
 ## Bitbucket Pipelines
@@ -100,67 +233,97 @@ deadcode:
 pipelines:
   default:
     - step:
-        name: Dead code analysis
-        image: rust:latest
+        name: Dead code
+        image: buildpack-deps:curl
         script:
-          - cargo install searchdeadcode
-          - searchdeadcode . --format json --output deadcode.json
-        artifacts:
-          - deadcode.json
+          - curl -fsSL https://raw.githubusercontent.com/KevinDoremy/SearchDeadCode/main/install.sh | sh
+          - searchdeadcode . --profile ci
 ```
 
-## Pre-commit hook
+## TeamCity
 
-Block commits introducing dead code:
+A command line build step:
 
-```bash
-#!/bin/bash
-# .git/hooks/pre-commit (or scripts/pre-commit-hook.sh)
-
-set -e
-
-# Only check changed files
-CHANGED=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(kt|java)$' || true)
-
-if [ -z "$CHANGED" ]; then
-  exit 0
-fi
-
-# Run SearchDeadCode on the project, fail if new issues found
-searchdeadcode . \
-  --baseline .deadcode-baseline.json \
-  --min-confidence high \
-  --quiet
-
-if [ $? -ne 0 ]; then
-  echo "❌ New dead code detected. Run 'searchdeadcode .' for details."
-  exit 1
-fi
+```sh
+curl -fsSL https://raw.githubusercontent.com/KevinDoremy/SearchDeadCode/main/install.sh \
+  | SDC_INSTALL_DIR="%teamcity.build.checkoutDir%/bin" sh
+"%teamcity.build.checkoutDir%/bin/searchdeadcode" . --profile ci \
+  --format checkstyle --output deadcode.xml
 ```
 
-Make it executable:
-```bash
-chmod +x .git/hooks/pre-commit
+Then add an XML Report Processing build feature with the Checkstyle type on
+`deadcode.xml`.
+
+## Buildkite
+
+```yaml
+steps:
+  - label: "Dead code"
+    command:
+      - curl -fsSL https://raw.githubusercontent.com/KevinDoremy/SearchDeadCode/main/install.sh | sudo sh
+      - searchdeadcode . --profile ci
 ```
 
-## Baseline workflow (gradual adoption)
+## Woodpecker / Drone
 
-For codebases with existing dead code, generate a baseline once and only flag new issues:
-
-```bash
-# 1. Generate baseline (one-time, commit it)
-searchdeadcode . --generate-baseline .deadcode-baseline.json
-
-# 2. CI runs with baseline
-searchdeadcode . --baseline .deadcode-baseline.json --fail-on-findings
+```yaml
+steps:
+  dead-code:
+    image: buildpack-deps:curl
+    commands:
+      - curl -fsSL https://raw.githubusercontent.com/KevinDoremy/SearchDeadCode/main/install.sh | sh
+      - searchdeadcode . --profile ci
 ```
 
-Commit `.deadcode-baseline.json` to track existing issues. New issues introduced by PRs will fail CI; existing ones are ignored until cleaned up.
+---
 
-## Reviewing SARIF in GitHub
+# Inline comments on the pull request
 
-Once SARIF is uploaded via `codeql-action/upload-sarif`, results appear in:
-- **Security tab** → Code scanning alerts
-- **Pull request** → annotated diff with inline warnings
+A red build tells the author something is wrong; an inline comment tells them
+where. [reviewdog](https://github.com/reviewdog/reviewdog) does that on GitHub,
+GitLab, Bitbucket, CircleCI and Jenkins, and SearchDeadCode speaks its format:
 
-Each finding links back to the source file and line, with confidence level and detector code (`DC001`–`DC007`).
+```sh
+searchdeadcode . --profile ci --fail-on-findings=false --format reviewdog \
+  | reviewdog -f=rdjsonl -name=deadcode -reporter=github-pr-review
+```
+
+`--fail-on-findings=false` hands the gating to reviewdog, which decides from
+its own `-fail-level`. Swap the reporter for `gitlab-mr-discussion` or
+`bitbucket-code-report` as needed.
+
+# Pre-commit hook
+
+To catch it before the push rather than after:
+
+```sh
+searchdeadcode --install-hook
+```
+
+or, with [pre-commit](https://pre-commit.com):
+
+```yaml
+- repo: local
+  hooks:
+    - id: searchdeadcode
+      name: SearchDeadCode
+      entry: searchdeadcode . --changed-since HEAD --quiet --fail-on-findings
+      language: system
+      pass_filenames: false
+```
+
+Diff mode, not the full `--profile ci` run: a commit hook fires on every
+commit, and analysing only the changed files is what keeps it under a second.
+It is the same command `--install-hook` writes.
+
+# Installing another way
+
+Homebrew, for developer machines:
+
+```sh
+brew tap KevinDoremy/tap && brew install searchdeadcode
+```
+
+`cargo install searchdeadcode` also works, but it compiles the tool from source
+every time — minutes per build. Keep it for architectures with no published
+binary.

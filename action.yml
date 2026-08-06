@@ -16,7 +16,7 @@ inputs:
     required: false
     default: 'latest'
   format:
-    description: 'Output format: terminal, json, or sarif'
+    description: 'Output format: terminal, compact, json, sarif, html, markdown, reviewdog, csv, gitlab, checkstyle'
     required: false
     default: 'terminal'
   output:
@@ -24,7 +24,9 @@ inputs:
     required: false
     default: ''
   args:
-    description: 'Additional arguments to pass to searchdeadcode'
+    description: >-
+      Additional arguments, whitespace-split; shell quoting is not re-parsed,
+      so use the = form for flags with values (--min-confidence=low)
     required: false
     default: ''
   fail-on-findings:
@@ -51,27 +53,32 @@ runs:
       id: detect
       shell: bash
       run: |
+        # These names must match release.yml's asset_name exactly. They used to
+        # be Rust target triples (searchdeadcode-x86_64-unknown-linux-gnu),
+        # which no release ever published: every download 404'd and the action
+        # failed with a bare curl error. install.sh derives the same names —
+        # change them in both places or in neither.
         OS="${RUNNER_OS}"
         ARCH="${RUNNER_ARCH}"
 
         case "$OS" in
           Linux)
             case "$ARCH" in
-              X64) TARGET="x86_64-unknown-linux-gnu" ;;
-              ARM64) TARGET="aarch64-unknown-linux-gnu" ;;
+              X64) ASSET="searchdeadcode-linux-x86_64" ;;
+              ARM64) ASSET="searchdeadcode-linux-aarch64" ;;
               *) echo "::error::Unsupported architecture: $ARCH"; exit 1 ;;
             esac
             ;;
           macOS)
             case "$ARCH" in
-              X64) TARGET="x86_64-apple-darwin" ;;
-              ARM64) TARGET="aarch64-apple-darwin" ;;
+              X64) ASSET="searchdeadcode-macos-x86_64" ;;
+              ARM64) ASSET="searchdeadcode-macos-aarch64" ;;
               *) echo "::error::Unsupported architecture: $ARCH"; exit 1 ;;
             esac
             ;;
           Windows)
             case "$ARCH" in
-              X64) TARGET="x86_64-pc-windows-msvc" ;;
+              X64) ASSET="searchdeadcode-windows-x86_64.exe" ;;
               *) echo "::error::Unsupported architecture: $ARCH"; exit 1 ;;
             esac
             ;;
@@ -81,7 +88,7 @@ runs:
             ;;
         esac
 
-        echo "target=$TARGET" >> $GITHUB_OUTPUT
+        echo "asset=$ASSET" >> $GITHUB_OUTPUT
         echo "os=$OS" >> $GITHUB_OUTPUT
 
     - name: Get latest version
@@ -90,9 +97,23 @@ runs:
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
+        set -euo pipefail
         VERSION="${{ inputs.version }}"
         if [ "$VERSION" = "latest" ]; then
-          VERSION=$(gh api repos/KevinDoremy/SearchDeadCode/releases/latest --jq '.tag_name' 2>/dev/null | sed 's/^v//' || echo "0.4.0")
+          # /releases/latest is the newest release BY DATE, and this repository
+          # also tags the VS Code extension: it answers vscode-v0.1.7, which
+          # publishes no binary. The list is not version-ordered either — the
+          # API returns v0.4.0 ahead of v0.17.0. Keep the crate tags, take the
+          # highest.
+          VERSION=$(gh api repos/KevinDoremy/SearchDeadCode/releases --paginate \
+            --jq '.[].tag_name | select(test("^v[0-9]"))' \
+            | sed 's/^v//' | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)
+          # No silent fallback to a hard-coded old version: installing a
+          # three-year-old analyzer quietly is worse than a red job.
+          if [ -z "$VERSION" ]; then
+            echo "::error::could not resolve the latest release; pin one with the 'version' input"
+            exit 1
+          fi
         fi
         echo "version=$VERSION" >> $GITHUB_OUTPUT
 
@@ -101,33 +122,53 @@ runs:
       uses: actions/cache@v6
       with:
         path: ~/.searchdeadcode/bin
-        key: searchdeadcode-${{ steps.version.outputs.version }}-${{ steps.detect.outputs.target }}
+        key: searchdeadcode-${{ steps.version.outputs.version }}-${{ steps.detect.outputs.asset }}
 
     - name: Download SearchDeadCode
       if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
       run: |
+        set -euo pipefail
         VERSION="${{ steps.version.outputs.version }}"
-        TARGET="${{ steps.detect.outputs.target }}"
-        OS="${{ steps.detect.outputs.os }}"
+        ASSET="${{ steps.detect.outputs.asset }}"
+        BASE="https://github.com/KevinDoremy/SearchDeadCode/releases/download/v${VERSION}"
 
         mkdir -p ~/.searchdeadcode/bin
+        cd ~/.searchdeadcode/bin
 
-        if [ "$OS" = "Windows" ]; then
-          BINARY_NAME="searchdeadcode-${TARGET}.exe"
-        else
-          BINARY_NAME="searchdeadcode-${TARGET}"
+        echo "Downloading ${ASSET} from v${VERSION}"
+        if ! curl -fsSL "${BASE}/${ASSET}" -o "$ASSET"; then
+          echo "::error::${BASE}/${ASSET} could not be downloaded. Check that v${VERSION} publishes this asset."
+          exit 1
         fi
 
-        DOWNLOAD_URL="https://github.com/KevinDoremy/SearchDeadCode/releases/download/v${VERSION}/${BINARY_NAME}"
+        # Every release publishes a .sha256 next to each binary. Checking it is
+        # what turns a wrong asset name or a truncated download into a clear
+        # failure instead of a mystery further down the job — the previous
+        # version of this action skipped the check and shipped a 404 for
+        # several releases without anyone noticing.
+        if curl -fsSL "${BASE}/${ASSET}.sha256" -o "${ASSET}.sha256"; then
+          if command -v shasum > /dev/null; then
+            shasum -a 256 -c "${ASSET}.sha256"
+          elif command -v sha256sum > /dev/null; then
+            sha256sum -c "${ASSET}.sha256"
+          else
+            echo "::warning::no sha256 tool on this runner, integrity not verified"
+          fi
+        else
+          echo "::warning::no .sha256 published for ${ASSET}, integrity not verified"
+        fi
 
-        echo "Downloading SearchDeadCode v${VERSION} for ${TARGET}..."
-        echo "URL: ${DOWNLOAD_URL}"
-
-        curl -fsSL "$DOWNLOAD_URL" -o ~/.searchdeadcode/bin/searchdeadcode
-        chmod +x ~/.searchdeadcode/bin/searchdeadcode
-
-        echo "Downloaded successfully!"
+        # Windows keeps the .exe: the PE loader needs the extension, and bash
+        # on the runner resolves `searchdeadcode` to `searchdeadcode.exe` on
+        # PATH by itself. Stripping it worked in no shell at all.
+        if [ "${{ steps.detect.outputs.os }}" = "Windows" ]; then
+          mv "$ASSET" searchdeadcode.exe
+        else
+          mv "$ASSET" searchdeadcode
+          chmod +x searchdeadcode
+        fi
+        rm -f "${ASSET}.sha256"
 
     - name: Add to PATH
       shell: bash
@@ -137,58 +178,104 @@ runs:
       id: analyze
       shell: bash
       run: |
-        # Build command
-        CMD="searchdeadcode"
-        CMD="$CMD --min-confidence ${{ inputs.min-confidence }}"
+        # A bash ARRAY, not a concatenated string: `$CMD` unquoted went
+        # through IFS splitting and glob expansion, so a path with a space
+        # broke in two and an `--exclude "**/generated/**"` glob could match
+        # files in the runner's cwd before the tool ever saw it.
+        CMD=(searchdeadcode --min-confidence "${{ inputs.min-confidence }}")
 
-        # Add format
         FORMAT="${{ inputs.format }}"
-        CMD="$CMD --format $FORMAT"
+        CMD+=(--format "$FORMAT")
 
-        # Add output file if specified
         OUTPUT="${{ inputs.output }}"
         if [ -n "$OUTPUT" ]; then
-          CMD="$CMD --output $OUTPUT"
+          CMD+=(--output "$OUTPUT")
           if [ "$FORMAT" = "sarif" ]; then
             echo "sarif_file=$OUTPUT" >> $GITHUB_OUTPUT
           fi
         elif [ "$FORMAT" = "sarif" ]; then
-          CMD="$CMD --output searchdeadcode-results.sarif"
-          echo "sarif_file=searchdeadcode-results.sarif" >> $GITHUB_OUTPUT
+          OUTPUT="searchdeadcode-results.sarif"
+          CMD+=(--output "$OUTPUT")
+          echo "sarif_file=$OUTPUT" >> $GITHUB_OUTPUT
         fi
 
-        # Add additional args
+        # Whitespace-split on purpose; shell quoting inside `args` is NOT
+        # re-parsed. Flags with values use the `=` form: --min-confidence=low.
         ARGS="${{ inputs.args }}"
         if [ -n "$ARGS" ]; then
-          CMD="$CMD $ARGS"
+          read -ra EXTRA <<< "$ARGS"
+          CMD+=("${EXTRA[@]}")
         fi
 
-        # Add path
-        CMD="$CMD ${{ inputs.path }}"
+        # The gate is the tool's own exit code, not a grep of its prose:
+        # 0 = clean, 1 = findings remain, 2 = the tool could not work,
+        # 3 = the ratchet refused an increase. Reading stdout instead made a
+        # crashed binary look like a clean project.
+        if [ "${{ inputs.fail-on-findings }}" = "true" ]; then
+          CMD+=(--fail-on-findings)
+        fi
 
-        echo "Running: $CMD"
+        CMD+=("${{ inputs.path }}")
+
+        echo "Running: ${CMD[*]}"
         echo "---"
 
-        # Run analysis and capture output
+        # stdout and stderr stay separate: machine formats (json, checkstyle,
+        # reviewdog) own stdout, and mixing the two made piped output
+        # unparsable whenever the tool printed a status line.
         set +e
-        OUTPUT_TEXT=$($CMD 2>&1)
+        STDOUT_TEXT=$("${CMD[@]}" 2> stderr.log)
         EXIT_CODE=$?
         set -e
 
-        echo "$OUTPUT_TEXT"
+        [ -s stderr.log ] && cat stderr.log >&2
+        rm -f stderr.log
+        echo "$STDOUT_TEXT"
 
-        # Count findings (look for "Found X dead code" or count JSON entries)
-        if [ "$FORMAT" = "json" ] && [ -n "${{ inputs.output }}" ]; then
-          FINDINGS=$(jq '.findings | length' "${{ inputs.output }}" 2>/dev/null || echo "0")
-        else
-          FINDINGS=$(echo "$OUTPUT_TEXT" | grep -oE 'Found [0-9]+ dead code' | grep -oE '[0-9]+' || echo "0")
-        fi
+        # findings_count, from the most reliable source each format offers.
+        # The JSON report's array key is `issues` — `.findings` does not
+        # exist, and `null | length` is 0 in jq, so the old expression
+        # reported zero findings on every JSON run without ever erroring.
+        FINDINGS=""
+        case "$FORMAT" in
+          json)
+            if [ -n "$OUTPUT" ]; then
+              FINDINGS=$(jq '.issues | length' "$OUTPUT" 2>/dev/null || echo "")
+            else
+              FINDINGS=$(echo "$STDOUT_TEXT" | jq '.issues | length' 2>/dev/null || echo "")
+            fi
+            ;;
+          checkstyle)
+            if [ -n "$OUTPUT" ]; then
+              FINDINGS=$(grep -c '<error ' "$OUTPUT" 2>/dev/null || true)
+            else
+              FINDINGS=$(echo "$STDOUT_TEXT" | grep -c '<error ' || true)
+            fi
+            ;;
+          terminal|compact)
+            FINDINGS=$(echo "$STDOUT_TEXT" | grep -oE 'Found [0-9]+ dead code' | grep -oE '[0-9]+' || echo "")
+            [ -z "$FINDINGS" ] && [ "$EXIT_CODE" = "0" ] && FINDINGS=0
+            ;;
+        esac
 
         echo "findings_count=$FINDINGS" >> $GITHUB_OUTPUT
 
-        # Check if we should fail
-        if [ "${{ inputs.fail-on-findings }}" = "true" ] && [ "$FINDINGS" -gt 0 ]; then
-          echo "::error::Found $FINDINGS dead code issue(s)"
+        if [ "$EXIT_CODE" = "2" ]; then
+          echo "::error::searchdeadcode could not complete the analysis (exit 2)"
+          exit 2
+        fi
+
+        if [ "$EXIT_CODE" = "3" ]; then
+          echo "::error::the ratchet refused an increase against the baseline (exit 3)"
+          exit 3
+        fi
+
+        if [ "$EXIT_CODE" != "0" ]; then
+          if [ -n "$FINDINGS" ]; then
+            echo "::error::Found $FINDINGS dead code issue(s)"
+          else
+            echo "::error::dead code findings remain (see the report above)"
+          fi
           exit 1
         fi
 

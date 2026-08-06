@@ -17,6 +17,8 @@ mod blame_tests;
 mod bus_tests;
 mod by_module_tests;
 mod changed_since_tests;
+mod checkstyle_tests;
+mod ci_profile_tests;
 mod cli_tests;
 mod cluster_tests;
 mod comprehensive_tests;

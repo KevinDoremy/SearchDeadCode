@@ -216,8 +216,8 @@ struct Cli {
     #[arg(help_heading = "Filtering & confidence", long)]
     min_confidence: Option<String>,
 
-    /// Preset for an audience: ci (strict, high confidence only) or
-    /// explore (everything down to low)
+    /// Preset for an audience: ci (the whole pipeline setup in one flag) or
+    /// explore (everything down to low confidence)
     #[arg(help_heading = "Filtering & confidence", long, value_enum)]
     profile: Option<Profile>,
 
@@ -463,9 +463,14 @@ struct Cli {
     promises: bool,
 
     /// Exit 1 when findings remain after filtering (baseline included)
-    /// — the scriptable CI gate
-    #[arg(help_heading = "Filtering & confidence", long)]
-    fail_on_findings: bool,
+    /// — the scriptable CI gate. Implied by --profile ci
+    ///
+    /// `require_equals`: sans lui, `--fail-on-findings .` avale le chemin
+    /// comme valeur du drapeau et le parsing échoue — et c'est exactement
+    /// l'ordre dans lequel l'action GitHub construit sa commande. La forme
+    /// nue reste valide, la désactivation s'écrit `--fail-on-findings=false`.
+    #[arg(help_heading = "Filtering & confidence", long, num_args = 0..=1, default_missing_value = "true", require_equals = true, action = clap::ArgAction::Set)]
+    fail_on_findings: Option<bool>,
 
     /// List Worker/JobService classes nobody ever enqueues, then exit
     #[arg(help_heading = "Specialized views", long)]
@@ -562,10 +567,12 @@ struct Cli {
     #[arg(help_heading = "Detectors", long)]
     compose_patterns: bool,
 
-    /// Enable incremental analysis with caching (enabled by default)
-    /// Skips re-parsing unchanged files for faster subsequent runs
-    #[arg(help_heading = "Baseline & cache", long, default_value = "true", default_missing_value = "true", num_args = 0..=1, action = clap::ArgAction::Set)]
-    incremental: bool,
+    /// Enable incremental analysis with caching (enabled by default, off under
+    /// --profile ci). Skips re-parsing unchanged files for faster subsequent
+    /// runs, at the cost of a cache file next to the project — 221 MB on a
+    /// 9000-file repository, which is why a pipeline does not want it
+    #[arg(help_heading = "Baseline & cache", long, default_missing_value = "true", num_args = 0..=1, action = clap::ArgAction::Set)]
+    incremental: Option<bool>,
 
     /// Clear the analysis cache before running
     #[arg(help_heading = "Baseline & cache", long)]
@@ -651,22 +658,73 @@ struct Cli {
 
 #[derive(clap::ValueEnum, Clone, Copy, Debug)]
 enum Profile {
-    /// Strict: high-confidence findings only — for pipelines
+    /// Pipeline preset: exit 1 on findings, no cache file left in the
+    /// workspace, and .deadcode-baseline.json picked up if the project
+    /// committed one
     Ci,
     /// Everything down to low confidence — for humans digging
     Explore,
 }
 
-/// Explicit flag first, then the profile preset, then medium
+/// The conventional baseline name, the one `--profile ci` looks for. Same
+/// spirit as detekt's `baseline.xml`: the file is the project's ground truth,
+/// so a pipeline should not have to name it on the command line.
+const CONVENTIONAL_BASELINE: &str = ".deadcode-baseline.json";
+
+fn is_ci_profile(cli: &Cli) -> bool {
+    matches!(cli.profile, Some(Profile::Ci))
+}
+
+/// Explicit flag first, then the profile preset, then medium.
+///
+/// `ci` deliberately does NOT raise the bar to `high`, which it used to do.
+/// Measured on a 9000-file project: `high` sees 126 findings out of 2058, and
+/// 79 of those 126 come from DC013, a cosmetic rule. A dead class someone just
+/// pushed is reported at `medium` — so the strict preset could not catch the
+/// one thing a pipeline gate exists for. Noise is the baseline's job, not the
+/// threshold's: the baseline freezes what is already there and the gate then
+/// fires on what the branch added.
 fn resolve_min_confidence(cli: &Cli) -> String {
     cli.min_confidence.clone().unwrap_or_else(|| {
         match cli.profile {
-            Some(Profile::Ci) => "high",
             Some(Profile::Explore) => "low",
-            None => "medium",
+            Some(Profile::Ci) | None => "medium",
         }
         .to_string()
     })
+}
+
+/// A flag named for pipelines has to gate the pipeline. Explicit wins, so
+/// `--profile ci --fail-on-findings=false` is still a way to look without
+/// breaking the build.
+fn resolve_fail_on_findings(cli: &Cli) -> bool {
+    cli.fail_on_findings.unwrap_or_else(|| is_ci_profile(cli))
+}
+
+/// A CI checkout is fresh: the cache can teach it nothing, and it would leave
+/// a large file in the workspace on every run. Explicit wins.
+fn resolve_incremental(cli: &Cli) -> bool {
+    cli.incremental.unwrap_or_else(|| !is_ci_profile(cli))
+}
+
+/// Explicit `--baseline` wins. Under the CI profile only, fall back to the
+/// conventional file when it exists — a pipeline that committed one means it.
+/// Never invented outside that profile: a missing baseline must stay a loud
+/// mistake for anyone who typed the flag.
+fn resolve_baseline(cli: &Cli) -> Option<PathBuf> {
+    if let Some(explicit) = &cli.baseline {
+        return Some(explicit.clone());
+    }
+    if !is_ci_profile(cli) {
+        return None;
+    }
+    let root = if cli.path.is_dir() {
+        cli.path.clone()
+    } else {
+        cli.path.parent().map(PathBuf::from).unwrap_or_default()
+    };
+    let candidate = root.join(CONVENTIONAL_BASELINE);
+    candidate.is_file().then_some(candidate)
 }
 
 #[derive(clap::ValueEnum, Clone, Debug, Default)]
@@ -681,6 +739,7 @@ enum OutputFormat {
     Reviewdog,
     Csv,
     Gitlab,
+    Checkstyle,
 }
 
 #[derive(clap::ValueEnum, Clone, Copy, Debug, Default)]
@@ -692,13 +751,30 @@ enum FlagBehavior {
 
 /// CLI flag first, then report.format from .deadcode.yml, then terminal
 fn resolve_output_format(cli: &Cli, config: &Config) -> OutputFormat {
+    // La table couvrait trois formats sur neuf : `report.format: gitlab` (ou
+    // html, markdown, reviewdog, csv, checkstyle) dans .deadcode.yml rendait
+    // du terminal sans un mot. Un format inconnu le dit maintenant, plutôt
+    // que de laisser croire que la config a été lue.
     cli.format
         .clone()
         .unwrap_or(match config.report.format.as_str() {
             "compact" => OutputFormat::Compact,
             "json" => OutputFormat::Json,
             "sarif" => OutputFormat::Sarif,
-            _ => OutputFormat::Terminal,
+            "html" => OutputFormat::Html,
+            "markdown" => OutputFormat::Markdown,
+            "reviewdog" => OutputFormat::Reviewdog,
+            "csv" => OutputFormat::Csv,
+            "gitlab" => OutputFormat::Gitlab,
+            "checkstyle" => OutputFormat::Checkstyle,
+            "terminal" | "" => OutputFormat::Terminal,
+            other => {
+                eprintln!(
+                    "{}: unknown report.format '{other}' in config, using terminal",
+                    "Warning".yellow()
+                );
+                OutputFormat::Terminal
+            }
         })
 }
 
@@ -731,6 +807,7 @@ fn determine_report_format(cli: &Cli, config: &Config) -> report::ReportFormat {
         OutputFormat::Reviewdog => report::ReportFormat::Reviewdog,
         OutputFormat::Csv => report::ReportFormat::Csv,
         OutputFormat::Gitlab => report::ReportFormat::Gitlab,
+        OutputFormat::Checkstyle => report::ReportFormat::Checkstyle,
     }
 }
 
@@ -757,8 +834,10 @@ fn install_pre_commit_hook(root: &Path) -> std::result::Result<PathBuf, String> 
             ));
         }
     }
+    // --fail-on-findings arme la porte : sans lui le hook listait le code
+    // mort puis laissait passer le commit — un garde-fou qui ne garde rien.
     let script = format!(
-        "#!/bin/sh\n# {HOOK_MARKER}\n# Fast diff mode: only files changed since HEAD are analyzed.\nsearchdeadcode . --changed-since HEAD --quiet\n"
+        "#!/bin/sh\n# {HOOK_MARKER}\n# Fast diff mode: only files changed since HEAD are analyzed.\nsearchdeadcode . --changed-since HEAD --quiet --fail-on-findings\n"
     );
     std::fs::create_dir_all(&hooks_dir).map_err(|e| e.to_string())?;
     std::fs::write(&hook_path, script).map_err(|e| e.to_string())?;
@@ -931,15 +1010,19 @@ fn main() -> Result<()> {
         }
     }
 
-    if cli.baseline_prune && cli.baseline.is_none() {
+    // `resolve_baseline`, pas `cli.baseline` : sous --profile ci le
+    // .deadcode-baseline.json conventionnel satisfait déjà ces deux modes —
+    // exiger le drapeau explicite faisait échouer un job qui allait charger
+    // ce fichier exact deux étapes plus loin.
+    if cli.baseline_prune && resolve_baseline(&cli).is_none() {
         eprintln!(
-            "{}: --baseline-prune needs --baseline <file>",
+            "{}: --baseline-prune needs --baseline <file> (or --profile ci with a committed .deadcode-baseline.json)",
             "Error".red()
         );
         std::process::exit(2);
     }
 
-    if cli.necromancy && cli.baseline.is_none() {
+    if cli.necromancy && resolve_baseline(&cli).is_none() {
         eprintln!(
             "{}: --necromancy needs --baseline <file> — the corpses are recorded there",
             "Error".red()
@@ -1198,7 +1281,7 @@ fn run_analysis_internal(
             Ok(baseline) => {
                 let stats = baseline.stats(&dead_code, path);
                 if !quiet {
-                    println!("{}", format!("📋 Baseline: {}", stats).cyan());
+                    eprintln!("{}", format!("📋 Baseline: {}", stats).cyan());
                 }
                 baseline
                     .filter_new(&dead_code, path)
@@ -1239,6 +1322,7 @@ fn run_analysis_internal(
         OutputFormat::Reviewdog => report::ReportFormat::Reviewdog,
         OutputFormat::Csv => report::ReportFormat::Csv,
         OutputFormat::Gitlab => report::ReportFormat::Gitlab,
+        OutputFormat::Checkstyle => report::ReportFormat::Checkstyle,
     };
     let reporter = Reporter::new(report_format, output);
     reporter.report(&dead_code)?;
@@ -2483,6 +2567,14 @@ fn run_changed_since(files: &[discovery::SourceFile], cli: &Cli, base_ref: &str)
         );
     }
     println!("\nPR scope stays silent on anything mentioned elsewhere — run a full analysis for the complete picture.");
+    // Le mode PR sortait toujours 0 : il imprimait ses trouvailles puis
+    // rendait Ok(()), sans jamais consulter la porte — `--profile ci
+    // --changed-since` ne pouvait donc pas faire échouer un pipeline, et le
+    // hook écrit par --install-hook ne bloquait aucun commit. Pas de garde
+    // is_empty : le chemin vide a déjà retourné plus haut.
+    if resolve_fail_on_findings(cli) && cli.generate_baseline.is_none() {
+        std::process::exit(1);
+    }
     Ok(())
 }
 
@@ -2666,6 +2758,20 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     }
 
     // Step 1: Discover files
+    //
+    // Un chemin qui n'existe pas est une erreur d'OUTILLAGE, pas un projet
+    // sain : sortir 0 ici faisait dire à une CI « aucun code mort » sur un
+    // checkout raté ou une faute de frappe — exactement ce que le contrat
+    // 0/1/2 promet d'empêcher. Un dossier existant sans sources, lui, reste
+    // un rapport vide légitime.
+    if !cli.path.exists() {
+        eprintln!(
+            "{}: path does not exist: {}",
+            "Error".red(),
+            cli.path.display()
+        );
+        std::process::exit(2);
+    }
     info!("Discovering files...");
     let finder = FileFinder::new(config);
     let files = finder.find_files(&cli.path)?;
@@ -2734,7 +2840,7 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         }
     }
 
-    let graph = if cli.incremental {
+    let graph = if resolve_incremental(cli) {
         build_graph_incremental(&files, &cache_root, &cache_file, cli)?
     } else if cli.parallel {
         // Parallel parsing mode
@@ -2765,7 +2871,7 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     };
 
     let parse_time = start_time.elapsed();
-    if cli.parallel && !cli.incremental {
+    if cli.parallel && !resolve_incremental(cli) {
         phase_line(
             cli.quiet,
             "parsed",
@@ -3524,8 +3630,8 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     // --necromancy short-circuits everything after the graph: does any
     // live code reference a symbol the baseline judged dead?
     if cli.necromancy {
-        let baseline_path = cli.baseline.as_ref().expect("guarded at startup");
-        let loaded = match baseline::Baseline::load(baseline_path) {
+        let baseline_path = resolve_baseline(cli).expect("guarded at startup");
+        let loaded = match baseline::Baseline::load(&baseline_path) {
             Ok(b) => b,
             Err(e) => {
                 eprintln!("{}: cannot read baseline: {}", "Error".red(), e);
@@ -4799,9 +4905,11 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         }
     }
 
-    // Step 13: Filter by baseline if provided
+    // Step 13: Filter by baseline if provided — or, under --profile ci, if the
+    // project committed one under its conventional name
     let mut ratchet_failed = false;
-    let dead_code = if let Some(ref baseline_path) = cli.baseline {
+    let effective_baseline = resolve_baseline(cli);
+    let dead_code = if let Some(ref baseline_path) = effective_baseline {
         match baseline::Baseline::load(baseline_path) {
             Ok(baseline) => {
                 // --baseline-prune: entries no finding matches anymore are
@@ -4815,7 +4923,7 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
                     let dropped = before - pruned.issues.len();
                     if dropped > 0 {
                         match pruned.save(baseline_path) {
-                            Ok(_) => println!(
+                            Ok(_) => eprintln!(
                                 "{}",
                                 format!("🧹 Pruned {dropped} resolved entrie(s) from the baseline")
                                     .green()
@@ -4829,14 +4937,16 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
                             }
                         }
                     } else {
-                        println!("nothing to prune — every baseline entry still matches a finding");
+                        eprintln!(
+                            "nothing to prune — every baseline entry still matches a finding"
+                        );
                     }
                     pruned
                 } else {
                     baseline
                 };
                 let stats = baseline.stats(&dead_code, &cli.path);
-                println!("{}", format!("📋 Baseline: {}", stats).cyan());
+                eprintln!("{}", format!("📋 Baseline: {}", stats).cyan());
 
                 // The ratchet only accepts decrease: new issues fail the
                 // run, progress rewrites the ceiling downward.
@@ -4854,7 +4964,7 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
                     } else if stats.baselined_found < stats.total_in_baseline {
                         let tightened = baseline::Baseline::from_findings(&dead_code, &cli.path);
                         match tightened.save(baseline_path) {
-                            Ok(_) => println!(
+                            Ok(_) => eprintln!(
                                 "{}",
                                 format!(
                                     "📉 Ratchet tightened: {} → {} issues",
@@ -4879,22 +4989,26 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
                     .collect();
 
                 if new_issues.is_empty() && stats.baselined_found > 0 {
-                    println!("{}", "✓ No new dead code issues found!".green());
+                    eprintln!("{}", "✓ No new dead code issues found!".green());
                 }
 
                 new_issues
             }
             Err(e) => {
-                if cli.ratchet {
-                    eprintln!(
-                        "{}: --ratchet cannot guard an unreadable baseline: {}",
-                        "Error".red(),
-                        e
-                    );
-                    std::process::exit(2);
-                }
-                eprintln!("{}: Failed to load baseline: {}", "Warning".yellow(), e);
-                dead_code
+                // Toujours exit 2, ratchet ou pas : le contrat documenté dit
+                // « baseline corrompu = l'outil n'a pas pu travailler ». Le
+                // demi-mode d'avant (avertir et rendre le rapport NON filtré)
+                // faisait sortir 1 sous la porte — la CI disait « du code
+                // mort » quand le vrai problème était le fichier. Un baseline
+                // résolu existe forcément (resolve_baseline vérifie is_file),
+                // donc l'échec signifie présent-mais-inutilisable.
+                eprintln!(
+                    "{}: cannot load baseline {}: {}",
+                    "Error".red(),
+                    baseline_path.display(),
+                    e
+                );
+                std::process::exit(2);
             }
         }
     } else {
@@ -5201,8 +5315,21 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
     }
 
     // the scriptable gate: 1 = findings, after the report printed and
-    // the baseline filtered — new findings only
-    if cli.fail_on_findings && !dead_code.is_empty() {
+    // the baseline filtered — new findings only.
+    //
+    // `--generate-baseline` désarme la porte pour CE run : geler la dette est
+    // un acte d'acceptation, et sortir 1 dans la seconde qui suit ferait
+    // échouer l'étape d'adoption que la doc CI recommande en premier.
+    //
+    // Une suppression qui a EU LIEU désarme aussi : les trouvailles sont
+    // résolues, échouer bloquerait l'étape commit d'un pipeline d'auto-delete.
+    // `--delete --dry-run` ne touche à rien et gate normalement.
+    let deletion_ran = cli.delete && !cli.dry_run;
+    if resolve_fail_on_findings(cli)
+        && cli.generate_baseline.is_none()
+        && !deletion_ran
+        && !dead_code.is_empty()
+    {
         std::process::exit(1);
     }
 

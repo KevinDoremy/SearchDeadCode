@@ -130,11 +130,13 @@ fn prune_drops_entries_whose_finding_is_resolved() {
         temp.path(),
         &["--baseline", baseline.to_str().unwrap(), "--baseline-prune"],
     );
-    let stdout = stdout_of(&out);
     assert!(out.status.success(), "prune failed:\n{out:?}");
+    // Sur STDERR : les statuts baseline ont quitté stdout pour que les
+    // formats machine (json, checkstyle, reviewdog) restent parsables en pipe.
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
     assert!(
-        stdout.to_lowercase().contains("pruned"),
-        "prune reports what it dropped, stdout was:\n{stdout}"
+        stderr.to_lowercase().contains("pruned"),
+        "prune reports what it dropped, stderr was:\n{stderr}"
     );
 
     let json = fs::read_to_string(&baseline).unwrap();

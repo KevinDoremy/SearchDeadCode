@@ -108,6 +108,16 @@ Full reference and code examples for each detector: [`DETECTORS.md`](DETECTORS.m
 
 ## Installation
 
+### One line (CI, containers, anywhere)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/KevinDoremy/SearchDeadCode/main/install.sh | sh
+```
+
+Downloads the binary for your platform, checks its published SHA-256, installs
+it in `/usr/local/bin`. `SDC_INSTALL_DIR` and `SDC_VERSION` override where and
+which.
+
 ### Homebrew (macOS / Linux)
 
 ```bash
@@ -120,6 +130,9 @@ brew install searchdeadcode
 ```bash
 cargo install searchdeadcode
 ```
+
+Compiles from source — fine on a workstation, several minutes on every CI
+build. Prefer the one-liner there.
 
 ### Pre-built binaries
 
@@ -174,36 +187,53 @@ searchdeadcode ./app --delete --dry-run
 
 Power features: hybrid coverage analysis, R8 / ProGuard integration, zombie code detection, watch mode, baseline support, unused resources, unused params. See [`docs/cli-reference.md`](docs/cli-reference.md) for the full CLI reference and [`docs/hybrid-analysis.md`](docs/hybrid-analysis.md) for coverage + R8 workflows.
 
-## CI integration (GitHub Actions)
+## CI integration
+
+Two lines, on any platform:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/KevinDoremy/SearchDeadCode/main/install.sh | sh
+searchdeadcode . --profile ci
+```
+
+`--profile ci` is the whole pipeline setup in one flag: exit 1 on findings, no
+cache file left in the workspace, and `.deadcode-baseline.json` picked up if
+your project committed one.
+
+On a codebase that has never run this, freeze the existing debt first so the
+build only breaks on what a branch adds:
+
+```sh
+searchdeadcode . --generate-baseline .deadcode-baseline.json   # commit this
+```
+
+On GitHub Actions, the published action does the install for you:
 
 ```yaml
 # .github/workflows/dead-code.yml
-name: Dead Code Detection
-
+name: Dead code
 on: [push, pull_request]
 
 jobs:
   dead-code:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Detect Dead Code
-        uses: KevinDoremy/SearchDeadCode@v0
+      - uses: actions/checkout@v7
+      - uses: KevinDoremy/SearchDeadCode@v0
         with:
-          path: '.'
-          format: 'sarif'
-          output: 'deadcode.sarif'
-          min-confidence: 'high'
-          fail-on-findings: 'true'
-
-      - name: Upload SARIF
-        uses: github/codeql-action/upload-sarif@v2
-        with:
-          sarif_file: deadcode.sarif
+          args: '--profile ci'
 ```
 
-GitLab CI, Bitbucket, and pre-commit hook examples in [`docs/ci-integration.md`](docs/ci-integration.md).
+Jenkins, GitLab, CircleCI, Azure, Bitbucket, TeamCity, Buildkite and
+Woodpecker, plus SARIF, Checkstyle and inline pull-request comments:
+[`docs/ci-integration.md`](docs/ci-integration.md).
+
+> The job needs no JDK, no Gradle and no build — `**/build/**` and
+> `**/generated/**` are excluded by default, so a fresh checkout gives the same
+> answer as your machine. And do not cache anything: the incremental cache
+> halves the run but weighs 221 MB on a 9000-file project, which costs more to
+> ship than it saves. `--profile ci` turns it off; elsewhere, put
+> `.searchdeadcode-cache.json` in your `.gitignore`.
 
 ## Configuration
 
@@ -251,7 +281,7 @@ But you'll likely want SearchDeadCode if you need: speed, CI integration, safe d
 - [`docs/cli-reference.md`](docs/cli-reference.md) — full CLI reference and command examples
 - [`docs/configuration.md`](docs/configuration.md) — YAML and TOML schemas
 - [`docs/hybrid-analysis.md`](docs/hybrid-analysis.md) — coverage, R8 / ProGuard, zombie code
-- [`docs/ci-integration.md`](docs/ci-integration.md) — GitHub Actions, GitLab, pre-commit hooks
+- [`docs/ci-integration.md`](docs/ci-integration.md) — eight CI platforms, baselines, exit codes, pre-commit hooks
 - [`docs/troubleshooting.md`](docs/troubleshooting.md) — Gatekeeper, FAQ, known limitations
 - [`docs/architecture.md`](docs/architecture.md) — pipeline, tech stack, project structure, performance targets
 - [`docs/research.md`](docs/research.md) — dead code detection paradigms (Periphery, Meta SCARF, R8, tree shaking)

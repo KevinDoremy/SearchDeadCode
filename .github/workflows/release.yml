@@ -163,6 +163,56 @@ jobs:
           files: release/*
           generate_release_notes: true
 
+  # `uses: KevinDoremy/SearchDeadCode@v0` is what the docs tell people to write,
+  # and it resolved to nothing: only exact tags existed. Same failure shape as
+  # the tap and crates.io above — the thing users are told to use drifts away
+  # from the thing that is published, and nothing goes red. The major tag moves
+  # to each release so a workflow pinned to it keeps working without edits.
+  major-tag:
+    name: Move the floating major tag
+    # After `release`, never before: the tag must not point at a release whose
+    # binaries are not uploaded yet, or `@v0` briefly resolves to nothing to
+    # download — the exact failure this job exists to end.
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # Queued, never cancelled: two releases racing must both run, in order,
+    # or a repoint gets skipped.
+    concurrency:
+      group: major-tag
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Repoint vMAJOR at this release
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF#refs/tags/v}"
+          major="v${version%%.*}"
+
+          # Only move forward. Re-running an old release's workflow (which
+          # this file explicitly supports for crates.io) or shipping a 0.16.2
+          # hotfix after 0.17.0 must not drag the floating tag backwards onto
+          # an older action. Same POSIX sort as install.sh — the vMAJOR.* glob
+          # also keeps vscode-v* tags and the floating tag itself out.
+          newest="$(git tag -l "${major}.*" | sed 's/^v//' \
+            | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)"
+          if [ "$version" != "$newest" ]; then
+            echo "v$version is not the newest ${major}.x (that is v$newest) — leaving $major alone"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # ^{commit} peels an annotated tag to the release commit; GITHUB_SHA
+          # on an annotated-tag push is the TAG OBJECT's sha, and a floating
+          # tag pointing at a tag object breaks `uses:` resolution. No-op for
+          # lightweight tags — and this repo's release tags ARE annotated.
+          git tag -f "$major" "${GITHUB_REF#refs/tags/}^{commit}"
+          git push -f origin "$major"
+          echo "$major now points at the commit behind v$version"
+
   # The formula pins four binaries by URL and checksum, and updating it by hand
   # meant it silently drifted: the tap served 0.10.2 while the crate shipped
   # 0.13.0, so `brew install` handed out a tool three releases behind, carrying
