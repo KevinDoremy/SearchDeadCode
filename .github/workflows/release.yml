@@ -163,6 +163,44 @@ jobs:
           files: release/*
           generate_release_notes: true
 
+  # Every CI recipe in the docs boils down to `curl install.sh | sh` resolving
+  # the newest release. This job runs that EXACT public path right after the
+  # assets land, and fails the release if the chain is broken — so "a new
+  # release auto-updates every pipeline" is a property each release proves
+  # about itself, not a hope. It would have caught both past breakages: the
+  # wrong asset names (404) and `latest` resolving to the VS Code extension.
+  verify-install:
+    name: Verify the public install path
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install via the documented one-liner and check the version
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF#refs/tags/v}"
+
+          # Same resolution as install.sh: this release is only expected to
+          # BE "latest" when it is the newest crate tag — re-releasing an old
+          # series must not fail here.
+          newest="$(curl -fsSL "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            | tr ',' '\n' \
+            | sed -n 's/.*"tag_name" *: *"v\([0-9][0-9.]*\)".*/\1/p' \
+            | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)"
+
+          curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/install.sh" \
+            | SDC_INSTALL_DIR="$PWD/bin" sh
+          got="$("$PWD/bin/searchdeadcode" --version | awk '{print $2}')"
+
+          echo "released v$version, newest crate tag v$newest, installer delivered $got"
+          if [ "$got" != "$newest" ]; then
+            echo "::error::install.sh delivered $got but the newest release is $newest — the auto-update chain is broken"
+            exit 1
+          fi
+          if [ "$version" = "$newest" ] && [ "$got" != "$version" ]; then
+            echo "::error::this release is the newest yet install.sh delivered $got"
+            exit 1
+          fi
+
   # `uses: KevinDoremy/SearchDeadCode@v0` is what the docs tell people to write,
   # and it resolved to nothing: only exact tags existed. Same failure shape as
   # the tap and crates.io above — the thing users are told to use drifts away
