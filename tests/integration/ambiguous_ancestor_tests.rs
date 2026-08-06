@@ -212,6 +212,111 @@ fn an_unambiguous_edge_still_keeps_its_container_alive() {
     }
 }
 
+/// LIMITE CONNUE ET ASSUMÉE, pas un bug qu'on n'aurait pas vu.
+///
+/// Une classe enracinée par ANNOTATION (`@Inject` sur le constructeur, et
+/// toute la famille DI / Android / tests) est une racine, mais le graphe ne
+/// porte aucune arête d'une classe vers ses propres méthodes : il ne porte
+/// que des références. `ancestor_seeds` part donc d'une fermeture qui
+/// n'atteint jamais les membres d'une telle racine, et ce que ces membres
+/// appellent perd le droit de marquer ses ancêtres. Un `object` importé par
+/// son membre (`import a.b.Utils.extensionFun`) depuis un service `@Inject`
+/// est signalé mort alors qu'il tourne.
+///
+/// Mesuré sur un projet réel de 9135 fichiers, en croisant avec les
+/// `usage.txt` de R8 — la liste de ce que le shrinker a réellement supprimé
+/// de l'app livrée :
+///
+/// | fermeture | nouvelles | confirmées mortes par R8 | faux positif |
+/// |---|---|---|---|
+/// | **actuelle** (arêtes seules) | 38 | 22 | 1 |
+/// | enfants partout | 29 | 18 | 0 |
+/// | enfants des points d'entrée | 34 | 19 | 0 |
+/// | enfants ATTEIGNABLES des points d'entrée | 34 | 19 | 0 |
+///
+/// Les deux dernières lignes sont rigoureusement identiques : sur 2043
+/// trouvailles, zéro divergence. Restreindre aux membres atteignables
+/// n'apporte rien, les membres en cause le sont déjà.
+///
+/// Ce que la campagne a appris de plus important n'est pas dans le tableau.
+/// Les trois trouvailles que la fermeture actuelle gagne viennent du MÊME
+/// angle mort que le faux positif, pas d'un raisonnement plus fin :
+///
+/// | | `GameUrlUtils` | `NetworkUtils` |
+/// |---|---|---|
+/// | forme | `import Obj.membre` | `import Obj.membre` |
+/// | importé depuis | une classe `@Inject` | une classe `@Inject` |
+/// | R8 | garde | retire |
+/// | verdict de l'outil | mort | mort |
+///
+/// Même code, même chemin, même verdict. L'outil a raison sur l'un et tort
+/// sur l'autre parce que R8 a supprimé un délégué et gardé un service, ce
+/// qu'il ne regarde pas. Le rappel supplémentaire est une pièce qui retombe
+/// du bon côté, pas une connaissance.
+///
+/// Arbitrage tranché quand même en faveur du rappel : on garde le faux
+/// positif. Il est à confiance `medium`, donc `--delete` peut agir dessus —
+/// c'est le prix, il est connu et documenté sous DC001.
+///
+/// Ce test fige le comportement CHOISI. S'il se met à échouer, quelqu'un a
+/// élargi la fermeture : lire ce qui précède avant de conclure que c'est un
+/// progrès, et refaire la mesure sur un vrai projet plutôt que sur l'intuition.
+#[test]
+fn a_root_by_annotation_does_not_reach_what_its_methods_call() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(
+        temp.path().join("Utils.kt"),
+        "package s.utils\n\
+         \n\
+         object GameUrlUtils {\n\
+         \x20   fun String.shouldAuthenticate() = this.contains(\"gameId\")\n\
+         }\n",
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("Api.kt"),
+        "package s.net\n\
+         \n\
+         interface FeedNetworkService {\n\
+         \x20   fun fetch(url: String): Boolean\n\
+         }\n",
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("Service.kt"),
+        "package s.net\n\
+         \n\
+         import s.utils.GameUrlUtils.shouldAuthenticate\n\
+         \n\
+         class ShowcaseNetworkService : FeedNetworkService {\n\
+         \x20   override fun fetch(url: String): Boolean = url.shouldAuthenticate()\n\
+         }\n",
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("Main.kt"),
+        "package s\n\
+         \n\
+         import s.net.FeedNetworkService\n\
+         \n\
+         fun main() {\n\
+         \x20   val svc: FeedNetworkService = s.net.ShowcaseNetworkService()\n\
+         \x20   println(svc.fetch(\"x\"))\n\
+         }\n",
+    )
+    .unwrap();
+
+    // Le mode `--deep` est celui qui produit le rapport par défaut, et le
+    // seul où la limite se manifeste : les deux autres marquent les membres
+    // d'une classe atteignable par containment, ce qui masque l'effet.
+    let found = reported(temp.path(), &["--deep=true"]);
+    assert!(
+        found.iter().any(|m| m.contains("GameUrlUtils")),
+        "la limite est assumée : tant qu'elle tient, l'objet est signalé. Sorti :\n{}",
+        found.join("\n")
+    );
+}
+
 #[test]
 fn a_member_imported_by_name_keeps_its_container_alive() {
     // Le faux positif que le correctif d'ancêtres a failli livrer, et le
