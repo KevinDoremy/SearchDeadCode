@@ -1,0 +1,108 @@
+version: 2.1
+
+description: >
+  Dead code detection for Android projects (Kotlin & Java). Wraps the
+  SearchDeadCode binary: install, baseline-aware gate, machine formats.
+  https://github.com/KevinDoremy/SearchDeadCode
+
+display:
+  home_url: https://github.com/KevinDoremy/SearchDeadCode
+  source_url: https://github.com/KevinDoremy/SearchDeadCode
+
+# Publication (one-time namespace, then per-version):
+#   export CIRCLECI_CLI_TOKEN=$(security find-generic-password -s circleci -w)
+#   circleci namespace create kevindoremy github KevinDoremy   # once ever
+#   circleci orb create kevindoremy/searchdeadcode             # once ever
+#   circleci orb validate integrations/circleci/orb.yml
+#   circleci orb publish integrations/circleci/orb.yml kevindoremy/searchdeadcode@0.1.0
+# The registry lists published orbs automatically.
+
+commands:
+  install:
+    description: >
+      Download the binary for this runner, verify its published SHA-256, put
+      it on PATH. No JDK, no Gradle, no build required.
+    parameters:
+      version:
+        description: Pin a version, or empty for the newest release
+        type: string
+        default: ""
+    steps:
+      - run:
+          name: Install SearchDeadCode
+          command: |
+            curl -fsSL https://raw.githubusercontent.com/KevinDoremy/SearchDeadCode/main/install.sh \
+              | SDC_VERSION="<< parameters.version >>" SDC_INSTALL_DIR="$HOME/.sdc/bin" sh
+            echo 'export PATH="$HOME/.sdc/bin:$PATH"' >> "$BASH_ENV"
+
+  scan:
+    description: >
+      Run the pipeline gate. Exit codes: 0 clean, 1 findings, 2 the tool
+      could not work, 3 the ratchet refused an increase.
+    parameters:
+      path:
+        description: Directory to analyse — the repository root, never a module
+        type: string
+        default: "."
+      args:
+        description: Extra CLI arguments appended after the profile
+        type: string
+        default: ""
+    steps:
+      - run:
+          name: Dead code scan
+          command: searchdeadcode << parameters.path >> --profile ci << parameters.args >>
+
+jobs:
+  scan:
+    description: >
+      Checkout + install + gate on a small glibc image. Commit a
+      .deadcode-baseline.json (searchdeadcode . --generate-baseline …) so the
+      job only fails on what a branch adds.
+    parameters:
+      version:
+        type: string
+        default: ""
+      path:
+        type: string
+        default: "."
+      args:
+        type: string
+        default: ""
+      resource_class:
+        type: string
+        default: small
+    docker:
+      - image: cimg/base:current
+    resource_class: << parameters.resource_class >>
+    steps:
+      - checkout
+      - install:
+          version: << parameters.version >>
+      - scan:
+          path: << parameters.path >>
+          args: << parameters.args >>
+
+examples:
+  gate:
+    description: The two-line integration — fail the pipeline on new dead code.
+    usage:
+      version: 2.1
+      orbs:
+        deadcode: kevindoremy/searchdeadcode@0.1.0
+      workflows:
+        quality:
+          jobs:
+            - deadcode/scan
+  pinned-with-args:
+    description: Pin the analyzer version and pass extra flags.
+    usage:
+      version: 2.1
+      orbs:
+        deadcode: kevindoremy/searchdeadcode@0.1.0
+      workflows:
+        quality:
+          jobs:
+            - deadcode/scan:
+                version: "0.18.0"
+                args: "--min-confidence high"
