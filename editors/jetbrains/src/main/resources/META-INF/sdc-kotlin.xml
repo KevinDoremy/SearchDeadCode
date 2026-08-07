@@ -1,11 +1,6 @@
 <idea-plugin>
-    <!-- The annotator never touches Kotlin PSI (it works on Document lines),
-         so it is compatible with both K1 and K2 by construction. The
-         declaration keeps K2-default IDEs (Android Studio Narwhal+) from
-         disabling the plugin. -->
-    <extensions defaultExtensionNs="org.jetbrains.kotlin">
-        <supportsKotlinPluginMode supportsK2="true"/>
-    </extensions>
+    <!-- The K2 compatibility declaration lives in the MAIN plugin.xml: the
+         Plugin Verifier only looks for it there. -->
     <extensions defaultExtensionNs="com.intellij">
         <externalAnnotator
             language="kotlin"

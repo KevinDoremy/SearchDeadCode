@@ -45,6 +45,11 @@ kotlin {
         // The oldest supported IDE (242) bundles the 1.9 stdlib; compiling
         // against a newer API surface would NoSuchMethodError at runtime.
         apiVersion = KotlinVersion.KOTLIN_1_9
+        // Without this, implementing a platform Kotlin interface
+        // (ToolWindowFactory) generates DefaultImpls bridges that "override"
+        // its @Internal members — the Plugin Verifier fails the build on
+        // them. JetBrains recommends this flag for every plugin.
+        freeCompilerArgs.add("-Xjvm-default=all")
     }
 }
 

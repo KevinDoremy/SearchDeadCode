@@ -29,6 +29,15 @@
     <depends optional="true" config-file="sdc-java.xml">com.intellij.modules.java</depends>
     <depends optional="true" config-file="sdc-kotlin.xml">org.jetbrains.kotlin</depends>
 
+    <!-- The annotator never touches Kotlin PSI (it works on Document lines),
+         so it is compatible with both K1 and K2 by construction. Declared
+         HERE and not in sdc-kotlin.xml: the Plugin Verifier and K2-default
+         IDEs (Android Studio Narwhal+) look for it in the main descriptor,
+         and an extension whose plugin is absent is simply ignored. -->
+    <extensions defaultExtensionNs="org.jetbrains.kotlin">
+        <supportsKotlinPluginMode supportsK2="true"/>
+    </extensions>
+
     <extensions defaultExtensionNs="com.intellij">
         <notificationGroup id="SearchDeadCode" displayType="BALLOON"/>
         <projectConfigurable
