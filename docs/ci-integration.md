@@ -210,15 +210,18 @@ carries the whole job:
 ```yaml
 version: 2.1
 orbs:
-  deadcode: kevindoremy/searchdeadcode@0.1.0
+  deadcode: kevindoremy/searchdeadcode@0
 workflows:
   quality:
     jobs:
       - deadcode/scan
 ```
 
-`deadcode/scan` takes `version` (pin the analyzer), `path`, `args` and
-`resource_class` (default `small`). Or spelled out, without the orb:
+`@0` floats within the 0.x series, like the action's `@v0`. Orb versions
+track the analyzer's: pinning `@0.18.0` gives you a job that installs
+analyzer 0.18.0, forever — published orb versions are immutable and their
+default is pinned to themselves. `deadcode/scan` takes `version` (override
+the analyzer), `path`, `args` and `resource_class` (default `small`). Or spelled out, without the orb:
 
 ```yaml
 jobs:

@@ -43,6 +43,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   block, and `ci-templates/searchdeadcode.gitlab-ci.yml` makes the GitLab job
   a one-line `include: remote:` — no marketplace account on either side.
 
+- **One version number on every platform, published and verified by the
+  pipeline.** The CircleCI orb (`kevindoremy/searchdeadcode`) now ships at the
+  crate's version on each release, its default pinned to itself — `orb@X`
+  installs analyzer X, forever. The VS Code extension abandons its own 0.1.x
+  line and takes the crate's number too; the accepted price is that an
+  extension-only fix now rides the next crate release. And a new
+  `verify-channels` job interrogates every shelf after publishing — crates.io,
+  the Homebrew tap, the orb registry, the floating `v0` tag as hard failures;
+  Open VSX, the VS Marketplace and the GitHub Marketplace listing as warnings,
+  since stores validate on their own clock. A channel that lies turns the
+  release red instead of drifting for months.
+
 ### Fixed
 
 - **The GitHub action downloaded a URL that does not exist.** It built Rust

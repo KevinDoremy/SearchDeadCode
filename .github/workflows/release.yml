@@ -305,6 +305,57 @@ jobs:
 
   # Separate job so a tap failure cannot roll back a published release: by this
   # point the binaries are out and crates.io has its own job.
+  # The CircleCI orb tracks the crate version, one number everywhere: a team
+  # pinning kevindoremy/searchdeadcode@0.19.0 installs analyzer 0.19.0,
+  # forever — orb versions are immutable. Automated for the same reason the
+  # tap and crates.io were: publishing by hand means forgetting, and the orb
+  # would silently drift behind the crate.
+  orb:
+    name: Publish the CircleCI orb
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Publish kevindoremy/searchdeadcode at the crate version
+        env:
+          CIRCLECI_CLI_TOKEN: ${{ secrets.CIRCLECI_CLI_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CIRCLECI_CLI_TOKEN:-}" ]; then
+            echo "::error::CIRCLECI_CLI_TOKEN is not set — the orb would silently drift behind the crate"
+            exit 1
+          fi
+          version="${GITHUB_REF#refs/tags/v}"
+
+          curl -fLSs https://raw.githubusercontent.com/CircleCI-Public/circleci-cli/main/install.sh | sudo bash
+          export CIRCLECI_CLI_TELEMETRY_OPTOUT=1
+
+          # Re-running a release must not fail on an orb version already up
+          # (orb versions are immutable, a second publish would error).
+          if circleci orb source "kevindoremy/searchdeadcode@${version}" > /dev/null 2>&1; then
+            echo "orb ${version} already published, nothing to do"
+            exit 0
+          fi
+
+          # Pin the orb's default analyzer version to its own version. The
+          # repo copy keeps an empty default (= newest) for direct use; the
+          # published, immutable artifact promises reproducibility instead.
+          python3 -c "import yaml" 2>/dev/null || pip3 install --quiet pyyaml
+          python3 - "$version" <<'PY'
+          import sys, yaml
+          version = sys.argv[1]
+          with open("integrations/circleci/orb.yml") as f:
+              orb = yaml.safe_load(f)
+          orb["commands"]["install"]["parameters"]["version"]["default"] = version
+          orb["jobs"]["scan"]["parameters"]["version"]["default"] = version
+          with open("/tmp/orb-pinned.yml", "w") as f:
+              yaml.safe_dump(orb, f, sort_keys=False)
+          PY
+
+          circleci orb validate /tmp/orb-pinned.yml
+          circleci orb publish /tmp/orb-pinned.yml "kevindoremy/searchdeadcode@${version}"
+
   homebrew:
     name: Update Homebrew tap
     runs-on: ubuntu-latest
@@ -370,19 +421,31 @@ jobs:
             exit 1
           fi
 
-      - name: Bump the extension patch and tag it
+      - name: Align the extension on the crate version and tag it
         working-directory: editors/vscode
         run: |
           set -euo pipefail
+          # One number everywhere: the extension takes the CRATE's version,
+          # it no longer has its own line. The accepted consequence is that
+          # an extension-only fix ships with the next crate release (or
+          # triggers a crate patch) — the price of a single version across
+          # every platform, chosen deliberately.
           current="$(node -p "require('./package.json').version")"
-          next="$(node -p "
-            const [maj, min, patch] = '$current'.split('.').map(Number);
-            [maj, min, patch + 1].join('.');
-          ")"
+          next="${GITHUB_REF#refs/tags/v}"
           tag="vscode-v$next"
 
           if git rev-parse -q --verify "refs/tags/$tag" >/dev/null 2>&1; then
             echo "$tag already exists, nothing to do."
+            exit 0
+          fi
+
+          # Never backwards: re-releasing an old crate series (0.16.2 after
+          # 0.19.0) must not drag the extension down — both registries would
+          # refuse the version anyway, after the damage to the changelog.
+          newest="$(printf '%s\n%s\n' "$current" "$next" \
+            | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)"
+          if [ "$newest" != "$next" ] || [ "$current" = "$next" ]; then
+            echo "extension is at $current, crate is $next — not moving backwards, nothing to do."
             exit 0
           fi
 
@@ -439,3 +502,112 @@ jobs:
           git push origin HEAD:main
           git push origin "$tag"
           echo "Tagged $tag; its own workflow publishes to both registries."
+
+  # The release is only done when every shelf actually carries it. Each
+  # channel below broke silently at least once (the tap served 0.10.2, the
+  # action fell back to 0.4.0, latest resolved to the extension): this job
+  # makes a lying channel turn the release red instead of drifting for
+  # months. Hard failures are channels this pipeline publishes itself;
+  # slow marketplaces (store-side validation) only warn.
+  verify-channels:
+    name: Verify every channel carries this release
+    needs: [verify-install, major-tag, crates, orb, vscode]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ask each shelf what version it serves
+        env:
+          CIRCLECI_CLI_TOKEN: ${{ secrets.CIRCLECI_CLI_TOKEN }}
+        run: |
+          set -uo pipefail
+          version="${GITHUB_REF#refs/tags/v}"
+          failures=0
+
+          # Skip everything when this run re-releases an old series: the
+          # shelves rightly serve a newer version than this tag.
+          newest="$(curl -fsSL "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            | tr ',' '\n' | sed -n 's/.*"tag_name" *: *"v\([0-9][0-9.]*\)".*/\1/p' \
+            | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)"
+          if [ "$version" != "$newest" ]; then
+            echo "v$version is not the newest release (v$newest) — channels are expected to serve newer, skipping"
+            exit 0
+          fi
+
+          check() { # check <name> <hard|soft> <tries> <sleep_s> <cmd...>
+            local name="$1" mode="$2" tries="$3" pause="$4"; shift 4
+            local i=1
+            while [ "$i" -le "$tries" ]; do
+              if "$@" > /tmp/check.out 2>&1; then
+                echo "✓ $name"
+                return 0
+              fi
+              [ "$i" -lt "$tries" ] && sleep "$pause"
+              i=$((i + 1))
+            done
+            if [ "$mode" = "hard" ]; then
+              echo "::error::$name does not carry $version: $(cat /tmp/check.out | head -2)"
+              failures=$((failures + 1))
+            else
+              echo "::warning::$name not yet at $version (store-side validation can lag): $(cat /tmp/check.out | head -2)"
+            fi
+            return 0
+          }
+
+          crates_ok() {
+            got="$(curl -s -A sdc-verify https://crates.io/api/v1/crates/searchdeadcode \
+              | jq -r '.crate.max_version')"
+            [ "$got" = "$version" ] || { echo "crates.io serves $got"; return 1; }
+          }
+
+          tap_ok() {
+            curl -fsSL "https://raw.githubusercontent.com/KevinDoremy/homebrew-tap/main/Formula/searchdeadcode.rb" \
+              | grep -q "$version" || { echo "formula does not mention $version"; return 1; }
+          }
+
+          orb_ok() {
+            got="$(curl -s -X POST https://circleci.com/graphql-unstable \
+              -H "Content-Type: application/json" \
+              -d '{"query":"{ orb(name: \"kevindoremy/searchdeadcode\") { versions(count: 1) { version } } }"}' \
+              | jq -r '.data.orb.versions[0].version')"
+            [ "$got" = "$version" ] || { echo "orb registry serves $got"; return 1; }
+          }
+
+          v0_ok() {
+            want="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}" "refs/tags/v${version}^{}" | cut -f1)"
+            [ -n "$want" ] || want="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}" "refs/tags/v${version}" | cut -f1)"
+            major="v${version%%.*}"
+            got="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}" "refs/tags/${major}" | cut -f1)"
+            [ "$got" = "$want" ] || { echo "$major points at ${got:0:7}, release commit is ${want:0:7}"; return 1; }
+          }
+
+          openvsx_ok() {
+            got="$(curl -s -m 20 https://open-vsx.org/api/elumine/searchdeadcode | jq -r '.version')"
+            [ "$got" = "$version" ] || { echo "Open VSX serves $got"; return 1; }
+          }
+
+          msmarket_ok() {
+            got="$(curl -s -m 20 -X POST "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery" \
+              -H "Content-Type: application/json" -H "Accept: application/json;api-version=3.0-preview.1" \
+              -d '{"filters":[{"criteria":[{"filterType":7,"value":"elumine.searchdeadcode"}]}],"flags":103}' \
+              | jq -r '.results[0].extensions[0].versions[0].version')"
+            [ "$got" = "$version" ] || { echo "VS Marketplace serves $got"; return 1; }
+          }
+
+          ghmarket_ok() {
+            curl -fsSL "https://github.com/marketplace/actions/searchdeadcode" \
+              | grep -q "v$version" || { echo "the action listing does not mention v$version"; return 1; }
+          }
+
+          # Hard: shelves this pipeline stocks itself.
+          check "crates.io"          hard 10 30 crates_ok
+          check "homebrew tap"       hard 10 30 tap_ok
+          check "circleci orb"       hard  5 30 orb_ok
+          check "floating v0 tag"    hard  3 20 v0_ok
+
+          # Soft: the extension publishes from a separate tag-triggered
+          # workflow and both stores validate on their own clock.
+          check "open vsx"           soft 15 60 openvsx_ok
+          check "vs marketplace"     soft  3 60 msmarket_ok
+          check "github marketplace" soft  3 60 ghmarket_ok
+
+          [ "$failures" -eq 0 ] || exit 1
+          echo "every hard channel carries $version"

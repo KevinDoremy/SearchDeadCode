@@ -9,13 +9,16 @@ display:
   home_url: https://github.com/KevinDoremy/SearchDeadCode
   source_url: https://github.com/KevinDoremy/SearchDeadCode
 
-# Publication (one-time namespace, then per-version):
-#   export CIRCLECI_CLI_TOKEN=$(security find-generic-password -s circleci -w)
-#   circleci namespace create kevindoremy github KevinDoremy   # once ever
-#   circleci orb create kevindoremy/searchdeadcode             # once ever
-#   circleci orb validate integrations/circleci/orb.yml
-#   circleci orb publish integrations/circleci/orb.yml kevindoremy/searchdeadcode@0.1.0
-# The registry lists published orbs automatically.
+# Published AUTOMATICALLY by .github/workflows/release.yml (job `orb`) at the
+# crate's version — one number on every platform. Before publishing, the
+# pipeline pins the two `version` parameter defaults below to that same
+# number, so a team pinning kevindoremy/searchdeadcode@X installs analyzer X
+# forever. This repo copy keeps the defaults EMPTY (= newest release) for
+# direct use and review; only the published, immutable artifact is pinned.
+#
+# Namespace and orb were created once (2026-08-06) with:
+#   circleci namespace create kevindoremy --org-id <elumine org id>
+#   circleci orb create kevindoremy/searchdeadcode
 
 commands:
   install:
