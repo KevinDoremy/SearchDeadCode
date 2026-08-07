@@ -359,7 +359,20 @@ jobs:
           PY
 
           circleci orb validate /tmp/orb-pinned.yml
-          circleci orb publish /tmp/orb-pinned.yml "kevindoremy/searchdeadcode@${version}"
+          if ! out="$(circleci orb publish /tmp/orb-pinned.yml "kevindoremy/searchdeadcode@${version}" 2>&1)"; then
+            # The v1 CLI can double-send: the first POST lands, its internal
+            # retry gets "already exists", and the CLI exits 4 on work it
+            # just did. Measured on 0.19.1 — the orb's createdAt sits in the
+            # same second as the 400. A duplicate IS the desired end state.
+            if printf '%s' "$out" | grep -qi "already exists"; then
+              echo "orb ${version} is published (the publish reported a duplicate) — success"
+            else
+              printf '%s\n' "$out"
+              exit 1
+            fi
+          else
+            printf '%s\n' "$out"
+          fi
 
   homebrew:
     name: Update Homebrew tap
