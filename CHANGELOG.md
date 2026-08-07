@@ -5,7 +5,7 @@ All notable changes to SearchDeadCode will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.20.0] - 2026-08-07
 
 ### Added
 
@@ -21,6 +21,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   actually loads (the VS Code shape is refused with exit 2 — a fix to port
   back), and open documents are saved before the scan so findings always
   describe what is on disk.
+
+### Changed
+
+- **The README earns its claims now.** Media-first rewrite (six visuals, half
+  the words, install in two lines), and every number was checked against the
+  code or a stopwatch: the aspirational "<1 s per 1,000 files" table gave way
+  to measured wall clocks (an 825-file module in 1.3 s, a 5,696-file monorepo
+  in 165 s on an M3 Pro), and `DETECTORS.md` now says out loud that AP005 and
+  AP006 are defined but never emitted — 54 detectors are active, not 56.
+  Install matrix and comparison table moved to `docs/install.md` and
+  `docs/comparison.md`; the crate tarball stops shipping editors and docs.
 
 ## [0.18.0] - 2026-08-06
 
@@ -611,21 +622,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   were handing out 0.10.2 with false positives that were already fixed.
 
 
-## [Unreleased]
-
-### Added
-
-- **Windows joins the package managers.** A Scoop bucket
-  (`scoop bucket add kevindoremy …`) served and rewritten by the release
-  pipeline — the tap's twin, with `checkver`/`autoupdate` against the
-  published SHA-256 in between releases — and a winget submission
-  (`KevinDoremy.SearchDeadCode`, portable x64) opened by the pipeline as a PR
-  against microsoft/winget-pkgs, where first submissions wait on human
-  moderation. Both scripted with plain REST calls: winget-pkgs weighs
-  gigabytes (no clone) and komac interviews through a TTY a pipeline does not
-  have. `verify-channels` now asks the bucket (hard) and upstream winget
-  (soft) what version they serve.
-
 ## [0.19.1] - 2026-08-06
 
 ### Fixed
@@ -640,6 +636,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `verify-channels` exists to end.
 
 ## [0.19.0] - 2026-08-06
+
+### Added
+
+- **Windows joins the package managers.** A Scoop bucket
+  (`scoop bucket add kevindoremy …`) served and rewritten by the release
+  pipeline — the tap's twin, with `checkver`/`autoupdate` against the
+  published SHA-256 in between releases — and a winget submission
+  (`KevinDoremy.SearchDeadCode`, portable x64) opened by the pipeline as a PR
+  against microsoft/winget-pkgs, where first submissions wait on human
+  moderation. Both scripted with plain REST calls: winget-pkgs weighs
+  gigabytes (no clone) and komac interviews through a TTY a pipeline does not
+  have. `verify-channels` now asks the bucket (hard) and upstream winget
+  (soft) what version they serve.
+
+  (This entry sat under a stray `[Unreleased]` heading that the 0.19.0
+  release forgot to rename; filed where it belongs as of 0.20.0.)
 
 ## [0.10.2] - 2026-07-26
 
