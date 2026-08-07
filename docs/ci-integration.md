@@ -204,6 +204,22 @@ reviewer sees the findings next to the diff.
 
 ## CircleCI
 
+The [orb](https://circleci.com/developer/orbs/orb/kevindoremy/searchdeadcode)
+carries the whole job:
+
+```yaml
+version: 2.1
+orbs:
+  deadcode: kevindoremy/searchdeadcode@0.1.0
+workflows:
+  quality:
+    jobs:
+      - deadcode/scan
+```
+
+`deadcode/scan` takes `version` (pin the analyzer), `path`, `args` and
+`resource_class` (default `small`). Or spelled out, without the orb:
+
 ```yaml
 jobs:
   dead_code:
