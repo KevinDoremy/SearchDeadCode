@@ -2,7 +2,7 @@
   "name": "searchdeadcode",
   "displayName": "SearchDeadCode",
   "description": "Workspace-wide dead code analysis for Kotlin and Java, powered by the searchdeadcode CLI.",
-  "version": "0.19.1",
+  "version": "0.20.0",
   "publisher": "elumine",
   "license": "MIT",
   "icon": "media/icon.png",
