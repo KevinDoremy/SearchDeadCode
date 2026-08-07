@@ -594,6 +594,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   were handing out 0.10.2 with false positives that were already fixed.
 
 
+## [0.19.1] - 2026-08-06
+
+### Fixed
+
+- **The orb-publish job asked for a token the CLI no longer reads.** The
+  pipeline installs the current CircleCI CLI, and v1.0 reads `CIRCLE_TOKEN`
+  where the 0.1.x line read `CIRCLECI_CLI_TOKEN`; the local rehearsal ran the
+  older CLI and could not see it. Both are set now. Found by the 0.19.0
+  release run — the first with channel verification — which also surfaced
+  that the 0.1.8 extension had silently failed to publish: Open VSX was
+  still serving 0.1.7 and nothing had gone red. That is the drift
+  `verify-channels` exists to end.
+
 ## [0.19.0] - 2026-08-06
 
 ## [0.10.2] - 2026-07-26
