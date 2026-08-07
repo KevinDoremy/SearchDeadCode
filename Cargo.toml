@@ -13,6 +13,9 @@ documentation = "https://github.com/KevinDoremy/SearchDeadCode#readme"
 readme = "README.md"
 keywords = ["dead-code", "kotlin", "java", "android", "static-analysis"]
 categories = ["command-line-utilities", "development-tools"]
+# crates.io serves the README's images from GitHub; the editor plugins and
+# marketing PNGs have no business inflating the .crate tarball.
+exclude = ["/editors", "/docs", "/assets", "/.github"]
 
 [dependencies]
 # Parsing

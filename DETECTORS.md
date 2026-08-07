@@ -538,6 +538,16 @@ fun onUserLoggedIn(event: LoginEvent) { }
 
 ---
 
+#### AP005: Legacy Dependency · AP006: Excessive Feature Toggles
+
+**Status**: Reserved, not emitted yet.
+
+Both codes exist in the rule vocabulary (`--rules` accepts them, machine
+formats can carry them) but no detector produces them in this version. They
+are reserved for planned detectors; a scan never reports them today.
+
+---
+
 ### Kotlin Patterns (AP007-AP010, AP021-AP025)
 
 Enable with: `--kotlin-patterns` or `--anti-patterns`
@@ -1208,4 +1218,5 @@ retain_patterns:
 | Kotlin (Phase 4) | 5 | AP021-AP025 |
 | Android (Phase 5) | 5 | AP026-AP030 |
 | Compose (Phase 6) | 4 | AP031-AP034 |
-| **Total** | **56** | |
+| **Active total** | **54** | 22 DC + 32 AP |
+| Reserved | 2 | AP005-AP006 (defined, not emitted yet) |

@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#12121f"/><stop offset="1" stop-color="#221f36"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="10" stdDeviation="18" flood-color="#000000" flood-opacity="0.5"/>
+    </filter>
+  </defs>
+  <rect width="1280" height="640" fill="url(#bg)"/>
+
+  <rect x="50" y="40" width="1180" height="560" rx="14" fill="#16161e" stroke="#3c3d40" stroke-width="1" filter="url(#shadow)"/>
+  <path d="M50 54 a14 14 0 0 1 14 -14 h1152 a14 14 0 0 1 14 14 v28 h-1180 z" fill="#24242e"/>
+  <circle cx="78" cy="61" r="6.5" fill="#ff5f57"/><circle cx="102" cy="61" r="6.5" fill="#febc2e"/><circle cx="126" cy="61" r="6.5" fill="#28c840"/>
+  <text x="640" y="66" font-family="Menlo, monospace" font-size="14" fill="#8b8d98" text-anchor="middle">searchdeadcode</text>
+
+  <g font-family="Menlo, monospace" font-size="17" xml:space="preserve">
+    <text x="86" y="122"><tspan fill="#28c840">$ </tspan><tspan fill="#e6e6f0">searchdeadcode . --delete --dry-run</tspan></text>
+
+    <text x="86" y="170" fill="#e6e6f0">Dry run — the diff --delete would apply:</text>
+
+    <text x="86" y="218"><tspan fill="#7d8590">── </tspan><tspan fill="#c3c4cf">app/src/main/kotlin/OldHelpers.kt:5 </tspan><tspan fill="#7d8590">(function formatLegacyDate)</tspan></text>
+    <text x="86" y="252"><tspan fill="#7d8590">    5 </tspan><tspan fill="#f47067">- fun formatLegacyDate(date: Date): String = date.toString()</tspan></text>
+
+    <text x="86" y="300"><tspan fill="#7d8590">── </tspan><tspan fill="#c3c4cf">app/src/main/kotlin/PaymentFlow.kt:9 </tspan><tspan fill="#7d8590">(class LegacyEncoder)</tspan></text>
+    <text x="86" y="334"><tspan fill="#7d8590">    9 </tspan><tspan fill="#f47067">- class LegacyEncoder {</tspan></text>
+    <text x="86" y="366"><tspan fill="#7d8590">   10 </tspan><tspan fill="#f47067">-     fun encode(payload: String): ByteArray =</tspan></text>
+    <text x="86" y="398"><tspan fill="#7d8590">   11 </tspan><tspan fill="#f47067">-         payload.toByteArray(Charsets.ISO_8859_1)</tspan></text>
+    <text x="86" y="430"><tspan fill="#7d8590">   12 </tspan><tspan fill="#f47067">- }</tspan></text>
+
+    <text x="86" y="482"><tspan fill="#e6e6f0">Total: </tspan><tspan fill="#ffb454">2 items would be deleted</tspan></text>
+    <text x="86" y="530"><tspan fill="#7d8590"># nothing touched. Apply for real, with an undo script:</tspan></text>
+    <text x="86" y="562"><tspan fill="#28c840">$ </tspan><tspan fill="#e6e6f0">searchdeadcode . --delete --undo-script restore.sh --verify-cmd './gradlew build'</tspan></text>
+  </g>
+</svg>

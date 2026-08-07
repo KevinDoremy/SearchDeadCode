@@ -1,323 +1,220 @@
-<div align="center">
-
-<img src="assets/logo.svg" alt="SearchDeadCode Logo" width="120"/>
-
 # SearchDeadCode
 
-**Find and eliminate dead code in Android projects**
+<p align="center">
+  <img src="assets/hero-scan.png" width="720" alt="searchdeadcode scanning an Android project" />
+</p>
 
-[English](README.md) · [简体中文](docs/README.zh-CN.md) · [日本語](docs/README.ja.md) · [한국어](docs/README.ko.md)
+<p align="center">
+  <strong>Your app ships dead code. Find it, prove it, delete it.</strong><br/>
+  Static scan. Runtime proof. Safe delete.<br/>
+  No JDK. No Gradle build.
+</p>
 
-[![CI](https://github.com/KevinDoremy/SearchDeadCode/actions/workflows/ci.yml/badge.svg?style=flat-square)](https://github.com/KevinDoremy/SearchDeadCode/actions/workflows/ci.yml)
-[![Crates.io](https://img.shields.io/crates/v/searchdeadcode.svg?style=flat-square)](https://crates.io/crates/searchdeadcode)
-[![Cargo downloads](https://img.shields.io/crates/d/searchdeadcode.svg?style=flat-square&label=cargo%20downloads)](https://crates.io/crates/searchdeadcode)
-[![GitHub downloads](https://img.shields.io/github/downloads/KevinDoremy/SearchDeadCode/total?style=flat-square&label=binary%20downloads)](https://github.com/KevinDoremy/SearchDeadCode/releases)
-[![Clones](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FKevinDoremy%2FSearchDeadCode%2Fstats%2Fstats%2Fclones-badge.json&style=flat-square)](https://github.com/KevinDoremy/SearchDeadCode/tree/stats/stats)
-[![Total clones](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FKevinDoremy%2FSearchDeadCode%2Fstats%2Fstats%2Fcumulative-badge.json&style=flat-square)](https://github.com/KevinDoremy/SearchDeadCode/tree/stats/stats)
-[![MSRV](https://img.shields.io/badge/MSRV-1.80-blue.svg?style=flat-square)](https://blog.rust-lang.org/2024/07/25/Rust-1.80.0.html)
-[![Homebrew](https://img.shields.io/badge/Homebrew-available-FBB040?logo=homebrew&logoColor=white&style=flat-square)](https://github.com/KevinDoremy/homebrew-tap)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
+<p align="center">
+  <a href="https://github.com/KevinDoremy/SearchDeadCode/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/KevinDoremy/SearchDeadCode/ci.yml?branch=main&style=flat-square&label=CI" alt="CI" /></a>
+  <a href="https://crates.io/crates/searchdeadcode"><img src="https://img.shields.io/crates/v/searchdeadcode?style=flat-square" alt="crates.io version" /></a>
+  <a href="https://github.com/KevinDoremy/SearchDeadCode/releases"><img src="https://img.shields.io/github/downloads/KevinDoremy/SearchDeadCode/total?style=flat-square&label=downloads" alt="downloads" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square" alt="MIT license" /></a>
+</p>
 
-A fast Rust CLI to detect and safely remove dead code in Android projects (Kotlin & Java). Inspired by [Periphery](https://github.com/peripheryapp/periphery) for Swift.
+<p align="center">
+  ⚡ <b>an 800-file module in 1.3 s</b> &nbsp;•&nbsp; 🔍 <b>54 detectors</b> &nbsp;•&nbsp; 📦 <b>one binary, zero build</b>
+</p>
 
-```bash
-brew install KevinDoremy/tap/searchdeadcode  # macOS / Linux
-cargo install searchdeadcode                  # via Cargo
-```
+<p align="center">
+  <b>Scan → Review → Delete.</b>
+</p>
 
-<img src="assets/demo.svg" alt="SearchDeadCode Demo" width="600"/>
+<p align="center">
+  <a href="#install"><img src="https://img.shields.io/badge/Install_the_CLI-2ea44f?style=for-the-badge&logo=gnubash&logoColor=white" alt="Install the CLI" /></a>
+  &nbsp;
+  <a href="#ide"><img src="https://img.shields.io/badge/Get_it_in_your_IDE-087CFA?style=for-the-badge&logo=androidstudio&logoColor=white" alt="Get it in your IDE" /></a>
+</p>
 
-</div>
+<p align="center">
+  <sub>English · <a href="docs/README.zh-CN.md">简体中文</a> · <a href="docs/README.ja.md">日本語</a> · <a href="docs/README.ko.md">한국어</a></sub>
+</p>
 
-## Why SearchDeadCode
+---
 
-- **Fast.** Parse 1 000 files in under 1 second; 10 000 files in under 5 seconds.
-- **Android-aware.** Activities, Fragments, Compose, AndroidManifest, layout XMLs, DI annotations all auto-retained as entry points.
-- **Hybrid analysis.** Combine static analysis with JaCoCo / Kover / LCOV coverage and R8 `usage.txt` for confirmed findings.
-- **Safe delete.** Interactive, batch, and dry-run modes, with restore script generation.
-- Pairs well with [kotlin-jump](https://github.com/elumine-dev/kotlin-jump) for editor-side navigation.
+## Why this feels different
 
-## Comparison with alternatives
+Most dead code tools want your build first. A JDK, a Gradle sync, minutes of waiting. SearchDeadCode parses Kotlin and Java sources directly, in Rust. Point it at a bare checkout: a module answers in about a second, a 5,700-file monorepo in under three minutes.
 
-| Feature | SearchDeadCode | Android Lint | R8 / ProGuard | Detekt | IntelliJ |
-|---|:---:|:---:|:---:|:---:|:---:|
-| Speed | <1s/1k files | Slow | Build-time | Medium | Medium |
-| Kotlin-first | ✅ | Partial | ✅ | ✅ | ✅ |
-| Java support | ✅ | ✅ | ✅ | ❌ | ✅ |
-| Safe delete | ✅ Interactive | ❌ | ❌ | ❌ | IDE only |
-| CI / CD ready | ✅ SARIF, JSON | ✅ XML | ❌ | ✅ SARIF | ❌ |
-| Coverage integration | ✅ JaCoCo, Kover, LCOV | ❌ | ❌ | ❌ | ❌ |
-| Cycle detection | ✅ Zombie code | ❌ | ❌ | ❌ | ❌ |
-| Resource detection | ✅ | ✅ | ❌ | ❌ | ✅ |
-| Standalone (no build) | ✅ | ❌ | ❌ | ❌ | ❌ |
-| License | MIT | Apache | Proprietary | Apache | Proprietary |
+No warmup. No indexing.
 
-**When to reach for each**: SearchDeadCode for fast CI feedback and project audits. Android Lint for broader Android-specific checks. R8 for production-build accuracy. Detekt for style and complexity. IntelliJ for interactive refactoring inside the IDE.
+---
 
-## Quick start
+<a id="install"></a>
+## Install
 
 ```bash
-# Analyze your Android project
-searchdeadcode ./my-android-app
-
-# Preview what would be deleted (no changes)
-searchdeadcode ./my-android-app --delete --dry-run
-
-# High-confidence findings only
-searchdeadcode ./my-android-app --min-confidence high
+brew install KevinDoremy/tap/searchdeadcode   # macOS / Linux
+cargo install searchdeadcode                  # anywhere with Rust
 ```
 
-Every command with its real output: [`docs/cli-tour.md`](docs/cli-tour.md).
+One static binary. Windows, the one-line CI installer and pre-built binaries: [docs/install.md](docs/install.md).
 
-### Sample output
+---
 
-```
-$ searchdeadcode ./my-app --min-confidence high
+## Recent
 
-SearchDeadCode v0.4.0
-Found 247 files to analyze
-Reachability: 1 847 reachable, 2 103 total
+- **In your IDE.** The Android Studio / IntelliJ plugin ships: greyed-out declarations, quick fixes on Alt+Enter, one version number with the CLI.
+- **One-flag CI.** `--profile ci` gates the build, skips the cache and reads your committed baseline.
+- **Triage tools.** `--clusters` groups findings that die together; `--kill-list OldCheckout` answers "what falls if I delete this?"
+- **Migration radar.** `--twins` and `--compare "old=new"` line up V1/V2 trees and name the blockers.
 
-Found 12 dead code issues:
+[Full changelog →](CHANGELOG.md)
+
+---
+
+## One command
+
+```text
+$ searchdeadcode .
+
+Found 2 dead code issues:
 
 Confidence Legend:
   ✓ Confirmed (runtime)  ! High  ? Medium  ~ Low
 
-app/src/main/java/com/example/data/OldApiClient.kt
-  ! 15:1 warning [DC001] class 'LegacyApiClient' is never used
-
-app/src/main/java/com/example/utils/StringUtils.kt
-  ! 42:5 warning [DC001] function 'formatLegacyDate' is never used
-  ! 67:5 warning [DC001] function 'parseOldFormat' is never used
-
-Summary: 12 issues in 4 files (3 classes, 5 functions, 4 properties)
-Estimated removable lines: ~340
+app/src/main/kotlin/PaymentFlow.kt
+  ?     9:1   ⚠ [DC001] class 'LegacyEncoder' is never used
+      |
+    9 | class LegacyEncoder {
+      |       ^^^^^^^^^^^^^ declared here
+      = help: searchdeadcode --explain LegacyEncoder
 ```
 
-## Detection capabilities
+Run it at the repo root. Every finding shows the declaration itself, then prints the exact command that justifies the verdict. That `help:` line is not documentation. It is your next move.
 
-| Category | Detected |
-|---|---|
-| Core | Unused classes, interfaces, methods, functions, properties, fields, imports |
-| Advanced | Unused parameters, enum cases, type aliases |
-| Smart | Assign-only properties, dead branches, redundant public modifiers |
-| Android | Activities, Fragments, XML layouts, AndroidManifest entries (auto-retained) |
-| Resources | Unused strings, colors, dimens, styles, attrs |
+Copy it. Dig in.
 
-Full reference and code examples for each detector: [`DETECTORS.md`](DETECTORS.md).
+---
 
-## Installation
+## Safe delete
 
-### One line (CI, containers, anywhere)
+<p align="center">
+  <img src="assets/delete-dry-run.png" width="720" alt="dry-run delete preview" />
+</p>
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/KevinDoremy/SearchDeadCode/main/install.sh | sh
-```
+`--delete --dry-run` shows every removal as a diff and touches nothing. The real delete takes `--undo-script restore.sh`, and `--verify-cmd './gradlew build'` restores every byte if the build breaks.
 
-Downloads the binary for your platform, checks its published SHA-256, installs
-it in `/usr/local/bin`. `SDC_INSTALL_DIR` and `SDC_VERSION` override where and
-which.
+Wrong call? Everything comes back.
 
-### Homebrew (macOS / Linux)
+---
 
-```bash
-brew tap KevinDoremy/tap
-brew install searchdeadcode
-```
-
-### Windows (Scoop / winget)
-
-```powershell
-scoop bucket add kevindoremy https://github.com/KevinDoremy/scoop-bucket
-scoop install searchdeadcode
-# or, once the first winget submission clears Microsoft's review:
-winget install KevinDoremy.SearchDeadCode
-```
-
-### Android Studio / IntelliJ IDEA
-
-Search for **SearchDeadCode** in `Settings > Plugins > Marketplace`. The
-plugin greys out dead declarations, lists findings in a tool window, and
-offers delete / ignore / baseline quick fixes — details in
-[docs/android-studio.md](docs/android-studio.md).
-
-### Cargo
-
-```bash
-cargo install searchdeadcode
-```
-
-Compiles from source — fine on a workstation, several minutes on every CI
-build. Prefer the one-liner there.
-
-### Pre-built binaries
-
-Download from [GitHub Releases](https://github.com/KevinDoremy/SearchDeadCode/releases). Available for Linux x86_64/aarch64, macOS Intel/Apple Silicon, Windows x86_64.
-
-> macOS may quarantine the binary. Run `xattr -d com.apple.quarantine ~/Downloads/searchdeadcode-macos-*` then `chmod +x` it. More options in [`docs/troubleshooting.md`](docs/troubleshooting.md).
-
-### From source
-
-```bash
-git clone https://github.com/KevinDoremy/SearchDeadCode
-cd SearchDeadCode
-cargo install --path .
-```
-
-## Usage essentials
-
-The default run is the whole product: it detects what's going on in your
-repo and prints the specialized command to dig in, parameters included.
-Mid-migration codebases get this for free:
+## Trust before deleting
 
 ```text
-Next steps
-  ⚠ Deux arborescences similaires détectées (app/main / app/mainV2) — migration en cours ?
-    searchdeadcode . --compare "app/main=app/mainV2"    vieux monde: supprimable au flip + bloqueurs
-  ⚠ 12 paire(s) de classes V1/V2 (ex. HomeScreen / HomeScreenV2)
-    searchdeadcode . --twins    les paires côte à côte avec leurs références
+$ searchdeadcode . --explain LegacyEncoder
+
+🔎 Explain: com.example.checkout.LegacyEncoder (Class) · PaymentFlow.kt:9
+   Incoming references: 0
+   Roots checked:
+     - entry point (manifest, layouts, annotations, inheritance): no
+     - reachable from an entry point: no
+   Verdict: DEAD
 ```
 
-No flag to memorize: run `searchdeadcode .`, copy the suggestion.
+Every verdict is a graph walk you can replay. `--why-alive` answers the inverse: what keeps a symbol alive.
 
-```bash
-# Basic analysis
-searchdeadcode ./app
+No black box.
 
-# JSON output for programmatic use
-searchdeadcode ./app --format json --output report.json
+---
 
-# SARIF for GitHub Code Scanning
-searchdeadcode ./app --format sarif --output report.sarif
+<a id="ide"></a>
+## In your IDE
 
-# Hybrid analysis with coverage + R8 usage
-searchdeadcode ./app \
-  --coverage build/reports/jacoco/test/jacocoTestReport.xml \
-  --proguard-usage app/build/outputs/mapping/release/usage.txt \
-  --detect-cycles \
-  --min-confidence high
+<p align="center">
+  <img src="editors/jetbrains/marketing/shot1-editor.png" width="720" alt="dead declarations greyed out with Alt+Enter quick fixes" />
+</p>
 
-# Safe delete with dry-run
-searchdeadcode ./app --delete --dry-run
-```
+The JetBrains plugin is the same analyzer in the editor loop. Dead declarations grey out as you read. Alt+Enter offers four fixes: delete, ignore with a reason, add to baseline, open the rule docs.
 
-Power features: hybrid coverage analysis, R8 / ProGuard integration, zombie code detection, watch mode, baseline support, unused resources, unused params. See [`docs/cli-reference.md`](docs/cli-reference.md) for the full CLI reference and [`docs/hybrid-analysis.md`](docs/hybrid-analysis.md) for coverage + R8 workflows.
+<p align="center">
+  <img src="editors/jetbrains/marketing/shot2-toolwindow.png" width="720" alt="SearchDeadCode tool window" />
+</p>
 
-## CI integration
+The tool window groups findings by file; double-click navigates. Android Studio Ladybug and newer: [docs/android-studio.md](docs/android-studio.md). Also on [VS Code](https://marketplace.visualstudio.com/items?itemName=elumine.searchdeadcode) and [Open VSX](https://open-vsx.org/extension/elumine/searchdeadcode).
 
-Two lines, on any platform:
+---
 
-```sh
-curl -fsSL https://raw.githubusercontent.com/KevinDoremy/SearchDeadCode/main/install.sh | sh
-searchdeadcode . --profile ci
-```
-
-`--profile ci` is the whole pipeline setup in one flag: exit 1 on findings, no
-cache file left in the workspace, and `.deadcode-baseline.json` picked up if
-your project committed one.
-
-On a codebase that has never run this, freeze the existing debt first so the
-build only breaks on what a branch adds:
-
-```sh
-searchdeadcode . --generate-baseline .deadcode-baseline.json   # commit this
-```
-
-On GitHub Actions, the published action does the install for you:
+## In CI
 
 ```yaml
-# .github/workflows/dead-code.yml
-name: Dead code
-on: [push, pull_request]
-
-jobs:
-  dead-code:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: KevinDoremy/SearchDeadCode@v0
-        with:
-          args: '--profile ci'
+- uses: KevinDoremy/SearchDeadCode@v0
+  with:
+    args: '--profile ci'
 ```
 
-Jenkins, GitLab, CircleCI, Azure, Bitbucket, TeamCity, Buildkite and
-Woodpecker, plus SARIF, Checkstyle and inline pull-request comments:
-[`docs/ci-integration.md`](docs/ci-integration.md).
+`--profile ci` is the whole gate in one flag: exit 1 on findings, zero cache left behind, the committed baseline honored. Adopting on a legacy codebase? Freeze the debt once with `--generate-baseline` and commit the file. From then on the build fails only on what a branch adds.
 
-> The job needs no JDK, no Gradle and no build — `**/build/**` and
-> `**/generated/**` are excluded by default, so a fresh checkout gives the same
-> answer as your machine. And do not cache anything: the incremental cache
-> halves the run but weighs 221 MB on a 9000-file project, which costs more to
-> ship than it saves. `--profile ci` turns it off; elsewhere, put
-> `.searchdeadcode-cache.json` in your `.gitignore`.
+<p align="center">
+  <img src="editors/jetbrains/marketing/shot3-pipeline.png" width="720" alt="IDE, baseline and CI sharing one file" />
+</p>
+
+Eight platforms, SARIF, Checkstyle and exit codes: [docs/ci-integration.md](docs/ci-integration.md).
+
+---
+
+## Confirmed, not guessed
+
+```bash
+searchdeadcode . \
+  --coverage build/reports/jacoco/test/jacocoTestReport.xml \
+  --proguard-usage app/build/outputs/mapping/release/usage.txt
+```
+
+Static analysis says probably. Runtime evidence says confirmed. Feed it JaCoCo, Kover or LCOV coverage plus R8's `usage.txt`; findings both sources agree on get promoted to ✓ Confirmed.
+
+Delete without ceremony.
+
+---
+
+## What it detects
+
+Fifty-four detectors. Twenty-two hunt dead code: unused classes, methods, properties, imports, parameters, enum cases, XML resources. Thirty-two flag anti-patterns across Kotlin, Compose, performance and architecture. Activities, Fragments, manifest components and DI annotations are auto-retained, so framework wiring never shows up as noise.
+
+Every rule, with code samples: [DETECTORS.md](DETECTORS.md).
+
+---
 
 ## Configuration
 
-SearchDeadCode looks for `.deadcode.yml`, `.deadcode.toml`, or a path passed via `--config`. Minimal example:
+Zero config to start. When reflection or codegen fools the graph, one file sets the record:
 
 ```yaml
 # .deadcode.yml
-targets:
-  - "app/src/main/kotlin"
-  - "app/src/main/java"
-
-exclude:
-  - "**/generated/**"
-  - "**/build/**"
-  - "**/test/**"
-
 retain_patterns:
   - "*Adapter"
   - "*ViewHolder"
-  - "*Binding"
-
-android:
-  parse_manifest: true
-  parse_layouts: true
-  auto_retain_components: true
 ```
 
-Full schema (YAML + TOML) and Android-specific options: [`docs/configuration.md`](docs/configuration.md).
+Full schema, YAML and TOML, plus the Android options: [docs/configuration.md](docs/configuration.md).
 
-## When NOT to use SearchDeadCode
+---
 
-Being honest about limits helps you pick the right tool. Skip SearchDeadCode if:
+## Not the right tool when
 
-- **You need 100% accuracy.** Static analysis cannot catch reflection or runtime-only references. Validate against R8 `usage.txt` instead, or pass it via `--proguard-usage`.
-- **Heavy reflection.** Code accessed via `Class.forName()` looks unused. Workaround: add reflection targets to `retain_patterns`.
-- **Pure Java projects.** SearchDeadCode is Kotlin-first. Java works but [UCDetector](https://ucdetector.org/) or IntelliJ inspections may fit better.
-- **You want IDE integration.** This is a CLI. Use IntelliJ / Android Studio's "Unused declaration" inspection, or run SearchDeadCode in `--watch` mode alongside.
-- **Dynamic targets (KMP JS).** We analyze JVM bytecode patterns. JavaScript and other dynamic targets are out of scope.
+- You need 100 % certainty: static analysis cannot see `Class.forName()`. Pass R8's `usage.txt` instead.
+- Your project is pure Java: it works, but Kotlin comes first here.
+- You target KMP JS: out of scope.
+- You want analysis on every keystroke: scans are on demand, like a linter.
 
-But you'll likely want SearchDeadCode if you need: speed, CI integration, safe deletion with undo, hybrid coverage analysis, or no-build-required audits.
+The honest feature-by-feature table: [docs/comparison.md](docs/comparison.md).
 
-## Documentation
+---
 
-- [`DETECTORS.md`](DETECTORS.md) — every detector, with code examples and the flag that enables it
-- [`docs/cli-reference.md`](docs/cli-reference.md) — full CLI reference and command examples
-- [`docs/configuration.md`](docs/configuration.md) — YAML and TOML schemas
-- [`docs/hybrid-analysis.md`](docs/hybrid-analysis.md) — coverage, R8 / ProGuard, zombie code
-- [`docs/ci-integration.md`](docs/ci-integration.md) — eight CI platforms, baselines, exit codes, pre-commit hooks
-- [`docs/troubleshooting.md`](docs/troubleshooting.md) — Gatekeeper, FAQ, known limitations
-- [`docs/architecture.md`](docs/architecture.md) — pipeline, tech stack, project structure, performance targets
-- [`docs/research.md`](docs/research.md) — dead code detection paradigms (Periphery, Meta SCARF, R8, tree shaking)
-- [`docs/roadmap.md`](docs/roadmap.md) — 40 advanced patterns prioritized for future detectors
-- [`CHANGELOG.md`](CHANGELOG.md) — full version history
+## Like it?
 
-## Contributing
+If it cleared real weight from your app, a GitHub star helps other Android teams find this. Bugs and ideas land as [issues](https://github.com/KevinDoremy/SearchDeadCode/issues).
 
-Contributions welcome. See [`AGENTS.md`](AGENTS.md) for the full contributor guide and [`CONTRIBUTING.md`](CONTRIBUTING.md) for the dev setup.
+### Companion tools
 
-Good first issues: add new annotation patterns to `entry_points.rs`, improve XML parsing for additional attributes, write fixtures for edge cases.
-
-## Companion tools
-
-- [kotlin-jump](https://github.com/elumine-dev/kotlin-jump) — VS Code Kotlin/Java navigation, no JVM (9,639 installs).
-- [detekt-lsp](https://github.com/elumine-dev/detekt-lsp) — Live Detekt diagnostics for any LSP editor (pre-alpha).
-- SearchDeadCode — this project.
+- [kotlin-jump](https://github.com/elumine-dev/kotlin-jump): Kotlin and Java navigation for VS Code, no JVM.
+- [detekt-lsp](https://github.com/elumine-dev/detekt-lsp): live Detekt diagnostics for any LSP editor.
 
 Maintained alongside [elumine-dev](https://github.com/elumine-dev) by [Kevin Doremy](https://kevindoremy.com).
 
-## License
-
-[MIT](LICENSE) © Kevin Doremy Laferrière
+[MIT](LICENSE). Take it anywhere.

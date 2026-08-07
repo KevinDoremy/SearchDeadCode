@@ -164,15 +164,23 @@ searchdeadcode/
     └── parsing_bench.rs         # Performance benchmarks
 ```
 
-## Performance targets (achieved)
+## Performance, measured
 
-| Codebase Size | Parse Time | Analysis Time |
-|---|---|---|
-| 1 000 files | < 1 s | < 0.5 s |
-| 10 000 files | < 5 s | < 2 s |
-| 100 000 files | < 30 s | < 10 s |
+End-to-end wall clock for a full default scan (`--profile ci`, cold, no
+cache), searchdeadcode 0.19.1 on an Apple M3 Pro, real production Android
+codebases:
 
-Benchmarks run on M-series Apple Silicon. Full benchmark code: [`benches/parsing_bench.rs`](../benches/parsing_bench.rs).
+| Codebase | Files analyzed | Declarations | Wall clock |
+|---|---|---|---|
+| One module | 825 | 6,730 | 1.3 s |
+| Full monorepo | 5,696 | 74,241 | ~2 min 45 s |
+
+Scaling is superlinear past a few thousand files: the cross-module graph and
+the detector passes dominate, not parsing. Module-scoped scans stay in
+interactive territory; monorepo-wide scans belong in CI.
+
+(`benches/parsing_bench.rs` is a placeholder, not the source of these
+numbers — they come from timing the released binary.)
 
 ## Implementation status
 

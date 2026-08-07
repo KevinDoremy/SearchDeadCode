@@ -13,6 +13,12 @@
 *.bak
 dead_code_report*.txt
 sample_usage.txt
+firebase-debug.log
+
+# Private working notes — doc/ (singular) never ships; public docs live in docs/
+doc/
+next thing to do.md
+OUTPUT_IMPROVEMENT_PLAN.md
 
 # Cargo
 Cargo.toml.new
