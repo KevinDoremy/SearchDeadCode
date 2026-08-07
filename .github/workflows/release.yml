@@ -374,6 +374,63 @@ jobs:
             printf '%s\n' "$out"
           fi
 
+  # Windows had nothing but the manual download. The bucket is ours (hard
+  # dependency, same model as the tap); winget is a PR into Microsoft's repo,
+  # where new packages get human moderation — set in motion here, verified
+  # softly after.
+  scoop:
+    name: Update the Scoop bucket
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Verify the token reaches the bucket
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+        run: |
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::RELEASE_PAT is not set, the bucket would keep serving the previous version"
+            exit 1
+          fi
+          if ! gh api repos/KevinDoremy/scoop-bucket --silent 2>/dev/null; then
+            echo "::error::RELEASE_PAT cannot read KevinDoremy/scoop-bucket. Check it grants Contents on that repository."
+            exit 1
+          fi
+
+      - name: Point the bucket at this release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+        run: ./scripts/update-scoop-bucket.sh "${GITHUB_REF#refs/tags/v}"
+
+  winget:
+    name: Submit to winget-pkgs
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Open the winget PR
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::RELEASE_PAT is not set — winget would silently drift behind"
+            exit 1
+          fi
+          version="${GITHUB_REF#refs/tags/v}"
+          # Newest only: re-releasing an old series must not open a
+          # downgrade PR against microsoft/winget-pkgs.
+          newest="$(curl -fsSL "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            | tr ',' '\n' | sed -n 's/.*"tag_name" *: *"v\([0-9][0-9.]*\)".*/\1/p' \
+            | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)"
+          if [ "$version" != "$newest" ]; then
+            echo "v$version is not the newest release (v$newest) — skipping winget"
+            exit 0
+          fi
+          ./scripts/update-winget.sh "$version"
+
   homebrew:
     name: Update Homebrew tap
     runs-on: ubuntu-latest
@@ -529,7 +586,7 @@ jobs:
   # slow marketplaces (store-side validation) only warn.
   verify-channels:
     name: Verify every channel carries this release
-    needs: [verify-install, major-tag, crates, orb, vscode]
+    needs: [verify-install, major-tag, crates, orb, scoop, winget, vscode]
     runs-on: ubuntu-latest
     steps:
       - name: Ask each shelf what version it serves
@@ -610,6 +667,18 @@ jobs:
             [ "$got" = "$version" ] || { echo "VS Marketplace serves $got"; return 1; }
           }
 
+          scoop_ok() {
+            got="$(curl -fsSL https://raw.githubusercontent.com/KevinDoremy/scoop-bucket/main/bucket/searchdeadcode.json | jq -r '.version')"
+            [ "$got" = "$version" ] || { echo "scoop bucket serves $got"; return 1; }
+          }
+
+          winget_ok() {
+            # Merged into Microsoft's master — moderation runs on their
+            # clock, days for a first submission. Soft by nature.
+            curl -fsSL -o /dev/null "https://raw.githubusercontent.com/microsoft/winget-pkgs/master/manifests/k/KevinDoremy/SearchDeadCode/${version}/KevinDoremy.SearchDeadCode.yaml" \
+              || { echo "not merged into winget-pkgs master yet"; return 1; }
+          }
+
           ghmarket_ok() {
             # -o file, jamais un pipe vers grep -q : grep quitte au premier
             # match, curl prend un SIGPIPE (error 23) et le check ment.
@@ -621,6 +690,7 @@ jobs:
           # Hard: shelves this pipeline stocks itself.
           check "crates.io"          hard 10 30 crates_ok
           check "homebrew tap"       hard 10 30 tap_ok
+          check "scoop bucket"       hard  5 30 scoop_ok
           check "circleci orb"       hard  5 30 orb_ok
           check "floating v0 tag"    hard  3 20 v0_ok
 
@@ -629,6 +699,7 @@ jobs:
           check "open vsx"           soft 15 60 openvsx_ok
           check "vs marketplace"     soft  3 60 msmarket_ok
           check "github marketplace" soft  3 60 ghmarket_ok
+          check "winget (merged upstream)" soft 2 30 winget_ok
 
           [ "$failures" -eq 0 ] || exit 1
           echo "every hard channel carries $version"

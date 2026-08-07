@@ -125,6 +125,15 @@ brew tap KevinDoremy/tap
 brew install searchdeadcode
 ```
 
+### Windows (Scoop / winget)
+
+```powershell
+scoop bucket add kevindoremy https://github.com/KevinDoremy/scoop-bucket
+scoop install searchdeadcode
+# or, once the first winget submission clears Microsoft's review:
+winget install KevinDoremy.SearchDeadCode
+```
+
 ### Cargo
 
 ```bash

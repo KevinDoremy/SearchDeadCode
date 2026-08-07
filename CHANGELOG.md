@@ -594,6 +594,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   were handing out 0.10.2 with false positives that were already fixed.
 
 
+## [Unreleased]
+
+### Added
+
+- **Windows joins the package managers.** A Scoop bucket
+  (`scoop bucket add kevindoremy …`) served and rewritten by the release
+  pipeline — the tap's twin, with `checkver`/`autoupdate` against the
+  published SHA-256 in between releases — and a winget submission
+  (`KevinDoremy.SearchDeadCode`, portable x64) opened by the pipeline as a PR
+  against microsoft/winget-pkgs, where first submissions wait on human
+  moderation. Both scripted with plain REST calls: winget-pkgs weighs
+  gigabytes (no clone) and komac interviews through a TTY a pipeline does not
+  have. `verify-channels` now asks the bucket (hard) and upstream winget
+  (soft) what version they serve.
+
 ## [0.19.1] - 2026-08-06
 
 ### Fixed
