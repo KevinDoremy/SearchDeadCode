@@ -611,8 +611,11 @@ jobs:
           }
 
           ghmarket_ok() {
-            curl -fsSL "https://github.com/marketplace/actions/searchdeadcode" \
-              | grep -q "v$version" || { echo "the action listing does not mention v$version"; return 1; }
+            # -o file, jamais un pipe vers grep -q : grep quitte au premier
+            # match, curl prend un SIGPIPE (error 23) et le check ment.
+            curl -fsSL -o /tmp/ghmp.html "https://github.com/marketplace/actions/searchdeadcode" \
+              && grep -q "v$version" /tmp/ghmp.html \
+              || { echo "the action listing does not mention v$version"; return 1; }
           }
 
           # Hard: shelves this pipeline stocks itself.
