@@ -14,3 +14,4 @@
 {"date":"2026-08-04","crates_io":307,"github_assets":172,"stars":12,"clones_14d":{"count":5321,"uniques":479},"views_14d":{"count":168,"uniques":34}}
 {"date":"2026-08-05","crates_io":307,"github_assets":172,"stars":12,"clones_14d":{"count":5327,"uniques":484},"views_14d":{"count":190,"uniques":46}}
 {"date":"2026-08-06","crates_io":321,"github_assets":187,"stars":12,"clones_14d":{"count":5375,"uniques":489},"views_14d":{"count":191,"uniques":46}}
+{"date":"2026-08-07","crates_io":355,"github_assets":272,"binaries":100,"channels":{"install-action":0,"install-agent":3,"install-ci":3,"install-sh":6},"vscode_openvsx":6243,"vscode_marketplace":2,"stars":12,"clones_14d":{"count":5423,"uniques":490},"views_14d":{"count":187,"uniques":46}}
