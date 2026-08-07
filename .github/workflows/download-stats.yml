@@ -44,8 +44,11 @@ jobs:
           # action bump on each install. github_assets keeps its historical
           # meaning (everything summed) so the series stays comparable.
           releases_json=$(gh api "repos/${{ github.repository }}/releases?per_page=100" 2>/dev/null)
+          # searchdeadcode-jetbrains-*.zip is the IDE plugin, not a CLI
+          # binary — kept out so the binaries series keeps meaning "CLI".
           binaries=$(printf '%s' "$releases_json" \
             | jq '[.[].assets[] | select(.name | startswith("searchdeadcode-"))
+                   | select(.name | startswith("searchdeadcode-jetbrains-") | not)
                    | select(.name | test("\\.(sha256|sig|pem)$") | not)
                    | .download_count] | add // 0' 2>/dev/null)
           channels=$(printf '%s' "$releases_json" \
@@ -67,8 +70,14 @@ jobs:
                    | select(.statisticName == "install") | .value] | add // 0
                   | floor' 2>/dev/null)
 
+          # The JetBrains plugin (numeric id 33415, assigned at the first
+          # Marketplace submission). Same story as VS Code: every install is
+          # a distribution the asset counters never see.
+          jetbrains=$(curl -s -m 20 "https://plugins.jetbrains.com/api/plugins/33415" \
+            | jq '.downloads // 0' 2>/dev/null)
+
           # Validate every piece; anything invalid is reported and replaced
-          for name in crates assets stars binaries openvsx marketplace; do
+          for name in crates assets stars binaries openvsx marketplace jetbrains; do
             if ! printf '%s' "${!name}" | jq -e . >/dev/null 2>&1; then
               echo "invalid $name: <${!name}>, using 0"
               printf -v "$name" '0'
@@ -89,12 +98,14 @@ jobs:
             --argjson channels "$channels" \
             --argjson openvsx "$openvsx" \
             --argjson marketplace "$marketplace" \
+            --argjson jetbrains "$jetbrains" \
             --argjson stars "$stars" \
             --argjson clones "$clones" \
             --argjson views "$views" \
             '{date: $date, crates_io: $crates, github_assets: $assets,
               binaries: $binaries, channels: $channels,
               vscode_openvsx: $openvsx, vscode_marketplace: $marketplace,
+              jetbrains_marketplace: $jetbrains,
               stars: $stars, clones_14d: $clones, views_14d: $views}' \
             >> stats/downloads.jsonl
 
