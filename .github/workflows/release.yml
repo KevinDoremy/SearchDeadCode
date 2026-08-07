@@ -319,7 +319,12 @@ jobs:
 
       - name: Publish kevindoremy/searchdeadcode at the crate version
         env:
+          # Both spellings on purpose: the install script pulls the CURRENT
+          # CLI, and v1.0 reads CIRCLE_TOKEN where the 0.1.x line read
+          # CIRCLECI_CLI_TOKEN. Caught by the 0.19.0 release run — the local
+          # rehearsal used the older Homebrew CLI and could not see it.
           CIRCLECI_CLI_TOKEN: ${{ secrets.CIRCLECI_CLI_TOKEN }}
+          CIRCLE_TOKEN: ${{ secrets.CIRCLECI_CLI_TOKEN }}
         run: |
           set -euo pipefail
           if [ -z "${CIRCLECI_CLI_TOKEN:-}" ]; then
