@@ -802,14 +802,15 @@ jobs:
           }
 
           jbmarket_ok() {
-            # 301/200 = the version is served, 404 = still in store-side
-            # review (or, before the first approval, not listed at all). The
-            # XML id works here; the numeric id only exists after the first
-            # publication. -o file + -w code, never a pipe (SIGPIPE lies).
-            code="$(curl -s -m 20 -o /tmp/jb.out -w '%{http_code}' \
-              "https://plugins.jetbrains.com/plugin/download?pluginId=com.elumine.searchdeadcode&version=${version}")"
-            [ "$code" = "301" ] || [ "$code" = "200" ] \
-              || { echo "the JetBrains Marketplace answers HTTP $code for ${version}"; return 1; }
+            # Numeric id 33415 was assigned at the first (manual) submission.
+            # The updates API echoes what the shelf actually serves; a
+            # version still in store-side review is absent. -o file, never a
+            # pipe (SIGPIPE lies).
+            curl -s -m 20 -o /tmp/jb.out \
+              "https://plugins.jetbrains.com/api/plugins/33415/updates?size=1"
+            got="$(jq -r '.[0].version' /tmp/jb.out 2> /dev/null)"
+            [ "$got" = "$version" ] \
+              || { echo "the JetBrains Marketplace serves ${got:-nothing}"; return 1; }
           }
 
           ghmarket_ok() {

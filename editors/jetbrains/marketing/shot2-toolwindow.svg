@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="800" viewBox="0 0 1280 800">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#12121f"/><stop offset="1" stop-color="#221f36"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="10" stdDeviation="18" flood-color="#000000" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+  <rect width="1280" height="800" fill="url(#bg)"/>
+  <circle cx="86" cy="84" r="34" fill="#1a1a2e" stroke="#ff6b35" stroke-width="3"/>
+  <line x1="97" y1="95" x2="112" y2="110" stroke="#ff6b35" stroke-width="6" stroke-linecap="round"/>
+  <circle cx="80" cy="78" r="19" fill="none" stroke="#ff6b35" stroke-width="4"/>
+  <text x="140" y="76" font-family="Helvetica, Arial, sans-serif" font-size="34" font-weight="bold" fill="#ffffff">Every finding, one tool window</text>
+  <text x="140" y="108" font-family="Helvetica, Arial, sans-serif" font-size="19" fill="#9a9ab0">Grouped by file, double-click navigates, counters that stay honest when you edit</text>
+
+  <!-- tool window panel -->
+  <rect x="60" y="150" width="1160" height="590" rx="12" fill="#1e1f22" stroke="#3c3d40" stroke-width="1" filter="url(#shadow)"/>
+  <path d="M60 162 a12 12 0 0 1 12 -12 h1136 a12 12 0 0 1 12 12 v28 h-1160 z" fill="#2b2d30"/>
+  <text x="84" y="177" font-family="Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" fill="#dfe1e5">SearchDeadCode</text>
+  <g font-family="Helvetica, Arial, sans-serif" font-size="14" fill="#9a9ab0">
+    <rect x="228" y="157" width="72" height="26" rx="5" fill="#3c3d40"/>
+    <text x="264" y="175" text-anchor="middle" fill="#dfe1e5">Scan</text>
+    <rect x="308" y="157" width="72" height="26" rx="5" fill="#33343a"/>
+    <text x="344" y="175" text-anchor="middle">Clear</text>
+  </g>
+  <!-- status banner -->
+  <rect x="60" y="190" width="1160" height="40" fill="#26262e"/>
+  <text x="84" y="216" font-family="Helvetica, Arial, sans-serif" font-size="16" fill="#bcbec4">20 findings in 5 files &#8226; scanned at 14:32 &#8226; 1 file edited since, its findings dropped</text>
+
+  <!-- tree -->
+  <g font-family="Menlo, monospace" font-size="16" xml:space="preserve">
+    <text x="92" y="268" fill="#7d8590">&#9662;</text>
+    <text x="116" y="268" fill="#dfe1e5">app/src/main/kotlin/payments/LegacyEncoder.kt</text>
+    <text x="600" y="268" fill="#7d8590">(3)</text>
+
+    <rect x="76" y="284" width="1128" height="34" rx="5" fill="#2d436b"/>
+    <text x="140" y="307" fill="#dfe1e5">15: class 'LegacyEncoder' is never used</text>
+    <text x="620" y="307" fill="#ff8f66">[DC001]</text>
+    <text x="140" y="345" fill="#bcbec4">42: function 'encodeV2' is never used</text>
+    <text x="620" y="345" fill="#ff8f66">[DC013]</text>
+    <text x="140" y="383" fill="#bcbec4">58: import 'java.util.Base64' is never used</text>
+    <text x="620" y="383" fill="#ff8f66">[DC004]</text>
+
+    <text x="92" y="428" fill="#7d8590">&#9656;</text>
+    <text x="116" y="428" fill="#dfe1e5">app/src/main/kotlin/ui/ThemeCompat.kt</text>
+    <text x="600" y="428" fill="#7d8590">(6)</text>
+
+    <text x="92" y="472" fill="#7d8590">&#9656;</text>
+    <text x="116" y="472" fill="#dfe1e5">core/src/main/kotlin/net/RetryPolicy.kt</text>
+    <text x="600" y="472" fill="#7d8590">(2)</text>
+
+    <text x="92" y="516" fill="#7d8590">&#9656;</text>
+    <text x="116" y="516" fill="#dfe1e5">features/profile/src/main/kotlin/AvatarCache.kt</text>
+    <text x="600" y="516" fill="#7d8590">(4)</text>
+
+    <text x="92" y="560" fill="#7d8590">&#9656;</text>
+    <text x="116" y="560" fill="#dfe1e5">app/src/main/java/analytics/LegacyTracker.java</text>
+    <text x="600" y="560" fill="#7d8590">(5)</text>
+  </g>
+
+  <!-- side note -->
+  <rect x="780" y="420" width="400" height="160" rx="10" fill="#26262e" stroke="#3c3d40"/>
+  <text x="804" y="454" font-family="Helvetica, Arial, sans-serif" font-size="17" font-weight="bold" fill="#dfe1e5">Kotlin and Java, Android-aware</text>
+  <text x="804" y="486" font-family="Helvetica, Arial, sans-serif" font-size="15" fill="#9a9ab0">Activities, Compose, DI annotations and</text>
+  <text x="804" y="510" font-family="Helvetica, Arial, sans-serif" font-size="15" fill="#9a9ab0">manifest entries count as roots, so what</text>
+  <text x="804" y="534" font-family="Helvetica, Arial, sans-serif" font-size="15" fill="#9a9ab0">the framework calls is never "dead".</text>
+  <text x="804" y="562" font-family="Helvetica, Arial, sans-serif" font-size="15" fill="#7d8590">22 detectors, each with a documented id.</text>
+
+  <text x="640" y="775" font-family="Helvetica, Arial, sans-serif" font-size="16" fill="#6f7188" text-anchor="middle">Scan on demand from the Tools menu, like a linter: no indexing, no background churn</text>
+</svg>
