@@ -176,6 +176,15 @@ list, the new/fixed/outstanding split and trend charts.
 
 ## GitLab CI
 
+One include, the job comes ready:
+
+```yaml
+include:
+  - remote: https://raw.githubusercontent.com/KevinDoremy/SearchDeadCode/v0.18.0/ci-templates/searchdeadcode.gitlab-ci.yml
+```
+
+Or spelled out, if you would rather own the job:
+
 ```yaml
 dead-code:
   stage: test
@@ -300,21 +309,23 @@ To catch it before the push rather than after:
 searchdeadcode --install-hook
 ```
 
-or, with [pre-commit](https://pre-commit.com):
+or, with [pre-commit](https://pre-commit.com), this repository is a native
+hook source:
 
 ```yaml
-- repo: local
-  hooks:
-    - id: searchdeadcode
-      name: SearchDeadCode
-      entry: searchdeadcode . --changed-since HEAD --quiet --fail-on-findings
-      language: system
-      pass_filenames: false
+repos:
+  - repo: https://github.com/KevinDoremy/SearchDeadCode
+    rev: v0.18.0
+    hooks:
+      - id: searchdeadcode        # diff mode, sub-second
+      # - id: searchdeadcode-full # the whole-project gate, for pre-push
 ```
 
 Diff mode, not the full `--profile ci` run: a commit hook fires on every
 commit, and analysing only the changed files is what keeps it under a second.
-It is the same command `--install-hook` writes.
+It is the same command `--install-hook` writes. The binary must be on PATH
+(install.sh, brew, or cargo) — the hook deliberately does not compile the
+tool on contributors' machines.
 
 # Installing another way
 

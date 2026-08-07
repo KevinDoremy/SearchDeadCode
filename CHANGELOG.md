@@ -37,6 +37,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SDC_INSTALL_DIR` and `SDC_VERSION`. Every CI that is not GitHub Actions was
   being told to run `cargo install`, which recompiles the tool on every build.
 
+- **The repository is a native pre-commit source and a GitLab include.**
+  `.pre-commit-hooks.yaml` lets any project point its pre-commit config here
+  (`repo: …/SearchDeadCode, rev: v0.18.0`) instead of writing a repo-local
+  block, and `ci-templates/searchdeadcode.gitlab-ci.yml` makes the GitLab job
+  a one-line `include: remote:` — no marketplace account on either side.
+
 ### Fixed
 
 - **The GitHub action downloaded a URL that does not exist.** It built Rust

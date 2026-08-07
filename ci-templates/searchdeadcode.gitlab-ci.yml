@@ -1,0 +1,29 @@
+# Reusable GitLab CI job. One include, no marketplace needed:
+#
+#   include:
+#     - remote: https://raw.githubusercontent.com/KevinDoremy/SearchDeadCode/v0.18.0/ci-templates/searchdeadcode.gitlab-ci.yml
+#
+# Pin the tag in the URL for reproducibility, or use `main` to follow.
+# Override the stage or variables from your own .gitlab-ci.yml as usual:
+#
+#   dead-code:
+#     stage: lint
+#     variables:
+#       SDC_VERSION: "0.18.0"   # pin the analyzer; default follows latest
+#
+# The image must be glibc (this one is a slim Debian with curl); the Linux
+# binary does not start on musl (alpine).
+
+dead-code:
+  stage: test
+  image: buildpack-deps:curl
+  variables:
+    SDC_VERSION: ""
+  before_script:
+    - curl -fsSL https://raw.githubusercontent.com/KevinDoremy/SearchDeadCode/main/install.sh | sh
+  script:
+    - searchdeadcode . --profile ci --format gitlab --output gl-code-quality.json
+  artifacts:
+    reports:
+      codequality: gl-code-quality.json
+    when: always

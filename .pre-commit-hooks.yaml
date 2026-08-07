@@ -1,0 +1,31 @@
+# Native pre-commit support (https://pre-commit.com): point your config at
+# this repository instead of writing a repo:local block.
+#
+#   repos:
+#     - repo: https://github.com/KevinDoremy/SearchDeadCode
+#       rev: v0.18.0
+#       hooks:
+#         - id: searchdeadcode
+#
+# `language: system` on purpose: the binary must already be on PATH
+# (install.sh, brew, or cargo install). Letting pre-commit build the tool
+# would mean a full Rust compile on every contributor's machine.
+- id: searchdeadcode
+  name: SearchDeadCode (diff mode)
+  description: >-
+    Block commits that introduce dead code — analyses only the files changed
+    since HEAD, the same command `searchdeadcode --install-hook` writes.
+  entry: searchdeadcode . --changed-since HEAD --quiet --fail-on-findings
+  language: system
+  pass_filenames: false
+  always_run: true
+
+- id: searchdeadcode-full
+  name: SearchDeadCode (full gate)
+  description: >-
+    The whole-project CI gate, with the committed .deadcode-baseline.json.
+    Slower than diff mode; meant for pre-push rather than pre-commit.
+  entry: searchdeadcode . --profile ci
+  language: system
+  pass_filenames: false
+  always_run: true
