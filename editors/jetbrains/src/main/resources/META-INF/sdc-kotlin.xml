@@ -1,0 +1,14 @@
+<idea-plugin>
+    <!-- The annotator never touches Kotlin PSI (it works on Document lines),
+         so it is compatible with both K1 and K2 by construction. The
+         declaration keeps K2-default IDEs (Android Studio Narwhal+) from
+         disabling the plugin. -->
+    <extensions defaultExtensionNs="org.jetbrains.kotlin">
+        <supportsKotlinPluginMode supportsK2="true"/>
+    </extensions>
+    <extensions defaultExtensionNs="com.intellij">
+        <externalAnnotator
+            language="kotlin"
+            implementationClass="com.elumine.searchdeadcode.annotate.SdcExternalAnnotator"/>
+    </extensions>
+</idea-plugin>

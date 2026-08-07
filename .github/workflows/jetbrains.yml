@@ -1,0 +1,82 @@
+# CI for the JetBrains/Android Studio plugin. Publishing lives in
+# release.yml (job `jetbrains`); this only proves a change builds, passes its
+# tests, and stays compatible with the IDE range the plugin promises.
+#
+# Same rule as vscode.yml: no job here may be named "CI" — branch protection
+# requires that name from ci.yml alone.
+name: JetBrains Plugin
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "editors/jetbrains/**"
+      - ".github/workflows/jetbrains.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "editors/jetbrains/**"
+      - ".github/workflows/jetbrains.yml"
+  # The plugin ships with NO until-build: open-ended compatibility is honest
+  # for a thin bridge, but only if something watches for the platform
+  # breaking it. This weekly run is that watch — it fails before users see a
+  # broken plugin, instead of after.
+  schedule:
+    - cron: "17 6 * * 1"
+
+concurrency:
+  # event_name in the group: without it the Monday cron and a push to main
+  # share a cancel-in-progress group, and whichever starts second silently
+  # kills the other run.
+  group: jetbrains-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: editors/jetbrains
+
+jobs:
+  build:
+    name: Plugin build & test
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v6
+      - name: Build and test
+        run: ./gradlew --no-daemon build
+      - name: Package
+        run: ./gradlew --no-daemon buildPlugin
+      - name: Refuse a bundled Kotlin stdlib
+        # The IDE provides the stdlib; a second copy in the ZIP is a
+        # Marketplace rejection. This leaked in once through a transitive
+        # dependency — keep it impossible.
+        run: |
+          if unzip -l build/distributions/*.zip | grep -E "kotlin-stdlib|annotations-13"; then
+            echo "::error::the plugin ZIP bundles the Kotlin stdlib"
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v7
+        with:
+          name: plugin-zip
+          path: editors/jetbrains/build/distributions/*.zip
+          retention-days: 7
+
+  verify:
+    name: Plugin Verifier
+    # Separate from build: the Verifier downloads whole IDEs (gigabytes) and
+    # must never sit between a PR and its build feedback.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v6
+      - name: Verify against the promised IDE range
+        run: ./gradlew --no-daemon verifyPlugin

@@ -134,6 +134,13 @@ scoop install searchdeadcode
 winget install KevinDoremy.SearchDeadCode
 ```
 
+### Android Studio / IntelliJ IDEA
+
+Search for **SearchDeadCode** in `Settings > Plugins > Marketplace`. The
+plugin greys out dead declarations, lists findings in a tool window, and
+offers delete / ignore / baseline quick fixes — details in
+[docs/android-studio.md](docs/android-studio.md).
+
 ### Cargo
 
 ```bash

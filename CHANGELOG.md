@@ -5,6 +5,23 @@ All notable changes to SearchDeadCode will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Android Studio / IntelliJ plugin** (`editors/jetbrains/`), published to
+  the JetBrains Marketplace at the crate's version by the release pipeline —
+  one number on every platform, `verify-channels` asks the Marketplace what
+  it serves. A thin bridge like the VS Code extension: scan from the Tools
+  menu, greyed-out findings in the editor plus a tool window, delete /
+  ignore-with-reason / add-to-baseline quick fixes. The analyzer is found on
+  PATH or downloaded pinned to the plugin version, checked against the
+  published SHA-256. Two deliberate departures from VS Code parity: the
+  baseline quick fix writes `.deadcode-baseline.json` in the shape the CLI
+  actually loads (the VS Code shape is refused with exit 2 — a fix to port
+  back), and open documents are saved before the scan so findings always
+  describe what is on disk.
+
 ## [0.18.0] - 2026-08-06
 
 ### Added

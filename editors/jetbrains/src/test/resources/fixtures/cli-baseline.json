@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "created_at": "1786108836",
+  "issues": [
+    {
+      "file": "src/Sample.kt",
+      "name": "OrphanHelper",
+      "kind": "class",
+      "line": 8,
+      "fqn": "sample.OrphanHelper",
+      "rule": "DC001"
+    }
+  ],
+  "total_at_baseline": 1
+}

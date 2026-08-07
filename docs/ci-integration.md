@@ -14,6 +14,9 @@ your project committed one. It is the equivalent of `./gradlew detekt`.
 Everything below is the same two lines wrapped in each platform's syntax, plus
 optional reporting for teams who want more than a red build.
 
+Looking for the editor side instead? The Android Studio / IntelliJ plugin is
+covered in [android-studio.md](android-studio.md).
+
 ## Before the first green build
 
 A codebase that never ran this tool has existing dead code, and failing on all

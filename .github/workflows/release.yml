@@ -153,7 +153,7 @@ jobs:
           # no identity travels beyond the HTTP request GitHub already sees.
           # The `channel-` prefix keeps them out of the searchdeadcode-*
           # loops above and below (no sha256, no cosign).
-          for c in install-sh install-ci install-agent install-action; do
+          for c in install-sh install-ci install-agent install-action install-jetbrains; do
             echo "download counter for the '$c' channel — see download-stats.yml" > "channel-$c"
           done
           ls -la
@@ -578,6 +578,128 @@ jobs:
           git push origin "$tag"
           echo "Tagged $tag; its own workflow publishes to both registries."
 
+  # The JetBrains/Android Studio plugin, at the crate's version — one number
+  # on every platform. Unlike the vscode job there is nothing to commit:
+  # Gradle takes -PpluginVersion from the tag, publishes to the Marketplace,
+  # and the ZIP attached to the crate release is the trace. A plugin-only
+  # urgent fix can ship as a 4th version segment (0.19.1.1) without a crate
+  # release: build locally with that -PpluginVersion and publishPlugin.
+  jetbrains:
+    name: Publish the JetBrains plugin
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # attach the plugin ZIP to the crate release
+    env:
+      XMLID: com.elumine.searchdeadcode
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check the token
+        env:
+          PUBLISH_TOKEN: ${{ secrets.JETBRAINS_MARKETPLACE_TOKEN }}
+        run: |
+          if [ -z "${PUBLISH_TOKEN:-}" ]; then
+            echo "::error::JETBRAINS_MARKETPLACE_TOKEN is not set — the Marketplace would silently drift behind the crate"
+            exit 1
+          fi
+
+      - name: Decide what this run does
+        id: gate
+        run: |
+          set -uo pipefail
+          version="${GITHUB_REF#refs/tags/v}"
+
+          # Same newest-only guard as winget: re-releasing an old series must
+          # never downgrade the shelf. Never /releases/latest — on this repo
+          # it resolves by date, often to a vscode-v* tag. Not-newest skips
+          # EVERYTHING; the two Marketplace short-circuits below skip only the
+          # publish — the ZIP still gets built and attached to the release,
+          # which is what a re-run after a flaky upload needs.
+          newest="$(curl -fsSL -m 20 "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            | tr ',' '\n' | sed -n 's/.*"tag_name" *: *"v\([0-9][0-9.]*\)".*/\1/p' \
+            | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)"
+          if [ "$version" != "$newest" ]; then
+            echo "v$version is not the newest release (v$newest) — not touching any shelf"
+            echo "newest=no" >> "$GITHUB_OUTPUT"
+            echo "publish=no" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "newest=yes" >> "$GITHUB_OUTPUT"
+
+          # Idempotent re-runs: 301/200 means the shelf already serves it.
+          code="$(curl -s -m 20 -o /dev/null -w '%{http_code}' \
+            "https://plugins.jetbrains.com/plugin/download?pluginId=${XMLID}&version=${version}")"
+          if [ "$code" = "301" ] || [ "$code" = "200" ]; then
+            echo "the Marketplace already serves ${version}, nothing to publish"
+            echo "publish=no" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # One-time moderation window: publishPlugin cannot create a plugin
+          # that was never approved, so until the first manual submission
+          # clears review this warns and skips; the next release catches up.
+          # After approval this branch can never trigger again.
+          curl -s -m 20 -o /tmp/jb-list.xml \
+            "https://plugins.jetbrains.com/plugins/list?pluginId=${XMLID}"
+          if ! grep -q "<idea-plugin" /tmp/jb-list.xml; then
+            echo "::warning::the Marketplace does not list ${XMLID} yet (first submission still in moderation?) — skipping the publish"
+            echo "publish=no" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "publish=yes" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-java@v5
+        if: steps.gate.outputs.newest == 'yes'
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@v6
+        if: steps.gate.outputs.newest == 'yes'
+
+      - name: Build the plugin at the crate version
+        if: steps.gate.outputs.newest == 'yes'
+        working-directory: editors/jetbrains
+        run: ./gradlew --no-daemon -PpluginVersion="${GITHUB_REF#refs/tags/v}" buildPlugin
+
+      - name: Publish to the JetBrains Marketplace
+        if: steps.gate.outputs.publish == 'yes'
+        working-directory: editors/jetbrains
+        env:
+          PUBLISH_TOKEN: ${{ secrets.JETBRAINS_MARKETPLACE_TOKEN }}
+        run: |
+          set -uo pipefail
+          version="${GITHUB_REF#refs/tags/v}"
+          # Like the orb: a duplicate IS the desired end state, anything else
+          # red. The exact Marketplace wording for a duplicate is not
+          # documented; tighten the grep after the first real observation.
+          if ! out="$(./gradlew --no-daemon -PpluginVersion="$version" publishPlugin 2>&1)"; then
+            if printf '%s' "$out" | grep -qi "already"; then
+              echo "the Marketplace reports ${version} already uploaded — success"
+            else
+              printf '%s\n' "$out"
+              exit 1
+            fi
+          else
+            printf '%s\n' "$out" | tail -20
+          fi
+
+      - name: Attach the plugin ZIP to the crate release
+        if: steps.gate.outputs.newest == 'yes'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF#refs/tags/v}"
+          cd editors/jetbrains/build/distributions
+          zip="searchdeadcode-jetbrains-${version}.zip"
+          [ -f "$zip" ] || { echo "::error::$zip was not built"; exit 1; }
+          # sha256 over the bare filename: users run `sha256sum -c` next to
+          # the downloaded pair, a repo-relative path in the file breaks that
+          sha256sum "$zip" > "$zip.sha256"
+          gh release upload "v${version}" "$zip" "$zip.sha256" --clobber
+
   # The release is only done when every shelf actually carries it. Each
   # channel below broke silently at least once (the tap served 0.10.2, the
   # action fell back to 0.4.0, latest resolved to the extension): this job
@@ -586,7 +708,7 @@ jobs:
   # slow marketplaces (store-side validation) only warn.
   verify-channels:
     name: Verify every channel carries this release
-    needs: [verify-install, major-tag, crates, orb, scoop, winget, vscode]
+    needs: [verify-install, major-tag, crates, orb, scoop, winget, vscode, jetbrains]
     runs-on: ubuntu-latest
     steps:
       - name: Ask each shelf what version it serves
@@ -679,6 +801,17 @@ jobs:
               || { echo "not merged into winget-pkgs master yet"; return 1; }
           }
 
+          jbmarket_ok() {
+            # 301/200 = the version is served, 404 = still in store-side
+            # review (or, before the first approval, not listed at all). The
+            # XML id works here; the numeric id only exists after the first
+            # publication. -o file + -w code, never a pipe (SIGPIPE lies).
+            code="$(curl -s -m 20 -o /tmp/jb.out -w '%{http_code}' \
+              "https://plugins.jetbrains.com/plugin/download?pluginId=com.elumine.searchdeadcode&version=${version}")"
+            [ "$code" = "301" ] || [ "$code" = "200" ] \
+              || { echo "the JetBrains Marketplace answers HTTP $code for ${version}"; return 1; }
+          }
+
           ghmarket_ok() {
             # -o file, jamais un pipe vers grep -q : grep quitte au premier
             # match, curl prend un SIGPIPE (error 23) et le check ment.
@@ -700,6 +833,10 @@ jobs:
           check "vs marketplace"     soft  3 60 msmarket_ok
           check "github marketplace" soft  3 60 ghmarket_ok
           check "winget (merged upstream)" soft 2 30 winget_ok
+          # JetBrains reviews every update on its own clock — usually hours,
+          # days for a first submission. A first-plugin lag shows up as the
+          # warning it is; the next release's check confirms the catch-up.
+          check "jetbrains marketplace" soft 10 60 jbmarket_ok
 
           [ "$failures" -eq 0 ] || exit 1
           echo "every hard channel carries $version"

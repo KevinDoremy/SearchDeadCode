@@ -1,0 +1,62 @@
+<idea-plugin>
+    <id>com.elumine.searchdeadcode</id>
+    <name>SearchDeadCode</name>
+    <vendor email="hello@elumine.ca" url="https://github.com/KevinDoremy/SearchDeadCode">elumine</vendor>
+
+    <description><![CDATA[
+    <p>Finds dead Kotlin and Java code in Android projects and helps you delete it safely.</p>
+
+    <p>The plugin drives the <a href="https://github.com/KevinDoremy/SearchDeadCode">searchdeadcode</a>
+    command-line analyzer. Run a scan from the Tools menu, review the findings in the editor
+    (dead declarations are greyed out, with the detector id and a link to its documentation)
+    and in the SearchDeadCode tool window, then act on each one:</p>
+    <ul>
+        <li><b>Delete</b> the declaration when the analyzer provides a safe whole-line fix</li>
+        <li><b>Ignore</b> it in place with a mandatory reason (<code>// deadcode:ignore(...)</code>)</li>
+        <li><b>Add it to the team baseline</b> (<code>.deadcode-baseline.json</code>, the same file
+        the CLI's CI profile picks up)</li>
+    </ul>
+
+    <p>The analyzer binary is not bundled. The plugin looks for it on PATH (Homebrew, cargo,
+    scoop and winget installs are found automatically) or offers to download the release
+    matching the plugin version from GitHub, verified against its published SHA-256 checksum.
+    Findings always come from the files on disk: the plugin saves your open documents before
+    scanning and drops a file's findings the moment you edit it, so a stale line number can
+    never delete the wrong code.</p>
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends optional="true" config-file="sdc-java.xml">com.intellij.modules.java</depends>
+    <depends optional="true" config-file="sdc-kotlin.xml">org.jetbrains.kotlin</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <notificationGroup id="SearchDeadCode" displayType="BALLOON"/>
+        <projectConfigurable
+            parentId="tools"
+            id="com.elumine.searchdeadcode.settings"
+            displayName="SearchDeadCode"
+            instance="com.elumine.searchdeadcode.settings.SdcConfigurable"/>
+        <toolWindow
+            id="SearchDeadCode"
+            anchor="bottom"
+            canCloseContents="false"
+            factoryClass="com.elumine.searchdeadcode.toolwindow.SdcToolWindowFactory"
+            icon="/icons/toolWindowSearchDeadCode.svg"/>
+    </extensions>
+
+    <actions>
+        <group id="SearchDeadCode.Menu" text="SearchDeadCode" popup="true">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+            <action
+                id="SearchDeadCode.Scan"
+                class="com.elumine.searchdeadcode.actions.ScanAction"
+                text="Scan for Dead Code"
+                description="Run the searchdeadcode analyzer on the whole project"/>
+            <action
+                id="SearchDeadCode.Clear"
+                class="com.elumine.searchdeadcode.actions.ClearFindingsAction"
+                text="Clear Dead Code Findings"
+                description="Drop every finding from the last scan"/>
+        </group>
+    </actions>
+</idea-plugin>
