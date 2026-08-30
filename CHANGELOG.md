@@ -5,6 +5,23 @@ All notable changes to SearchDeadCode will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.0] - 2026-08-29
+
+### Added
+
+- **Combining two report-replacing flags now warns.** The contract was
+  deterministic but silent: the first wedge in dispatch order answered and
+  the loser vanished, looking scanned. A stderr warning now names every
+  wedge passed, the winner, and that the others are ignored; `--quiet`
+  silences it. stdout is untouched, so scripts that parse a view's output
+  keep working.
+- **The CLI reference answers by question.** A question-per-view table over
+  the 45 "Specialized views" flags ("If I delete this, what falls with
+  it?" → `--kill-list`) and a "Recipes: from broad to surgical" section,
+  six command combinations from the first scan of an unknown repo down to
+  one symbol. An integration test pins the table to the `--help` group in
+  both directions, count included, so the doc cannot drift from the binary.
+
 ## [0.20.0] - 2026-08-07
 
 ### Added
