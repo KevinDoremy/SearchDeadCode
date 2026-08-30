@@ -233,7 +233,146 @@ searchdeadcode --completions fish > ~/.config/fish/completions/searchdeadcode.fi
 
 ## Flag precedence
 
-Many flags replace the report entirely (`--explain`, `--health`, `--pr-description`, `--test-only`, …). Combining two of them is not an error: the first one in dispatch order answers, the later one is silently ignored. Symbol queries (`--explain`, `--why-alive`) dispatch before report cards (`--health`, `--pr-description`). When in doubt, pass one report-replacing flag per run.
+Many flags replace the report entirely (`--explain`, `--health`, `--pr-description`, `--test-only`, …). Combining two of them is not an error: the first one in dispatch order answers, the later one is ignored and a stderr warning says so. Symbol queries (`--explain`, `--why-alive`) dispatch before report cards (`--health`, `--pr-description`). When in doubt, pass one report-replacing flag per run.
+
+## The question each view answers
+
+The alphabetical list further down tells you what a flag does. This table starts from the other end: the question you walked in with. Every row is one of the 45 flags grouped under "Specialized views" in `--help`. Most replace the report and run alone (the codebase calls them wedges); the exceptions, two modifiers, two stdio servers, one pipeline step and one separate mode, are marked in their rows. A few of these views have annotated tours with real output in [cli-tour.md](cli-tour.md).
+
+### Symbol queries
+
+| Flag | The question it answers |
+|---|---|
+| `--explain <symbol>` | Why is this symbol judged dead, or alive? |
+| `--why-alive <symbol>` | What chain keeps this symbol alive? |
+| `--kill-list <symbol>` | If I delete this, what falls with it? |
+| `--refs-of <symbol>` | Who references this symbol? (answered from a saved `--graph-file`) |
+
+### Triage and ranking
+
+| Flag | The question it answers |
+|---|---|
+| `--clusters` | Which findings form one connected, deletable block? |
+| `--islands` | Which groups of declarations reference only each other? |
+| `--quick-wins` | What can I delete blind: whole cluster dead, every member low risk? |
+| `--tui` | Can I triage the findings full-screen, keyboard only? |
+
+### Migration and duplication
+
+| Flag | The question it answers |
+|---|---|
+| `--compare OLD=NEW` | What becomes deletable when the migration flips, and what blocks it? |
+| `--twins` | Which `Xxx`/`XxxV2` pairs coexist, and who still uses each side? |
+| `--near-twins` | Which same-named functions are copy-pastes that drifted apart? |
+| `--deprecated` | Which `@Deprecated` symbols can go now, and which still have callers? |
+| `--middlemen` | Which classes only forward every call to the same delegate? |
+| `--module-usage <module>` | Who actually consumes this shared module's symbols? |
+| `--duplicate-strings` | Which string values are declared in several modules? |
+| `--promises` | Which "TODO remove" comments are now safe to honor? |
+
+### Feature flags and config
+
+| Flag | The question it answers |
+|---|---|
+| `--flag <name>` | What dies when this feature flag settles? |
+| `--behavior` | Settled as enabled or disabled? (modifier for `--flag`) |
+| `--stale-flags` | Which Remote Config booleans look settled already? |
+| `--doctor` | Does my `.deadcode.yml` still match the repo's reality? |
+
+### Android and build
+
+| Flag | The question it answers |
+|---|---|
+| `--dead-modules` | Which Gradle modules does nobody depend on? |
+| `--unused-deps` | Which declared dependencies does no source file import? |
+| `--unused-assets` | Which asset files does nothing reference? |
+| `--unused-permissions` | Which manifest permissions does the code never exercise? |
+| `--dead-keep-rules` | Which `-keep` rules name classes that no longer exist? |
+| `--unscheduled-workers` | Which Workers does nobody ever enqueue? |
+| `--dead-di-modules` | Which DI modules bind only types nobody consumes? |
+| `--dead-serializables` | Which `@Serializable` classes have zero incoming references? |
+| `--unobserved` | Which exposed LiveData/Flow properties does nobody collect? |
+| `--debug-only` | What in `src/main` is referenced only from debug or test source sets? |
+| `--test-only` | What lives only because its tests reference it? |
+| `--dead-accessors` | Which getters does nobody call? |
+| `--write-only-caches` | Which cache keys are written but never read back? |
+| `--retention-audit` | Which retention annotation keeps the most code alive? |
+| `--generate-report` | What does R8's usage.txt say, minus the generated-code noise? (writes its file, then the normal report still runs) |
+| `--report-package <prefix>` | The same report, restricted to one package prefix? (modifier for `--generate-report`) |
+
+### Guard rails and automation
+
+| Flag | The question it answers |
+|---|---|
+| `--necromancy` | Did someone resurrect a symbol the baseline judged dead? |
+| `--install-hook` | Can each commit check its own diff? (installs a pre-commit hook) |
+| `--batch-branches` | One git branch per dead class, each carrying its proof of death? |
+| `--import-suppressions` | Can my `@Suppress("unused")` triage become a baseline? |
+| `--import-detekt-baseline` | Can my detekt baseline's `Unused*` entries migrate over? |
+| `--watch` | What dies as I edit, continuously? (a separate mode, not a wedge) |
+
+### Graph and serving
+
+| Flag | The question it answers |
+|---|---|
+| `--export-graph <file>` | Can I save the reference graph for later queries? |
+| `--mcp-serve` | Can an AI agent query the graph over MCP? (stdio server, runs before any scan) |
+| `--lsp-serve` | Can my editor show these findings as diagnostics? (stdio server, runs before any scan) |
+
+## Recipes: from broad to surgical
+
+Command combinations by circumstance, from the first scan of an unknown repo down to one symbol. Each step narrows the previous one.
+
+**1. First contact.** Never scanned this repo before:
+
+```bash
+searchdeadcode . --profile explore --anti-patterns --summary
+searchdeadcode . --init     # write a .deadcode.yml matched to the project
+```
+
+Expect noise: `explore` goes down to low confidence on purpose.
+
+**2. Decide where to dig.** Thousands of findings, no idea where to start:
+
+```bash
+searchdeadcode . --min-confidence high --score    # lines x confidence / risk
+searchdeadcode . --clusters                       # connected blocks that fall together
+```
+
+**3. One migration at a time.** An old world and a new world coexist:
+
+```bash
+searchdeadcode . --twins
+searchdeadcode . --compare "app/oldworld=app/newworld"
+```
+
+Pick a discriminating fragment: one as short as `main` also matches every `src/main/` and returns nonsense numbers.
+
+**4. Every PR.** The everyday loop, judged against the whole project, not just the diff:
+
+```bash
+searchdeadcode . --changed-since origin/develop   # what is dead in the files I touched
+searchdeadcode . --diff-base origin/develop       # what my branch just made dead, anywhere
+```
+
+**5. One symbol.** Before deleting anything you are not sure about:
+
+```bash
+searchdeadcode . --explain SomeClass
+searchdeadcode . --why-alive SomeClass
+```
+
+**6. Act, then lock in.** Delete with a reviewable diff, keep the count falling:
+
+```bash
+searchdeadcode . --min-confidence high --delete --dry-run --patch dead-code.diff
+git apply dead-code.diff
+searchdeadcode . --profile ci --ratchet   # CI: new dead code fails, the count only decreases
+```
+
+The ci profile picks up a committed `.deadcode-baseline.json` at the analyzed root on its own; pass `--baseline <file>` only when yours lives elsewhere.
+
+One view per run: these are wedges (see [Flag precedence](#flag-precedence)). The first one in dispatch order wins; a stderr warning names the winner and the ignored flags.
 
 ## Complete flag list
 

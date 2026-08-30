@@ -892,6 +892,66 @@ fn discover_usage_txt(root: &Path) -> Option<PathBuf> {
     candidates.pop()
 }
 
+/// The report-replacing flags the user passed, in dispatch order. Modifiers
+/// (--behavior, --report-package), the stdio servers, --generate-report (falls
+/// through to the normal report) and --watch (its own mode) are not conflicts,
+/// so they are not listed.
+fn active_wedges(cli: &Cli) -> Vec<&'static str> {
+    let checks: [(bool, &'static str); 44] = [
+        (cli.refs_of.is_some(), "--refs-of"),
+        (cli.install_hook, "--install-hook"),
+        (cli.unused_permissions, "--unused-permissions"),
+        (cli.duplicate_strings, "--duplicate-strings"),
+        (cli.unused_assets, "--unused-assets"),
+        (cli.unused_deps, "--unused-deps"),
+        (cli.dead_modules, "--dead-modules"),
+        (cli.deprecated, "--deprecated"),
+        (cli.unobserved, "--unobserved"),
+        (cli.export_graph.is_some(), "--export-graph"),
+        (cli.write_only_caches, "--write-only-caches"),
+        (cli.import_suppressions.is_some(), "--import-suppressions"),
+        (
+            cli.import_detekt_baseline.is_some(),
+            "--import-detekt-baseline",
+        ),
+        (cli.unscheduled_workers, "--unscheduled-workers"),
+        (cli.promises, "--promises"),
+        (cli.dead_serializables, "--dead-serializables"),
+        (cli.dead_di_modules, "--dead-di-modules"),
+        (cli.near_twins, "--near-twins"),
+        (cli.middlemen, "--middlemen"),
+        (cli.dead_accessors, "--dead-accessors"),
+        (cli.necromancy, "--necromancy"),
+        (cli.dead_keep_rules, "--dead-keep-rules"),
+        (cli.test_only, "--test-only"),
+        (cli.debug_only, "--debug-only"),
+        (cli.twins, "--twins"),
+        (cli.stale_flags, "--stale-flags"),
+        (cli.retention_audit, "--retention-audit"),
+        (cli.doctor, "--doctor"),
+        (cli.explain.is_some(), "--explain"),
+        (cli.why_alive.is_some(), "--why-alive"),
+        (cli.flag.is_some(), "--flag"),
+        (cli.module_usage.is_some(), "--module-usage"),
+        (cli.compare.is_some(), "--compare"),
+        (cli.kill_list.is_some(), "--kill-list"),
+        (cli.top_files.is_some(), "--top-files"),
+        (cli.by_module, "--by-module"),
+        (cli.health, "--health"),
+        (cli.pr_description, "--pr-description"),
+        (cli.tui, "--tui"),
+        (cli.batch_branches, "--batch-branches"),
+        (cli.score, "--score"),
+        (cli.quick_wins, "--quick-wins"),
+        (cli.islands, "--islands"),
+        (cli.clusters, "--clusters"),
+    ];
+    checks
+        .into_iter()
+        .filter_map(|(on, name)| on.then_some(name))
+        .collect()
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
@@ -901,6 +961,18 @@ fn main() -> Result<()> {
         let name = cmd.get_name().to_string();
         generate(shell, &mut cmd, name, &mut std::io::stdout());
         return Ok(());
+    }
+
+    // One wedge answers per run; without this warning the losers vanished
+    // without a trace and looked like they had been scanned.
+    let wedges = active_wedges(&cli);
+    if wedges.len() > 1 && !cli.quiet {
+        eprintln!(
+            "{}: {} each replace the report; {} wins (dispatch order), the others are ignored",
+            "Warning".yellow(),
+            wedges.join(", "),
+            wedges[0]
+        );
     }
 
     // Generate a starter config and exit

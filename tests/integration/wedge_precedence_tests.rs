@@ -1,8 +1,9 @@
 //! Integration tests for wedge precedence: ~40 flags short-circuit the
 //! report, and combining two must be deterministic — first wedge in
-//! dispatch order wins, silently ignoring the later one is the
-//! documented contract. These pin representative pairs so a dispatch
-//! reorder cannot change behavior unnoticed.
+//! dispatch order wins, the later one is ignored and a stderr warning
+//! names the winner (stdout stays clean for scripts). These pin
+//! representative pairs so a dispatch reorder cannot change behavior
+//! unnoticed.
 
 use std::fs;
 use std::path::Path;
@@ -62,6 +63,51 @@ fn health_wins_over_pr_description() {
     assert!(
         !stdout.contains("Remove dead code"),
         "the PR body does not also print, stdout was:\n{stdout}"
+    );
+}
+
+fn stderr_of(output: &Output) -> String {
+    String::from_utf8_lossy(&output.stderr).to_string()
+}
+
+#[test]
+fn two_wedges_warn_on_stderr_and_name_the_winner() {
+    let temp = tempfile::tempdir().unwrap();
+    sample(temp.path());
+
+    let output = bin(temp.path(), &["--twins", "--dead-modules"]);
+    let stderr = stderr_of(&output);
+    assert!(
+        stderr.contains("--twins") && stderr.contains("--dead-modules"),
+        "the warning names both flags, stderr was:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("--dead-modules wins"),
+        "the winner is the first in dispatch order, not in argv order, stderr was:\n{stderr}"
+    );
+}
+
+#[test]
+fn a_single_wedge_stays_quiet() {
+    let temp = tempfile::tempdir().unwrap();
+    sample(temp.path());
+
+    let stderr = stderr_of(&bin(temp.path(), &["--twins"]));
+    assert!(
+        !stderr.contains("wins"),
+        "one wedge is the normal case, no warning, stderr was:\n{stderr}"
+    );
+}
+
+#[test]
+fn quiet_suppresses_the_wedge_warning() {
+    let temp = tempfile::tempdir().unwrap();
+    sample(temp.path());
+
+    let stderr = stderr_of(&bin(temp.path(), &["--twins", "--dead-modules", "--quiet"]));
+    assert!(
+        !stderr.contains("wins"),
+        "--quiet silences the warning, stderr was:\n{stderr}"
     );
 }
 
