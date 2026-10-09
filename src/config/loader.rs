@@ -80,6 +80,8 @@ pub struct DetectionConfig {
 
     /// Enable redundant public modifier detection
     pub redundant_public: bool,
+    /// Enable redundant `= null` field initialisation detection (DC013)
+    pub redundant_null_init: bool,
 
     /// Anti-pattern detector groups
     pub anti_patterns: AntiPatternConfig,
@@ -219,6 +221,7 @@ impl Default for DetectionConfig {
             assign_only: true,
             dead_branch: true,
             redundant_public: true,
+            redundant_null_init: true,
             anti_patterns: AntiPatternConfig::default(),
             thresholds: ThresholdsConfig::default(),
         }

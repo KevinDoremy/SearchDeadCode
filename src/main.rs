@@ -267,6 +267,15 @@ struct Cli {
     #[arg(help_heading = "Detectors", long, default_value = "true", action = clap::ArgAction::Set)]
     unused_params: bool,
 
+    /// Report public declarations that could be internal (DC006, enabled by default).
+    /// `--redundant-public false` drops the style noise from a dead-code sweep
+    #[arg(help_heading = "Detectors", long, default_value = "true", action = clap::ArgAction::Set)]
+    redundant_public: bool,
+
+    /// Report Java fields explicitly initialised to null (DC013, enabled by default)
+    #[arg(help_heading = "Detectors", long, default_value = "true", action = clap::ArgAction::Set)]
+    redundant_null_init: bool,
+
     /// Enable unused resource detection (off by default - slower)
     /// Finds Android resources (strings, colors, etc.) that are never referenced
     #[arg(help_heading = "Detectors", long)]
@@ -4798,6 +4807,9 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         use analysis::DeadCodeIssue as I;
         use graph::DeclarationKind as K;
         let det = &config.detection;
+        // The CLI can only switch a rule off: `true` is its default and says nothing
+        let redundant_public = det.redundant_public && cli.redundant_public;
+        let redundant_null_init = det.redundant_null_init && cli.redundant_null_init;
         dead_code.retain(|dc| match dc.issue {
             I::Unreferenced => match dc.declaration.kind {
                 K::Class | K::Interface | K::Object | K::Enum | K::TypeAlias | K::Annotation => {
@@ -4812,7 +4824,8 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
             I::UnusedEnumCase => det.unused_enum_case,
             I::AssignOnly => det.assign_only,
             I::DeadBranch => det.dead_branch,
-            I::RedundantPublic => det.redundant_public,
+            I::RedundantPublic => redundant_public,
+            I::RedundantNullInit => redundant_null_init,
             _ => true,
         });
     }

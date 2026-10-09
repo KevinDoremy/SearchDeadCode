@@ -111,6 +111,7 @@ mod retention_audit_tests;
 mod reviewdog_tests;
 mod risk_tests;
 mod rule_completions_tests;
+mod rule_switch_tests;
 mod safe_delete_batch_tests;
 mod sarif_tests;
 mod score_tests;

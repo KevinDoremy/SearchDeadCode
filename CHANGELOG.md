@@ -43,6 +43,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (same four defaults): their declarations are never reported, their
   references count.
 
+### Added
+
+- **`--redundant-public false` and `--redundant-null-init false`.** DC006 and
+  DC013 are style rules; a dead-code sweep wants them out of the way without
+  writing a `.deadcode.yml` (`detection.redundant_null_init` is new there too).
+
 ### Changed
 
 - **A view that only a dead layout and a DI `inject(target:)` name is dead.**

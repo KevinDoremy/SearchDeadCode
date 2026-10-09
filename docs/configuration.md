@@ -70,6 +70,7 @@ detection:
   assign_only: true
   dead_branch: true
   redundant_public: true
+  redundant_null_init: true  # DC013; both also off with --redundant-public/--redundant-null-init false
 
 # Android-specific configuration
 android:
@@ -127,6 +128,7 @@ unused_enum_case = true
 assign_only = true
 dead_branch = true
 redundant_public = true
+redundant_null_init = true
 
 [android]
 parse_manifest = true

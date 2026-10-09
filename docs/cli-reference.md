@@ -23,6 +23,8 @@ Options:
   Analysis Options:
       --deep                  Deep analysis: individual members within classes
       --unused-params         Detect unused function parameters
+      --redundant-public      Report public declarations that could be internal (DC006)
+      --redundant-null-init   Report Java fields explicitly initialised to null (DC013)
       --unused-resources      Detect unused Android resources
       --write-only            Detect write-only variables
       --write-only-prefs      Detect write-only SharedPreferences
@@ -487,6 +489,8 @@ Generated from `--help`; every flag the binary accepts, alphabetically.
 | `--unused-deps` | List Gradle dependencies declared in build files but never imported by any source file, then exit |
 | `--unused-extras` | Enable unused Intent extra detection (enabled by default) Finds putExtra() keys that are never retrieved via getXxxExtra() [default: true] [possible values: true, false] |
 | `--unused-params` | Enable unused parameter detection (enabled by default) Finds function parameters that are declared but never used [default: true] [possible values: true, false] |
+| `--redundant-public` | Report public declarations that could be internal (DC006, enabled by default). `--redundant-public false` drops the style noise from a dead-code sweep [default: true] [possible values: true, false] |
+| `--redundant-null-init` | Report Java fields explicitly initialised to null (DC013, enabled by default) [default: true] [possible values: true, false] |
 | `--unused-permissions` | List manifest permissions whose API family never appears in the code, then exit |
 | `--unused-resources` | Enable unused resource detection (off by default - slower) Finds Android resources (strings, colors, etc.) that are never referenced |
 | `--verbose` | Verbose output |
