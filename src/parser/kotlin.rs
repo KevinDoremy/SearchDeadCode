@@ -177,6 +177,13 @@ impl KotlinParser {
                     // Don't recurse - already handled by extract_class/extract_object
                 }
                 _ => {
+                    if child.kind() == "prefix_expression"
+                        && self.recover_swallowed_declaration(
+                            path, child, source, package, None, result,
+                        )?
+                    {
+                        continue;
+                    }
                     // Recurse into other nodes
                     self.extract_declarations(path, child, source, package, result)?;
                 }
@@ -455,11 +462,154 @@ impl KotlinParser {
                 "enum_entry" => {
                     self.extract_enum_entry(path, child, source, parent.clone(), result)?;
                 }
+                "prefix_expression" => {
+                    self.recover_swallowed_declaration(
+                        path,
+                        child,
+                        source,
+                        package,
+                        Some(parent.clone()),
+                        result,
+                    )?;
+                }
                 _ => {}
             }
         }
 
         Ok(())
+    }
+
+    /// tree-sitter-kotlin 0.3.8 garbles a declaration that stacks two
+    /// annotations before a modifier (`@Preview\n@Composable\nprivate fun`)
+    /// into a `prefix_expression` that swallows the whole declaration: no
+    /// `function_declaration` node, so no symbol, and everything its body
+    /// calls looks dead. Re-parse the file with the leading annotations
+    /// blanked out (same byte layout, so every location still holds),
+    /// extract the declaration from the clean tree, and hand it its
+    /// annotations back. Returns whether a declaration was recovered.
+    fn recover_swallowed_declaration(
+        &self,
+        path: &Path,
+        node: Node,
+        source: &str,
+        package: &Option<String>,
+        parent: Option<DeclarationId>,
+        result: &mut ParseResult,
+    ) -> Result<bool> {
+        // Peel the chain: prefix_expression(annotation, prefix_expression(annotation, <decl>))
+        let mut annotations = Vec::new();
+        let mut current = node;
+        let decl_start = loop {
+            if current.kind() != "prefix_expression" {
+                break current.start_byte();
+            }
+            let mut cursor = current.walk();
+            let children: Vec<Node> = current.children(&mut cursor).collect();
+            let Some(annotation) = children.iter().find(|c| c.kind() == "annotation") else {
+                break current.start_byte();
+            };
+            annotations.push(node_text(*annotation, source).to_string());
+            let Some(next) = children
+                .iter()
+                .rev()
+                .find(|c| !matches!(c.kind(), "annotation" | "parenthesized_expression"))
+            else {
+                return Ok(false);
+            };
+            current = *next;
+        };
+        if annotations.is_empty()
+            || decl_start <= node.start_byte()
+            || decl_start >= node.end_byte()
+        {
+            return Ok(false);
+        }
+
+        // Only a declaration right behind the annotations is worth a re-parse.
+        const DECLARATION_HEADS: [&str; 20] = [
+            "fun ",
+            "class ",
+            "object ",
+            "interface ",
+            "val ",
+            "var ",
+            "private ",
+            "internal ",
+            "protected ",
+            "public ",
+            "open ",
+            "abstract ",
+            "data ",
+            "sealed ",
+            "enum ",
+            "inline ",
+            "suspend ",
+            "override ",
+            "const ",
+            "lateinit ",
+        ];
+        let head = source[decl_start..node.end_byte()].trim_start();
+        if !DECLARATION_HEADS.iter().any(|k| head.starts_with(k)) {
+            return Ok(false);
+        }
+
+        let mut blanked = source.as_bytes().to_vec();
+        for byte in &mut blanked[node.start_byte()..decl_start] {
+            if *byte != b'\n' {
+                *byte = b' ';
+            }
+        }
+        let blanked = String::from_utf8(blanked).into_diagnostic()?;
+        let mut parser = TsParser::new();
+        parser
+            .set_language(&tree_sitter_kotlin::language())
+            .into_diagnostic()?;
+        let Some(tree) = parser.parse(&blanked, None) else {
+            return Ok(false);
+        };
+        let root = tree.root_node();
+        let Some(mut found) = root.descendant_for_byte_range(decl_start, decl_start) else {
+            return Ok(false);
+        };
+        loop {
+            if matches!(
+                found.kind(),
+                "function_declaration"
+                    | "class_declaration"
+                    | "object_declaration"
+                    | "property_declaration"
+            ) {
+                break;
+            }
+            match found.parent() {
+                Some(up) => found = up,
+                None => return Ok(false),
+            }
+        }
+
+        let before = result.declarations.len();
+        match found.kind() {
+            "function_declaration" => {
+                self.extract_function(path, found, &blanked, package, parent, result)?
+            }
+            "class_declaration" => {
+                self.extract_class(path, found, &blanked, package, parent, result)?
+            }
+            "object_declaration" => {
+                self.extract_object(path, found, &blanked, package, parent, result)?
+            }
+            "property_declaration" => {
+                self.extract_property(path, found, &blanked, package, parent, result)?
+            }
+            _ => return Ok(false),
+        }
+        if let Some(decl) = result.declarations[before..]
+            .iter_mut()
+            .find(|d| d.id.start == found.start_byte())
+        {
+            decl.annotations.splice(0..0, annotations);
+        }
+        Ok(true)
     }
 
     fn extract_function(
@@ -666,6 +816,13 @@ impl KotlinParser {
                         decl.modifiers.push("private_set".to_string());
                     }
 
+                    // A getter/setter with a body reads or writes `field`
+                    // itself; the write-only detectors must not call such a
+                    // property dead on the strength of external writes alone.
+                    if self.has_custom_accessor(node, source) {
+                        decl.modifiers.push("custom_accessor".to_string());
+                    }
+
                     result.declarations.push(decl);
                 }
             }
@@ -842,6 +999,25 @@ impl KotlinParser {
                 }
                 "getter" => {
                     // Continue looking, there might be a setter after the getter
+                    next = sibling.next_sibling();
+                }
+                _ => break,
+            }
+        }
+        false
+    }
+
+    /// Does the property carry a getter or setter with a body? Bare
+    /// visibility tweaks (`private set`) do not count: nothing runs there.
+    fn has_custom_accessor(&self, node: Node, source: &str) -> bool {
+        let mut next = node.next_sibling();
+        while let Some(sibling) = next {
+            match sibling.kind() {
+                "getter" | "setter" => {
+                    let text = node_text(sibling, source);
+                    if text.contains('{') || text.contains('=') {
+                        return true;
+                    }
                     next = sibling.next_sibling();
                 }
                 _ => break,
@@ -1131,14 +1307,20 @@ impl KotlinParser {
         imports: &[String],
         result: &mut ParseResult,
     ) -> Result<()> {
-        // Create implicit references for parent classes in enum constant imports
+        // Create implicit references for the containers of member imports
         // e.g., "import com.example.MyEnum.CONSTANT" creates a reference to "MyEnum"
         self.extract_enum_parent_references(path, imports, result);
 
         let mut cursor = node.walk();
+        // Names bound inside bodies (locals, lambda and for/catch variables):
+        // not declarations, so they would otherwise pass for inherited members.
+        let mut local_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+        // Bare reads/writes, bridged to Java accessors once the file's own
+        // names are known — see the post-pass below the walk.
+        let mut bare_accesses: Vec<(String, ReferenceKind, Location)> = Vec::new();
 
         // Walk through all nodes looking for identifiers
-        loop {
+        'walk: loop {
             let current = cursor.node();
 
             match current.kind() {
@@ -1157,7 +1339,7 @@ impl KotlinParser {
                                 }
                                 while !cursor.goto_next_sibling() {
                                     if !cursor.goto_parent() {
-                                        return Ok(());
+                                        break 'walk;
                                     }
                                 }
                                 continue;
@@ -1201,6 +1383,12 @@ impl KotlinParser {
                             // receiver: at resolution time a bare `count` local
                             // is indistinguishable from it, and bridging there
                             // resurrected every Java getter of that name.
+                            if parent.kind() != "navigation_suffix"
+                                && matches!(kind, ReferenceKind::Read | ReferenceKind::Write)
+                            {
+                                bare_accesses.push((name.clone(), kind, location.clone()));
+                            }
+
                             if parent.kind() == "navigation_suffix" {
                                 for accessor in
                                     crate::graph::java_accessors_behind_property(&name, kind)
@@ -1560,6 +1748,58 @@ impl KotlinParser {
                         }
                     }
                 }
+                // `ObjectAnimator.ofFloat(view, "cellAlpha", …)` reaches
+                // setCellAlpha()/getCellAlpha() by reflection.
+                "call_expression" => {
+                    for accessor in self.animated_property_accessors(current, source) {
+                        let location = point_to_location(
+                            path,
+                            current.start_position(),
+                            current.end_position(),
+                            current.start_byte(),
+                            current.end_byte(),
+                        );
+                        result.references.push(UnresolvedReference {
+                            name: accessor,
+                            qualified_name: None,
+                            kind: ReferenceKind::Reflection,
+                            location: location.clone(),
+                            imports: imports.to_vec(),
+                        });
+                    }
+                }
+                // `constructor(ctx) : super(ctx)` calls the superclass
+                // constructor, `: this(...)` another of its own: no identifier
+                // names the target, the enclosing class does.
+                "constructor_delegation_call" => {
+                    for target in self.constructor_delegation_targets(current, source) {
+                        let location = point_to_location(
+                            path,
+                            current.start_position(),
+                            current.end_position(),
+                            current.start_byte(),
+                            current.end_byte(),
+                        );
+                        result.references.push(UnresolvedReference {
+                            name: target,
+                            qualified_name: None,
+                            kind: ReferenceKind::Instantiation,
+                            location,
+                            imports: imports.to_vec(),
+                        });
+                    }
+                }
+                // Locals, lambda parameters, `for` and `catch` variables.
+                "variable_declaration" | "catch_block" => {
+                    let mut children = current.walk();
+                    let bound = current
+                        .children(&mut children)
+                        .find(|child| child.kind() == "simple_identifier")
+                        .map(|child| node_text(child, source).to_string());
+                    if let Some(name) = bound {
+                        local_names.insert(name);
+                    }
+                }
                 _ => {}
             }
 
@@ -1569,10 +1809,40 @@ impl KotlinParser {
             }
             while !cursor.goto_next_sibling() {
                 if !cursor.goto_parent() {
-                    return Ok(());
+                    break 'walk;
                 }
             }
         }
+
+        // A bare `helper` in a Kotlin subclass of a Java class IS a call to
+        // the inherited `getHelper()`: no receiver, no navigation_suffix, so
+        // the bridge above never saw it and the getter came out dead. Bridging
+        // every bare name resurrected unrelated Java getters, hence the gate:
+        // only a name this file neither declares nor binds locally can be an
+        // inherited accessor.
+        let declared: std::collections::HashSet<&str> = result
+            .declarations
+            .iter()
+            .map(|d| d.name.as_str())
+            .collect();
+        for (name, kind, location) in bare_accesses {
+            if declared.contains(name.as_str())
+                || local_names.contains(&name)
+                || matches!(name.as_str(), "it" | "field" | "this" | "super")
+            {
+                continue;
+            }
+            for accessor in crate::graph::java_accessors_behind_property(&name, kind) {
+                result.references.push(UnresolvedReference {
+                    name: accessor,
+                    qualified_name: None,
+                    kind: ReferenceKind::Call,
+                    location: location.clone(),
+                    imports: imports.to_vec(),
+                });
+            }
+        }
+        Ok(())
     }
 
     // Helper methods
@@ -1592,24 +1862,21 @@ impl KotlinParser {
 
             // We need at least 2 parts for a potential enum constant import
             if parts.len() >= 2 {
-                let last = parts[parts.len() - 1];
                 let second_last = parts[parts.len() - 2];
 
-                // Check if this looks like an enum constant import:
-                // - Last segment should be ALL_CAPS or PascalCase (enum constant)
-                // - Second-to-last should be PascalCase (class name)
-                let last_is_constant = last
-                    .chars()
-                    .next()
-                    .map(|c| c.is_uppercase())
-                    .unwrap_or(false);
-                let second_last_is_class = second_last
-                    .chars()
-                    .next()
-                    .map(|c| c.is_uppercase())
-                    .unwrap_or(false);
+                // A member import keeps its container alive, whatever the
+                // member: `MyEnum.CONSTANT`, `NetworkUtils.isOnWifi`, or
+                // `Delegate.Companion.cleanRangeValues`. The container is the
+                // first PascalCase segment before the member, skipping the
+                // `Companion` hop.
+                let is_pascal = |s: &str| s.chars().next().is_some_and(|c| c.is_uppercase());
+                let second_last = if second_last == "Companion" && parts.len() >= 3 {
+                    parts[parts.len() - 3]
+                } else {
+                    second_last
+                };
 
-                if last_is_constant && second_last_is_class {
+                if is_pascal(second_last) {
                     // Create a synthetic reference to the parent class
                     // Use a zero-position location since this is an implicit reference
                     let location = point_to_location(
@@ -1981,6 +2248,87 @@ impl KotlinParser {
             .children(&mut cursor)
             .find(|c| c.kind() == "simple_identifier");
         first_name.is_some_and(|first| first.id() == node.id())
+    }
+
+    /// Accessors named by the string arguments of an animator factory call
+    /// (`ObjectAnimator.ofFloat`, `PropertyValuesHolder.ofInt`, …).
+    fn animated_property_accessors(&self, call: Node, source: &str) -> Vec<String> {
+        fn child_of_kind<'a>(node: Node<'a>, kind: &str) -> Option<Node<'a>> {
+            (0..node.child_count())
+                .filter_map(|i| node.child(i))
+                .find(|child| child.kind() == kind)
+        }
+        fn last_child_of_kind<'a>(node: Node<'a>, kind: &str) -> Option<Node<'a>> {
+            (0..node.child_count())
+                .rev()
+                .filter_map(|i| node.child(i))
+                .find(|child| child.kind() == kind)
+        }
+        let Some(callee) = call.child(0) else {
+            return Vec::new();
+        };
+        let callee_name = match callee.kind() {
+            "simple_identifier" => node_text(callee, source).to_string(),
+            "navigation_expression" => last_child_of_kind(callee, "navigation_suffix")
+                .and_then(|suffix| child_of_kind(suffix, "simple_identifier"))
+                .map(|id| node_text(id, source).to_string())
+                .unwrap_or_default(),
+            _ => return Vec::new(),
+        };
+        if !super::java::ANIMATOR_FACTORIES.contains(&callee_name.as_str()) {
+            return Vec::new();
+        }
+        let Some(suffix) = child_of_kind(call, "call_suffix") else {
+            return Vec::new();
+        };
+        let Some(arguments) = child_of_kind(suffix, "value_arguments") else {
+            return Vec::new();
+        };
+        (0..arguments.child_count())
+            .filter_map(|i| arguments.child(i))
+            .filter(|argument| argument.kind() == "value_argument")
+            .filter_map(|argument| child_of_kind(argument, "string_literal"))
+            .flat_map(|literal| {
+                crate::graph::animated_property_accessors(
+                    node_text(literal, source).trim_matches('"'),
+                )
+            })
+            .collect()
+    }
+
+    /// Classes whose constructor a `super(...)` / `this(...)` delegation
+    /// invokes: every supertype of the enclosing class for `super` (an
+    /// interface among them resolves to nothing instantiable), the class
+    /// itself for `this`.
+    fn constructor_delegation_targets(&self, delegation: Node, source: &str) -> Vec<String> {
+        let Some(keyword) = delegation.child(0) else {
+            return Vec::new();
+        };
+        let keyword = node_text(keyword, source);
+        let mut ancestor = delegation.parent();
+        while let Some(node) = ancestor {
+            if node.kind() == "class_declaration" {
+                return match keyword {
+                    "super" => self
+                        .extract_super_types(node, source)
+                        .into_iter()
+                        .map(|name| {
+                            // `Base<T>(arg)` → `Base`: a supertype may carry
+                            // type arguments and a constructor call.
+                            let bare = name.split(['<', '(']).next().unwrap_or(&name).trim();
+                            bare.rsplit('.').next().unwrap_or(bare).to_string()
+                        })
+                        .collect(),
+                    "this" => node
+                        .child_by_field_name("name")
+                        .map(|name| vec![node_text(name, source).to_string()])
+                        .unwrap_or_default(),
+                    _ => Vec::new(),
+                };
+            }
+            ancestor = node.parent();
+        }
+        Vec::new()
     }
 
     fn determine_reference_kind(&self, parent: Node) -> Option<ReferenceKind> {

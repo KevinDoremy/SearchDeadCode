@@ -76,6 +76,18 @@ impl WriteOnlyDetector {
             return false;
         }
 
+        // A custom accessor reads `field` on its own (`set(value) {
+        // field?.cancel(); field = value }`): the writes are the feature.
+        if decl.modifiers.iter().any(|m| m == "custom_accessor") {
+            return false;
+        }
+
+        // A test holds the object under test for its constructor side effects
+        // and the mocks it touched; it rarely reads the reference back.
+        if crate::analysis::deep::is_in_test_source_set(&decl.location.file) {
+            return false;
+        }
+
         // Skip common framework-required fields
         let skip_names = [
             "binding",       // ViewBinding

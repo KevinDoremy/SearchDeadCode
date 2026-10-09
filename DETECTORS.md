@@ -46,7 +46,7 @@ class UnusedHelper {
 
 **CLI**: Enabled by default with `--deep` mode
 
-#### Known limitation: a container reached only through an annotation root
+#### Known limitation: what an annotation root's methods call
 
 A class rooted by an **annotation** rather than by a call chain — `@Inject` on
 the constructor, and the whole DI / Android / test family — is a root, but the
@@ -54,10 +54,10 @@ graph carries reference edges only: nothing links a class to its own methods.
 The closure that decides which symbols may keep their container alive
 therefore never reaches those methods, and what they call loses that right.
 
-In practice, this shape gets reported:
+Until 0.21 this shape was reported, and deliberately so:
 
 ```kotlin
-// Utils.kt — reported as dead, although it runs
+// Utils.kt — was reported as dead, although it runs
 object GameUrlUtils {
     fun String.shouldAuthenticate() = contains("gameId")
 }
@@ -71,37 +71,71 @@ class NetworkService @Inject constructor(private val api: Api) : FeedService {
 ```
 
 `GameUrlUtils` is never *named* outside its own file: only its member is, via
-the import. So the object depends entirely on that member keeping it alive,
-and the member is out of the closure.
+the import, and the import created no reference to the object.
 
-**This is a deliberate trade, not an oversight.** Measured on a 9135-file
-Android project, cross-checked against R8's `usage.txt` — the list of what the
+**The trade was measured before it was made.** On a 9135-file Android
+project, cross-checked against R8's `usage.txt` — the list of what the
 shrinker actually stripped from the shipped app:
 
 | Closure | New findings | Confirmed dead by R8 | False positives |
 |---------|--------------|----------------------|-----------------|
-| **Current** (reference edges only) | 38 | 22 | 1 |
+| **Reference edges only** | 38 | 22 | 1 |
 | Descending into every member | 29 | 18 | 0 |
 | Descending into entry-point members | 34 | 19 | 0 |
 | …restricted to reachable ones | 34 | 19 | 0 |
 
-The last two are identical, to the finding: restricting to reachable members
-changes nothing, the members involved already are.
+The findings the narrow closure gained came from the same blind spot as the
+false positive, not from sharper reasoning: `NetworkUtils` had the exact
+shape of `GameUrlUtils` — `import Object.member` from an `@Inject` class —
+and the tool called both dead. It happened to be right about one and wrong
+about the other because R8 stripped one importer and kept the other, which
+the tool never looks at. Recall won, and the finding shipped at `medium`
+confidence.
 
-Widening the closure removes the false positive and costs three to seven real
-findings. Recall won.
+**Reversed since.** Cleaning that same monorepo again, both objects came out
+"never used" while `isOnWifi` runs in the video player and
+`shouldAuthenticate` in the showcase service. A member import is now a
+reference to its container, as a class import always was, `Companion` hop
+included: the shape above is no longer reported. The closure itself did not
+widen, so the three findings the blind spot used to return by luck are gone
+with it. `tests/integration/ambiguous_ancestor_tests.rs` pins the choice and
+keeps the measurement.
 
-**What the extra recall actually is.** The findings the current closure gains
-come from the same blind spot as the false positive, not from sharper
-reasoning. `NetworkUtils` has the exact shape of `GameUrlUtils` above —
-`import Object.member` from an `@Inject` class — and the tool calls both dead.
-It happens to be right about one and wrong about the other because R8 stripped
-one importer and kept the other, which the tool never looks at.
+#### Java accessors reached from Kotlin
 
-So treat DC001 on a container whose members are imported individually as a
-lead, not a verdict. The finding carries `medium` confidence, which means
-`--delete` will act on it: **check that shape before deleting.** `--explain
-<name>` and `--dry-run` both show the case.
+Kotlin reads a Java `getX()`/`setX()` pair as the property `x`. Three shapes
+reach the accessor without ever naming it:
+
+```kotlin
+helper.begin()              // bare `helper` in a Kotlin subclass of a Java class
+view.fadeLayer = layer      // compiles only while getFadeLayer() exists
+rateMe.delaySeconds = 15    // same: the getter is required, not just the setter
+```
+
+A bare name the file neither declares nor binds locally bridges to the
+accessors; a property write bridges to the getter as well as the setter.
+
+#### Property names handed to animators
+
+`ObjectAnimator.ofFloat(target, "cellAlpha", 1F, 0F)` drives
+`setCellAlpha()` by reflection. The string arguments of `ofFloat`, `ofInt`,
+`ofObject` and `ofArgb` reference the property's accessors, so the setter and
+what it calls stay alive.
+
+#### Retained files
+
+`retain_files` (config) lists files that are parsed but never reported — by
+default the Material Theme Builder's `theme/Color.kt` and `theme/Theme.kt`.
+They used to be *excluded*, which also dropped their references: the
+`AppTypography` that only `Theme.kt` reads was reported dead.
+
+#### What a DI `inject(target:)` does not prove
+
+A component's `fun inject(target: X)` exists because `X` asked for field
+injection, not because anything builds `X`. That Type edge is not followed
+when deciding what is reachable, in the `@Component` interface and in the
+empty doubles that implement it alike. With the layout rule below, a view
+that only its dead layout and the DI wiring mention is reported.
 
 ---
 
@@ -401,6 +435,13 @@ res/layout/item_product.xml     alive: <include> from list_products.xml
 
 ViewBinding-aware, which matters: `old_checkout.xml` generates `OldCheckoutBinding`,
 and that generated name is often the only thing the Kotlin side ever writes.
+
+A dead layout is not a root either: the custom views it declares are not kept
+alive by it, and when layouts are parsed a `View` subclass is no longer a root
+by inheritance alone — the live layouts already root the views they name. A
+view that nothing inflates and nothing instantiates comes out as DC001 next
+to its DC018 layout. Dynamic inflation (`getIdentifier()`) keeps every layout
+a root.
 
 ### DC019: Unused Intent Extra
 **Severity**: Warning | **Confidence**: Medium

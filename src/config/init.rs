@@ -48,6 +48,15 @@ pub fn generate_config(project_root: &Path) -> Result<String, String> {
 
     out.push_str("retain_patterns: []\n\n");
 
+    out.push_str(
+        "# Parsed but never reported (design-system files define every tone on purpose)\n",
+    );
+    out.push_str("retain_files:\n");
+    for pattern in crate::config::Config::default().retain_files {
+        out.push_str(&format!("  - \"{}\"\n", pattern));
+    }
+    out.push('\n');
+
     out.push_str("android:\n");
     out.push_str("  parse_manifest: true\n");
     out.push_str("  parse_layouts: true\n");

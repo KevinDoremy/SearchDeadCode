@@ -254,15 +254,24 @@ fn an_unambiguous_edge_still_keeps_its_container_alive() {
 /// qu'il ne regarde pas. Le rappel supplémentaire est une pièce qui retombe
 /// du bon côté, pas une connaissance.
 ///
-/// Arbitrage tranché quand même en faveur du rappel : on garde le faux
-/// positif. Il est à confiance `medium`, donc `--delete` peut agir dessus —
-/// c'est le prix, il est connu et documenté sous DC001.
+/// Arbitrage tranché à l'époque en faveur du rappel : on gardait le faux
+/// positif, à confiance `medium`, documenté sous DC001.
 ///
-/// Ce test fige le comportement CHOISI. S'il se met à échouer, quelqu'un a
-/// élargi la fermeture : lire ce qui précède avant de conclure que c'est un
-/// progrès, et refaire la mesure sur un vrai projet plutôt que sur l'intuition.
+/// RENVERSÉ le 2026-10-09. En nettoyant le même monorepo, les deux objets
+/// sont ressortis « never used » alors que `isOnWifi` tourne dans le
+/// lecteur vidéo et `shouldAuthenticate` dans le service de showcase ; la
+/// liste des faux positifs à corriger les nommait tous les deux. Un import
+/// de membre (`import a.b.Utils.extensionFun`) est désormais une référence
+/// au conteneur, comme l'import d'une classe l'a toujours été : l'objet
+/// n'est plus signalé. La fermeture par annotation, elle, n'a pas bougé.
+///
+/// Ce test fige le comportement CHOISI. Le prix est connu : les trois
+/// trouvailles que l'angle mort rapportait par chance ne reviennent plus.
+/// Pour les retrouver, c'est la fermeture qu'il faudrait élargir, pas
+/// l'import qu'il faudrait réaveugler — et refaire la mesure sur un vrai
+/// projet plutôt que sur l'intuition.
 #[test]
-fn a_root_by_annotation_does_not_reach_what_its_methods_call() {
+fn a_member_import_keeps_the_container_of_an_override_callee_alive() {
     let temp = tempfile::tempdir().unwrap();
     fs::write(
         temp.path().join("Utils.kt"),
@@ -311,8 +320,8 @@ fn a_root_by_annotation_does_not_reach_what_its_methods_call() {
     // d'une classe atteignable par containment, ce qui masque l'effet.
     let found = reported(temp.path(), &["--deep=true"]);
     assert!(
-        found.iter().any(|m| m.contains("GameUrlUtils")),
-        "la limite est assumée : tant qu'elle tient, l'objet est signalé. Sorti :\n{}",
+        !found.iter().any(|m| m.contains("GameUrlUtils")),
+        "l'import du membre référence l'objet : il n'est plus signalé. Sorti :\n{}",
         found.join("\n")
     );
 }

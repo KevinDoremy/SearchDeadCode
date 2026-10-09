@@ -11,6 +11,9 @@ use std::path::Path;
 use tracing::debug;
 use tree_sitter::{Node, Parser as TsParser};
 
+/// Factories that take a property name as a string and drive its accessors.
+pub(crate) const ANIMATOR_FACTORIES: &[&str] = &["ofFloat", "ofInt", "ofObject", "ofArgb"];
+
 /// Java source code parser using tree-sitter
 pub struct JavaParser {
     parser: TsParser,
@@ -709,10 +712,9 @@ impl JavaParser {
                     // prive le constructeur de toute arête entrante (les
                     // règles "classe instanciée" ne voient que Call/
                     // Instantiation) et tout ce que le ctor appelle meurt.
-                    let kind = if current
-                        .parent()
-                        .is_some_and(|p| p.kind() == "object_creation_expression")
-                    {
+                    // `new X<>(...)` enveloppe le X dans un generic_type :
+                    // même instanciation, un niveau plus bas.
+                    let kind = if Self::is_instantiated_type(current) {
                         ReferenceKind::Instantiation
                     } else {
                         ReferenceKind::Type
@@ -726,6 +728,49 @@ impl JavaParser {
                         imports: imports.to_vec(),
                     });
                 }
+                // `super(...)` appelle le constructeur de la superclasse,
+                // `this(...)` un autre constructeur de la classe : aucun
+                // identifiant ne porte ce nom dans la source, la référence
+                // se déduit de la déclaration englobante.
+                "explicit_constructor_invocation" => {
+                    if let Some(target) = Self::explicit_constructor_target(current, source) {
+                        let location = point_to_location(
+                            path,
+                            current.start_position(),
+                            current.end_position(),
+                            current.start_byte(),
+                            current.end_byte(),
+                        );
+                        result.references.push(UnresolvedReference {
+                            name: target,
+                            qualified_name: None,
+                            kind: ReferenceKind::Instantiation,
+                            location,
+                            imports: imports.to_vec(),
+                        });
+                    }
+                }
+                // `ObjectAnimator.ofFloat(target, "cellAlpha", …)` reaches
+                // setCellAlpha()/getCellAlpha() by reflection: the name only
+                // ever appears as a string.
+                "method_invocation" => {
+                    for accessor in Self::animated_property_accessors(current, source) {
+                        let location = point_to_location(
+                            path,
+                            current.start_position(),
+                            current.end_position(),
+                            current.start_byte(),
+                            current.end_byte(),
+                        );
+                        result.references.push(UnresolvedReference {
+                            name: accessor,
+                            qualified_name: None,
+                            kind: ReferenceKind::Reflection,
+                            location,
+                            imports: imports.to_vec(),
+                        });
+                    }
+                }
                 "scoped_identifier" | "scoped_type_identifier" => {
                     let name = node_text(current, source).to_string();
                     let location = point_to_location(
@@ -737,10 +782,7 @@ impl JavaParser {
                     );
 
                     // même règle que type_identifier : `new a.b.X(...)`
-                    let kind = if current
-                        .parent()
-                        .is_some_and(|p| p.kind() == "object_creation_expression")
-                    {
+                    let kind = if Self::is_instantiated_type(current) {
                         ReferenceKind::Instantiation
                     } else {
                         ReferenceKind::Type
@@ -852,6 +894,68 @@ impl JavaParser {
         }
 
         annotations
+    }
+
+    /// `new X(...)` and `new X<>(...)`: the type sits directly under the
+    /// object_creation_expression, or one level down inside a generic_type.
+    fn is_instantiated_type(type_node: Node) -> bool {
+        let Some(parent) = type_node.parent() else {
+            return false;
+        };
+        if parent.kind() == "object_creation_expression" {
+            return true;
+        }
+        parent.kind() == "generic_type"
+            && parent
+                .parent()
+                .is_some_and(|grandparent| grandparent.kind() == "object_creation_expression")
+    }
+
+    /// The class whose constructor `super(...)` / `this(...)` invokes, read
+    /// from the enclosing class declaration (generics stripped).
+    fn explicit_constructor_target(invocation: Node, source: &str) -> Option<String> {
+        let keyword = invocation.child(0)?.kind();
+        let mut ancestor = invocation.parent();
+        while let Some(node) = ancestor {
+            if node.kind() == "class_declaration" {
+                let type_node = match keyword {
+                    "super" => node.child_by_field_name("superclass")?.named_child(0)?,
+                    "this" => node.child_by_field_name("name")?,
+                    _ => return None,
+                };
+                let text = node_text(type_node, source);
+                let bare = text.split('<').next().unwrap_or(text).trim();
+                let simple = bare.rsplit('.').next().unwrap_or(bare);
+                return Some(simple.to_string());
+            }
+            ancestor = node.parent();
+        }
+        None
+    }
+
+    /// Accessors named by the string arguments of an `ObjectAnimator` /
+    /// `PropertyValuesHolder` factory (`ofFloat`, `ofInt`, `ofObject`,
+    /// `ofArgb`): the framework resolves `"cellAlpha"` to `setCellAlpha()`
+    /// at runtime.
+    fn animated_property_accessors(invocation: Node, source: &str) -> Vec<String> {
+        let Some(name) = invocation.child_by_field_name("name") else {
+            return Vec::new();
+        };
+        if !ANIMATOR_FACTORIES.contains(&node_text(name, source)) {
+            return Vec::new();
+        }
+        let Some(arguments) = invocation.child_by_field_name("arguments") else {
+            return Vec::new();
+        };
+        let mut cursor = arguments.walk();
+        arguments
+            .children(&mut cursor)
+            .filter(|arg| arg.kind() == "string_literal")
+            .flat_map(|arg| {
+                let literal = node_text(arg, source).trim_matches('"');
+                crate::graph::animated_property_accessors(literal)
+            })
+            .collect()
     }
 
     fn determine_reference_kind(&self, parent: Node) -> Option<ReferenceKind> {

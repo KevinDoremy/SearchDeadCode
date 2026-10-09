@@ -5,6 +5,88 @@ All notable changes to SearchDeadCode will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A Java getter read as a bare Kotlin property is alive.** `helper.begin()`
+  in a Kotlin subclass of a Java class compiles to the inherited
+  `getHelper()`; without a receiver the accessor bridge never fired and the
+  getter came out "never used". A bare name the file neither declares nor
+  binds locally now bridges to `getX()`/`setX()` too.
+- **A Kotlin property write keeps the Java getter.** `view.fadeLayer = x`
+  only compiles while `getFadeLayer()` exists; the write bridged to the
+  setter alone and the getter was reported dead.
+- **A class member shadows an imported homonym.** `private val
+  isInTestLabMode = context.isInTestLabMode` next to `import …
+  .isInTestLabMode`: the bare read inside the class resolved to the imported
+  extension only, and the private val was reported dead while `track()` read
+  it on every call. Resolution through an import now also binds the enclosing
+  class's member of that name.
+- **`new X<>(…)` and `super(…)` call the constructor.** The diamond wraps the
+  type in a `generic_type`, which the Java parser read as a Type reference;
+  `super(…)` / `this(…)` named no identifier at all. Both left the constructor
+  with zero incoming edges and everything it called "only referenced from dead
+  code".
+- **A Kotlin secondary constructor's `: super(…)` / `: this(…)` calls a
+  constructor.** `class SudokuCellView : CellView { constructor(ctx) :
+  super(ctx) }` left every `CellView` constructor without a caller.
+- **`ObjectAnimator.ofFloat(target, "cellAlpha", …)` reaches `setCellAlpha()`.**
+  The property name only ever appears as a string; the setter, and what it
+  called, were unreachable. The string arguments of `ofFloat`/`ofInt`/
+  `ofObject`/`ofArgb` now reference the property's accessors by reflection,
+  in Java and Kotlin.
+- **Theme files are retained, not excluded.** `**/theme/Theme.kt` and
+  `Color.kt` were dropped from discovery to spare the palette; everything
+  only they read — `AppTypography` in `Type.kt` — then came out dead. They
+  are parsed again and retained through the new `retain_files` config list
+  (same four defaults): their declarations are never reported, their
+  references count.
+
+### Changed
+
+- **A view that only a dead layout and a DI `inject(target:)` name is dead.**
+  A layout nothing inflates (DC018) no longer roots the custom views it
+  declares, a component's `inject(target: X)` no longer keeps X alive on its
+  own (X asked for injection; nothing proves X is built), and when layouts
+  are parsed a `View` subclass is no longer a root by inheritance alone —
+  the live layouts already root the views they name. The whole dead cluster
+  surfaces instead of the layout alone.
+
+- **A member import keeps its container alive.** `import a.NetworkUtils.isOnWifi`
+  and `import a.Delegate.Companion.cleanRangeValues` referenced the member
+  only; the `object` and the class with the companion came out "never used".
+  Every member import now references the first PascalCase segment before the
+  member, `Companion` hop included.
+- **Enum entries are built when their enum loads.** An enum reached only
+  through `.entries` or `values()` left its entries unreachable, so a private
+  helper called from an entry's constructor arguments was reported "only
+  referenced from dead code"; the entries themselves then surfaced as unused
+  from the deep pass although DC005 knew the enum was iterated.
+- **A property with a custom accessor is not write-only.** `set(value) {
+  field?.cancel(); field = value }` is the whole point of the property; DC002
+  and the deep write-only check reported it on the strength of the external
+  writes alone. Properties in test source sets are skipped too: a test holds
+  the object under test for its constructor and the mocks it touched.
+- **The name and folder patterns no longer fire on referenced symbols or on
+  parameters.** Every `@Binds`/`@Provides` parameter of a debug module, every
+  preview content called by its `@Preview`, and every `isInTestLabMode` read
+  at startup were reported "appears to be debug-only / test code". A
+  parameter has DC003; a referenced symbol is not dead whatever it looks like.
+- **A package directory named `debug` is not a debug source set.** Only the
+  segment right after `src` (`src/debug`, `src/laPresseDebug`, `src/staging`)
+  marks a variant; `src/main/java/com/app/debug/ShortcutHelper.kt` ships in
+  release.
+- **Two annotations stacked before a modifier no longer lose the declaration.**
+  tree-sitter-kotlin 0.3.8 garbles `@Preview\n@Composable\nprivate fun` into a
+  prefix expression that swallows the function: no symbol, and everything it
+  called looked dead. The parser now re-parses such a node with the
+  annotations blanked out (same byte layout) and hands the declaration its
+  annotations back.
+- **`--explain` judges with the analyzer the scan uses.** It ran the enhanced
+  pass while the report came from the deep one, so it called "DEAD" symbols
+  the report never listed (a callee of a blessed override, for instance).
+
 ## [0.21.0] - 2026-08-29
 
 ### Added

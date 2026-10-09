@@ -265,8 +265,13 @@ impl<'a> EntryPointDetector<'a> {
             return true;
         }
 
-        // Check Android components by inheritance
-        if decl.is_android_entry_point() {
+        // Check Android components by inheritance. A View is instantiated
+        // by reflection only through a layout: when layouts are parsed, the
+        // live ones already root the views they name, so a view that no
+        // layout and no code names is dead rather than a root.
+        if decl.is_android_entry_point()
+            && !(self.config.android.parse_layouts && decl.is_android_view())
+        {
             return true;
         }
 
@@ -390,10 +395,27 @@ impl<'a> EntryPointDetector<'a> {
         let finder = FileFinder::new(self.config);
         let layouts = finder.find_layouts(root)?;
 
+        // A layout nothing inflates (DC018) is not a root: through it, its
+        // custom views and binding members looked alive while the file was
+        // dead. Dynamic inflation (getIdentifier) keeps every layout a root.
+        let dynamic_layouts = crate::analysis::resources::dynamic_resource_probe(root)
+            .is_some_and(|probe| probe.puts_at_risk("layout"));
+        let dead_layouts: HashSet<std::path::PathBuf> = if dynamic_layouts {
+            HashSet::new()
+        } else {
+            crate::analysis::layouts::find_dead_layouts(&finder.find_files(root)?)
+                .into_iter()
+                .collect()
+        };
+
         let mut total_binding_vars = 0;
         let mut total_method_refs = 0;
 
         for layout in &layouts {
+            if dead_layouts.contains(&layout.path) {
+                debug!("Dead layout is not a root: {}", layout.path.display());
+                continue;
+            }
             let contents = layout.read_contents()?;
             let result = self.layout_parser.parse(&layout.path, &contents)?;
 
@@ -609,6 +631,13 @@ impl<'a> EntryPointDetector<'a> {
     /// Apply retain patterns to mark additional entry points
     fn apply_retain_patterns(&self, graph: &Graph, entry_points: &mut HashSet<DeclarationId>) {
         for decl in graph.declarations() {
+            // A retained file keeps its declarations and, through them, what
+            // they reference — the point of parsing it instead of excluding it.
+            if self.config.should_retain_file(&decl.location.file) {
+                debug!("Retained by file pattern: {}", decl.name);
+                entry_points.insert(decl.id.clone());
+                continue;
+            }
             // Check config retain patterns
             for pattern in &self.config.retain_patterns {
                 if decl.matches_pattern(pattern) {

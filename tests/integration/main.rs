@@ -32,6 +32,7 @@ mod dead_di_modules_tests;
 mod dead_keep_tests;
 mod dead_modules_tests;
 mod dead_serializables_tests;
+mod deep_false_positive_tests;
 mod deprecated_tests;
 mod detector_tests;
 mod determinism_tests;

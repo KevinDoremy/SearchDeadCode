@@ -3958,10 +3958,19 @@ fn run_analysis(config: &Config, cli: &Cli) -> Result<()> {
         std::process::exit(2);
     }
 
-    // --explain short-circuits the normal report
+    // --explain short-circuits the normal report. It must judge with the
+    // analyzer the scan uses, or its verdict contradicts the report it is
+    // meant to explain (the deep pass blesses overrides the enhanced one
+    // never walks from).
     if let Some(symbol) = cli.explain.as_deref() {
-        let enhanced = EnhancedAnalyzer::new();
-        let (_, reachable) = enhanced.analyze(&graph, &entry_points);
+        let (_, reachable) = if cli.deep {
+            DeepAnalyzer::new()
+                .with_parallel(cli.parallel)
+                .with_unused_members(true)
+                .analyze(&graph, &entry_points)
+        } else {
+            EnhancedAnalyzer::new().analyze(&graph, &entry_points)
+        };
         explain_symbol(&graph, &entry_points, &reachable, symbol);
         return Ok(());
     }

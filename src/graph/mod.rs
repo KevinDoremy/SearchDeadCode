@@ -6,7 +6,7 @@ mod declaration;
 mod parallel_builder;
 pub mod reference;
 
-pub use builder::{java_accessors_behind_property, GraphBuilder};
+pub use builder::{animated_property_accessors, java_accessors_behind_property, GraphBuilder};
 pub use declaration::{
     Declaration, DeclarationId, DeclarationKind, Language, Location, Visibility,
 };

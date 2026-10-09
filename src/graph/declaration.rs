@@ -260,6 +260,14 @@ impl Declaration {
     }
 
     /// Check if this declaration is an Android entry point
+    /// A View subclass — the Android component that only a layout (or code)
+    /// instantiates, never the framework on its own.
+    pub fn is_android_view(&self) -> bool {
+        self.super_types
+            .iter()
+            .any(|super_type| super_type.contains("View") && !super_type.contains("ViewModel"))
+    }
+
     pub fn is_android_entry_point(&self) -> bool {
         // Check super types for Android components
         let android_components = [

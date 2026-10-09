@@ -249,14 +249,14 @@ impl GraphBuilder {
                 let fqn = format!("{}.{}", package, unresolved.name);
                 let decls = self.graph.find_all_by_fqn(&fqn);
                 if !decls.is_empty() {
-                    return expand(decls);
+                    return self.with_enclosing_homonyms(unresolved, expand(decls));
                 }
             }
             // Specific import
             else if import.ends_with(&format!(".{}", unresolved.name)) {
                 let decls = self.graph.find_all_by_fqn(import);
                 if !decls.is_empty() {
-                    return expand(decls);
+                    return self.with_enclosing_homonyms(unresolved, expand(decls));
                 }
                 // Même raison que la branche alias plus bas : un membre est
                 // indexé sous son propre FQN, pas sous le chemin pointé de
@@ -266,7 +266,7 @@ impl GraphBuilder {
                 // n'était plus tenu vivant que par une devinette.
                 let walked = self.graph.resolve_dotted_path(import);
                 if !walked.is_empty() {
-                    return expand(walked);
+                    return self.with_enclosing_homonyms(unresolved, expand(walked));
                 }
             }
             // Aliased import (Kotlin)
@@ -276,7 +276,7 @@ impl GraphBuilder {
                     let original = &import[..alias_start];
                     let decls = self.graph.find_all_by_fqn(original);
                     if !decls.is_empty() {
-                        return expand(decls);
+                        return self.with_enclosing_homonyms(unresolved, expand(decls));
                     }
                     // `import a.Outer.Inner as Bar`: members are keyed by
                     // their own FQN, not by the dotted access path of the
@@ -290,7 +290,7 @@ impl GraphBuilder {
                     // The alias BINDS this name, resolvable or not: falling
                     // through to the bare-name index would hand the alias any
                     // same-named symbol elsewhere in the project.
-                    return expand(walked);
+                    return self.with_enclosing_homonyms(unresolved, expand(walked));
                 }
             }
         }
@@ -349,6 +349,60 @@ impl GraphBuilder {
                 .and_then(|d| d.parent.clone());
         }
         false
+    }
+
+    /// Dans la classe qui déclare `private val x` ET importe une extension
+    /// `x`, un `x` nu lit le membre : la classe masque l'import. Le parseur
+    /// ne distingue pas l'accès nu de l'accès par récepteur, donc les deux
+    /// cibles sont retenues — l'arête de trop penche vers la vie, l'arête
+    /// manquante sortait la `private val` en DC001.
+    fn with_enclosing_homonyms(
+        &self,
+        unresolved: &UnresolvedRef,
+        mut ids: Vec<DeclarationId>,
+    ) -> Vec<DeclarationId> {
+        if !matches!(
+            unresolved.kind,
+            ReferenceKind::Read | ReferenceKind::Write | ReferenceKind::Call
+        ) {
+            return ids;
+        }
+        let mut current = self
+            .graph
+            .get_declaration(&unresolved.from)
+            .and_then(|d| d.parent.clone());
+        while let Some(scope_id) = current {
+            let Some(scope) = self.graph.get_declaration(&scope_id) else {
+                break;
+            };
+            if matches!(
+                scope.kind,
+                super::DeclarationKind::File | super::DeclarationKind::Package
+            ) {
+                break;
+            }
+            for child in self.graph.get_children(&scope_id) {
+                if *child == unresolved.from || ids.contains(child) {
+                    continue;
+                }
+                let Some(member) = self.graph.get_declaration(child) else {
+                    continue;
+                };
+                if member.name == unresolved.name
+                    && matches!(
+                        member.kind,
+                        super::DeclarationKind::Property
+                            | super::DeclarationKind::Field
+                            | super::DeclarationKind::Function
+                            | super::DeclarationKind::Method
+                    )
+                {
+                    ids.push(child.clone());
+                }
+            }
+            current = scope.parent.clone();
+        }
+        ids
     }
 
     /// Cibles propriété/field Kotlin derrière un nom d'accesseur JVM
@@ -417,6 +471,20 @@ fn kotlin_property_behind_accessor(name: &str) -> Option<String> {
 /// décide du sens : une écriture ne prouve pas que le getter est appelé,
 /// et l'inverse non plus — sinon un champ écrit une seule fois ressusciterait
 /// son getter mort et tuerait la détection write-only.
+/// `"cellAlpha"` handed to an animator factory drives `setCellAlpha()` and
+/// reads `getCellAlpha()`; both are reached by reflection only.
+pub fn animated_property_accessors(property: &str) -> Vec<String> {
+    let mut chars = property.chars();
+    let Some(head) = chars.next() else {
+        return Vec::new();
+    };
+    if !head.is_ascii_alphabetic() || property.contains(' ') {
+        return Vec::new();
+    }
+    let capitalized = format!("{}{}", head.to_ascii_uppercase(), chars.as_str());
+    vec![format!("set{capitalized}"), format!("get{capitalized}")]
+}
+
 pub fn java_accessors_behind_property(name: &str, kind: ReferenceKind) -> Vec<String> {
     let mut first = name.chars();
     let Some(head) = first.next() else {
@@ -430,6 +498,8 @@ pub fn java_accessors_behind_property(name: &str, kind: ReferenceKind) -> Vec<St
     match kind {
         ReferenceKind::Write => {
             // `obj.isReady = x` compile vers `setReady()`, pas `setIsReady()`.
+            // Le getter `isReady()` porte le nom de la propriété : la
+            // référence nue le retient déjà.
             if let Some(rest) = name.strip_prefix("is") {
                 let mut c = rest.chars();
                 if let Some(head) = c.next() {
@@ -441,7 +511,9 @@ pub fn java_accessors_behind_property(name: &str, kind: ReferenceKind) -> Vec<St
                     }
                 }
             }
-            vec![format!("set{capitalized}")]
+            // Kotlin n'offre la syntaxe propriété que si le getter existe :
+            // `view.fadeLayer = x` ne compile plus sans `getFadeLayer()`.
+            vec![format!("set{capitalized}"), format!("get{capitalized}")]
         }
         ReferenceKind::Read => {
             // `isReady` en Kotlin appelle `isReady()`, pas `getIsReady()`.
@@ -467,7 +539,7 @@ mod tests {
         );
         assert_eq!(
             java_accessors_behind_property("interactionCount", ReferenceKind::Write),
-            vec!["setInteractionCount"]
+            vec!["setInteractionCount", "getInteractionCount"]
         );
         assert_eq!(
             java_accessors_behind_property("isReady", ReferenceKind::Read),

@@ -38,6 +38,15 @@ retain_patterns:
   - "*Listener"            # Event listeners
   - "*Binding"             # View bindings
 
+# Files parsed but never reported (glob syntax). Unlike `exclude`, what they
+# reference stays alive: a theme file keeps the typography it applies.
+# Defaults to the Material Theme Builder files.
+retain_files:
+  - "**/theme/Color.kt"
+  - "**/theme/Theme.kt"
+  - "**/ui/theme/Color.kt"
+  - "**/ui/theme/Theme.kt"
+
 # Explicit entry points (fully qualified class names)
 entry_points:
   - "com.example.app.MainActivity"

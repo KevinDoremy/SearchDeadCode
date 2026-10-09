@@ -18,6 +18,13 @@ pub struct Config {
     /// Patterns to retain - never report as dead code
     pub retain_patterns: Vec<String>,
 
+    /// Files whose declarations are never reported, but which are still
+    /// parsed so that what they reference stays alive. Excluding a file
+    /// instead drops its references, and everything only it reads comes
+    /// out dead: a `Theme.kt` excluded by default took `AppTypography`
+    /// (declared in `Type.kt`) down with it.
+    pub retain_files: Vec<String>,
+
     /// Explicit entry points (fully qualified class names)
     pub entry_points: Vec<String>,
 
@@ -171,13 +178,17 @@ impl Default for Config {
                 "**/generated/**".to_string(),
                 "**/.gradle/**".to_string(),
                 "**/.idea/**".to_string(),
-                // Design system files - colors/themes are intentionally defined for availability
+            ],
+            retain_patterns: vec![],
+            // Design system files - colors/themes are intentionally defined
+            // for availability. Retained, not excluded: they still read fonts,
+            // typography and shapes declared elsewhere.
+            retain_files: vec![
                 "**/theme/Color.kt".to_string(),
                 "**/theme/Theme.kt".to_string(),
                 "**/ui/theme/Color.kt".to_string(),
                 "**/ui/theme/Theme.kt".to_string(),
             ],
-            retain_patterns: vec![],
             entry_points: vec![],
             report: ReportConfig::default(),
             detection: DetectionConfig::default(),
@@ -333,6 +344,14 @@ impl Config {
         // patterns are written with forward slashes; Windows paths are not
         let path_str = path.to_string_lossy().replace('\\', "/");
         self.exclude
+            .iter()
+            .any(|pattern| glob_match(pattern, &path_str))
+    }
+
+    /// Whether every declaration of this file is retained (parsed, never reported)
+    pub fn should_retain_file(&self, path: &Path) -> bool {
+        let path_str = path.to_string_lossy().replace('\\', "/");
+        self.retain_files
             .iter()
             .any(|pattern| glob_match(pattern, &path_str))
     }

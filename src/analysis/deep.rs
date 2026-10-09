@@ -7,8 +7,11 @@
 // 4. Uses heuristics for common dead code patterns
 
 use super::{Confidence, DeadCode, DeadCodeIssue};
-use crate::graph::{Declaration, DeclarationId, DeclarationKind, Graph, Language, ReferenceKind};
-use petgraph::visit::Dfs;
+use crate::graph::{
+    Declaration, DeclarationId, DeclarationKind, Graph, Language, Reference, ReferenceKind,
+};
+use petgraph::graph::{DiGraph, NodeIndex};
+use petgraph::visit::EdgeRef;
 use rayon::prelude::*;
 use std::collections::HashSet;
 use tracing::info;
@@ -110,6 +113,7 @@ impl DeepAnalyzer {
         // Single DFS traversal using a worklist (more efficient than per-entry DFS)
         let mut visited_indices = HashSet::new();
         let mut stack: Vec<_> = start_indices;
+        let injection_methods = member_injection_methods(graph);
 
         while let Some(node_idx) = stack.pop() {
             if !visited_indices.insert(node_idx) {
@@ -120,8 +124,18 @@ impl DeepAnalyzer {
                 reachable.insert(node_id.clone());
             }
 
-            // Add all neighbors to stack
-            for neighbor in inner_graph.neighbors(node_idx) {
+            // Add all neighbors to stack. A component's `inject(target: X)`
+            // names X only because X asked for injection: that Type edge is
+            // no evidence X is alive, and followed it kept every orphaned
+            // view breathing through its DI wiring.
+            let skips_type_edges = inner_graph
+                .node_weight(node_idx)
+                .is_some_and(|id| injection_methods.contains(id));
+            for edge in inner_graph.edges(node_idx) {
+                if skips_type_edges && edge.weight().kind == crate::graph::ReferenceKind::Type {
+                    continue;
+                }
+                let neighbor = edge.target();
                 if !visited_indices.contains(&neighbor) {
                     stack.push(neighbor);
                 }
@@ -157,11 +171,14 @@ impl DeepAnalyzer {
                 if decl.parent.as_ref() == Some(&type_id) {
                     // Only follow property/field initializers: following method
                     // edges would resurrect everything a dead method references
-                    // (e.g. an unconsumed @Provides body)
+                    // (e.g. an unconsumed @Provides body). An enum entry is an
+                    // initializer too: its constructor arguments run when the
+                    // enum loads (`FIXED_RED(radius = constantValue(0.4F))`).
                     if !matches!(
                         decl.kind,
                         crate::graph::DeclarationKind::Property
                             | crate::graph::DeclarationKind::Field
+                            | crate::graph::DeclarationKind::EnumCase
                     ) {
                         continue;
                     }
@@ -171,12 +188,13 @@ impl DeepAnalyzer {
                             if let Some(neighbor_id) = inner_graph.node_weight(neighbor) {
                                 if !reachable.contains(neighbor_id) {
                                     // DFS from this newly discovered node
-                                    let mut dfs = Dfs::new(inner_graph, neighbor);
-                                    while let Some(node_idx) = dfs.next(inner_graph) {
-                                        if let Some(node_id) = inner_graph.node_weight(node_idx) {
-                                            reachable.insert(node_id.clone());
-                                        }
-                                    }
+                                    reach_from(
+                                        inner_graph,
+                                        neighbor,
+                                        &injection_methods,
+                                        &mut visited_indices,
+                                        &mut reachable,
+                                    );
                                 }
                             }
                         }
@@ -251,6 +269,13 @@ impl DeepAnalyzer {
                             return Some(decl.id.clone());
                         }
 
+                        // An enum's entries are built when the enum loads:
+                        // a reachable enum carries every entry, and each
+                        // entry's constructor arguments with it.
+                        if decl.kind == DeclarationKind::EnumCase {
+                            return Some(decl.id.clone());
+                        }
+
                         // Lazy/delegated properties
                         if decl.kind == DeclarationKind::Property
                             && decl.modifiers.iter().any(|m| m == "delegated")
@@ -304,6 +329,10 @@ impl DeepAnalyzer {
                         if decl.kind == DeclarationKind::Object
                             && decl.modifiers.iter().any(|m| m == "companion")
                         {
+                            return Some(decl.id.clone());
+                        }
+
+                        if decl.kind == DeclarationKind::EnumCase {
                             return Some(decl.id.clone());
                         }
 
@@ -370,13 +399,13 @@ impl DeepAnalyzer {
                     if visited_indices.contains(&start_idx) {
                         continue;
                     }
-                    let mut dfs = Dfs::new(inner_graph, start_idx);
-                    while let Some(node_idx) = dfs.next(inner_graph) {
-                        visited_indices.insert(node_idx);
-                        if let Some(node_id) = inner_graph.node_weight(node_idx) {
-                            reachable.insert(node_id.clone());
-                        }
-                    }
+                    reach_from(
+                        inner_graph,
+                        start_idx,
+                        &injection_methods,
+                        &mut visited_indices,
+                        &mut reachable,
+                    );
                 }
             }
         }
@@ -518,6 +547,7 @@ impl DeepAnalyzer {
         entry_points: &HashSet<DeclarationId>,
     ) -> Vec<DeadCode> {
         let mut unused = Vec::new();
+        let iterated_enums = crate::analysis::detectors::reflectively_iterated_enum_ids(graph);
 
         for decl in graph.declarations() {
             // Skip if already marked unreachable
@@ -545,6 +575,13 @@ impl DeepAnalyzer {
 
             // Parent must be reachable too
             if !reachable.contains(parent_id) {
+                continue;
+            }
+
+            // An enum iterated reflectively (`Enum.entries`, `values()`)
+            // reaches every case without naming one; DC005 owns the
+            // enum-case verdict and knows that.
+            if decl.kind == DeclarationKind::EnumCase && iterated_enums.contains(parent_id) {
                 continue;
             }
 
@@ -656,9 +693,10 @@ impl DeepAnalyzer {
                 }
             }
 
-            // Check if this member is actually referenced
+            // Check if this member is actually referenced. An enum case keeps
+            // its own rule (DC005), as it does when the enum is unreachable.
             if !graph.is_referenced(&decl.id) {
-                let mut dc = DeadCode::new(decl.clone(), DeadCodeIssue::Unreferenced);
+                let mut dc = DeadCode::new(decl.clone(), self.determine_issue_type(decl));
                 dc.confidence = Confidence::Medium;
                 unused.push(dc);
             }
@@ -678,6 +716,19 @@ impl DeepAnalyzer {
     fn detect_write_only_property(&self, decl: &Declaration, graph: &Graph) -> Option<DeadCode> {
         // Only check properties
         if decl.kind != DeclarationKind::Property {
+            return None;
+        }
+
+        // A custom accessor reads the backing field itself: a setter that
+        // cancels the previous job (`field?.cancel(); field = value`) is the
+        // whole point of the property, not a write that nobody consumes.
+        if decl.modifiers.iter().any(|m| m == "custom_accessor") {
+            return None;
+        }
+
+        // A test holds the object under test to run its constructor and
+        // verify the mocks it touched; never reading it back is the norm.
+        if is_in_test_source_set(&decl.location.file) {
             return None;
         }
 
@@ -717,6 +768,21 @@ impl DeepAnalyzer {
 
         for decl in graph.declarations() {
             if reachable.contains(&decl.id) {
+                continue;
+            }
+
+            // A parameter has its own detector (DC003). It is never in
+            // `reachable` even when its function is, so every pattern below
+            // fired on the parameters of each @Binds and @Preview of a debug
+            // source set.
+            if decl.kind == DeclarationKind::Parameter {
+                continue;
+            }
+
+            // The patterns only say what a symbol LOOKS like. A preview
+            // content called by its @Preview, or an `isInTestLabMode` read at
+            // startup, is referenced: not dead, whatever its name or folder.
+            if graph.is_referenced(&decl.id) {
                 continue;
             }
 
@@ -797,9 +863,10 @@ impl DeepAnalyzer {
             }
         }
 
-        // Check if in debug source set
-        if path_has_segment(&decl.location.file, "debug")
-            || path_has_segment(&decl.location.file, "staging")
+        // Check if in a debug/staging source set. A package named `debug`
+        // under src/main (`com/app/debug/ShortcutHelper.kt`) ships in release.
+        if is_in_variant_source_set(&decl.location.file, "debug")
+            || is_in_variant_source_set(&decl.location.file, "staging")
         {
             return true;
         }
@@ -1409,6 +1476,73 @@ pub(crate) fn is_operator_convention(decl: &Declaration) -> bool {
     is_override && CONVENTIONS.contains(&decl.name.as_str())
 }
 
+/// DFS from `start` that never follows a Type edge out of a member-injection
+/// method (see `member_injection_methods`).
+fn reach_from(
+    inner_graph: &DiGraph<DeclarationId, Reference>,
+    start: NodeIndex,
+    injection_methods: &HashSet<DeclarationId>,
+    visited: &mut HashSet<NodeIndex>,
+    reachable: &mut HashSet<DeclarationId>,
+) {
+    let mut stack = vec![start];
+    while let Some(idx) = stack.pop() {
+        if !visited.insert(idx) {
+            continue;
+        }
+        let Some(id) = inner_graph.node_weight(idx) else {
+            continue;
+        };
+        reachable.insert(id.clone());
+        let skips_type_edges = injection_methods.contains(id);
+        for edge in inner_graph.edges(idx) {
+            if skips_type_edges && edge.weight().kind == ReferenceKind::Type {
+                continue;
+            }
+            if !visited.contains(&edge.target()) {
+                stack.push(edge.target());
+            }
+        }
+    }
+}
+
+/// `inject(target: X)` on a Dagger component, or on the empty double that
+/// implements it: one parameter, the owner named or annotated `*Component`.
+fn member_injection_methods(graph: &Graph) -> HashSet<DeclarationId> {
+    graph
+        .declarations()
+        .filter(|decl| {
+            decl.name == "inject"
+                && matches!(
+                    decl.kind,
+                    DeclarationKind::Method | DeclarationKind::Function
+                )
+        })
+        .filter(|decl| {
+            decl.parent
+                .as_ref()
+                .and_then(|parent| graph.get_declaration(parent))
+                .is_some_and(|owner| {
+                    owner.name.ends_with("Component")
+                        || owner.annotations.iter().any(|a| a.contains("Component"))
+                })
+        })
+        .filter(|decl| {
+            graph
+                .get_children(&decl.id)
+                .iter()
+                .filter(|child| {
+                    graph
+                        .get_declaration(child)
+                        .is_some_and(|d| d.kind == DeclarationKind::Parameter)
+                })
+                .count()
+                == 1
+        })
+        .map(|decl| decl.id.clone())
+        .collect()
+}
+
 fn is_lifecycle_callback(graph: &Graph, decl: &Declaration) -> bool {
     if decl.kind != DeclarationKind::Method || !LIFECYCLE_METHODS.contains(&decl.name.as_str()) {
         return false;
@@ -1441,6 +1575,33 @@ fn zombie_aware_finding(
     } else {
         finding
     }
+}
+
+/// Is the file under a `src/<variant>` source set of this build type:
+/// `src/debug/`, `src/staging/`, or a flavored `src/laPresseDebug/`? Only
+/// the segment right after `src` counts: a package directory named `debug`
+/// is ordinary production code.
+pub(crate) fn is_in_variant_source_set(path: &std::path::Path, build_type: &str) -> bool {
+    let normalized = path.to_string_lossy().replace('\\', "/");
+    let mut chars = build_type.chars();
+    let suffix = match chars.next() {
+        Some(head) => format!("{}{}", head.to_ascii_uppercase(), chars.as_str()),
+        None => return false,
+    };
+    let segments: Vec<&str> = normalized.split('/').collect();
+    segments
+        .windows(2)
+        .any(|pair| pair[0] == "src" && (pair[1] == build_type || pair[1].ends_with(&suffix)))
+}
+
+/// Is the file under a test source set: `src/test`, `src/androidTest`,
+/// `src/testFixtures`, or a flavored `src/testReplica`?
+pub(crate) fn is_in_test_source_set(path: &std::path::Path) -> bool {
+    let normalized = path.to_string_lossy().replace('\\', "/");
+    let segments: Vec<&str> = normalized.split('/').collect();
+    segments.windows(2).any(|pair| {
+        pair[0] == "src" && (pair[1].starts_with("test") || pair[1].starts_with("androidTest"))
+    })
 }
 
 /// Does the path contain this directory segment? Separator-agnostic:
@@ -1477,5 +1638,51 @@ mod tests {
             "segment match, not substring match"
         );
         assert!(!path_has_segment(Path::new("Debug.kt"), "debug"));
+    }
+
+    #[test]
+    fn variant_source_set_is_the_segment_after_src_only() {
+        use std::path::Path;
+        assert!(is_in_variant_source_set(
+            Path::new("app/src/debug/Hook.kt"),
+            "debug"
+        ));
+        assert!(is_in_variant_source_set(
+            Path::new("app/src/laPresseDebug/Hook.kt"),
+            "debug"
+        ));
+        assert!(is_in_variant_source_set(
+            Path::new("app\\src\\staging\\Hook.kt"),
+            "staging"
+        ));
+        assert!(
+            !is_in_variant_source_set(
+                Path::new("app/src/main/java/com/app/debug/Hook.kt"),
+                "debug"
+            ),
+            "a package directory named debug ships in release"
+        );
+        assert!(!is_in_variant_source_set(
+            Path::new("app/src/debugging/Hook.kt"),
+            "debug"
+        ));
+    }
+
+    #[test]
+    fn test_source_set_covers_flavored_and_fixture_sets() {
+        use std::path::Path;
+        assert!(is_in_test_source_set(Path::new("app/src/test/java/T.kt")));
+        assert!(is_in_test_source_set(Path::new(
+            "app/src/testReplica/java/T.kt"
+        )));
+        assert!(is_in_test_source_set(Path::new(
+            "app/src/androidTest/java/T.kt"
+        )));
+        assert!(is_in_test_source_set(Path::new(
+            "base/src/testFixtures/java/T.kt"
+        )));
+        assert!(!is_in_test_source_set(Path::new(
+            "app/src/main/java/com/app/test/T.kt"
+        )));
     }
 }
